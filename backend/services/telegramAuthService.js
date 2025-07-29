@@ -1,75 +1,101 @@
-// backend/services/telegramAuthService.js
-const path = require('path')
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') })
+// services/telegramAuthService.js
 
-const { TelegramClient } = require('telegram')
-const { StringSession }   = require('telegram/sessions')
-const Api                  = require('telegram/tl/api')
+const { TelegramClient, Api } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const debug = require('debug')('app:telegramAuth');
 
-// Тимчасове зберігання сесій
-const sessions = new Map()
+// In-memory session store (for production, use Redis або БД)
+const sessions = new Map();
 
-function createClient(sessionId) {
-  const stringSession = sessions.get(sessionId) || new StringSession('')
-  return new TelegramClient(stringSession, Number(process.env.API_ID), process.env.API_HASH, {
-    connectionRetries: 5,
-    // Додамо обробник помилок, щоб onError не був undefined
-    onError: (err) => console.error('TelegramClient error:', err),
-  })
+/**
+ * Initialize or restore TelegramClient for a given sessionId.
+ * Використовує WSS (порт 443) щоб уникнути TCPFull-проблем.
+ */
+function getClient(sessionId) {
+  const saved = sessions.get(sessionId) || '';
+  const sessionObj = new StringSession(saved);
+
+  const client = new TelegramClient(
+    sessionObj,
+    Number(process.env.API_ID),
+    process.env.API_HASH,
+    {
+      connectionRetries: 5,
+      useWSS: true,
+      testServers: false,
+    }
+  );
+
+  client.persist = () => {
+    sessions.set(sessionId, client.session.save());
+    // TODO: також зберігати в Redis/БД
+  };
+
+  return client;
 }
 
+/**
+ * Відправка коду на телефон.
+ * Повертає phoneCodeHash.
+ */
 async function sendCode(phoneNumber, sessionId) {
-  const client = createClient(sessionId)
-  await client.connect()
-  const result = await client.invoke(
-    new Api.auth.SendCode({
-      phoneNumber,
-      apiId:   Number(process.env.API_ID),
-      apiHash: process.env.API_HASH,
-      settings: new Api.CodeSettings({}) // зазвичай можна залишити дефолт
-    })
-  )
-  sessions.set(sessionId, client.session)
-  return result.phoneCodeHash
+  if (!process.env.API_ID || !process.env.API_HASH) {
+    throw new Error('API_ID or API_HASH not set in .env');
+  }
+  const client = getClient(sessionId);
+  try {
+    debug(`Connecting for sendCode() session=${sessionId}`);
+    await client.connect();
+
+    debug(`Invoking auth.SendCode for ${phoneNumber}`);
+    const result = await client.invoke(
+      new Api.auth.SendCode({
+        phoneNumber,
+        apiId: Number(process.env.API_ID),
+        apiHash: process.env.API_HASH,
+        settings: new Api.CodeSettings({}),
+      })
+    );
+
+    client.persist();
+    debug(`SendCode result: ${JSON.stringify(result)}`);
+    return result.phoneCodeHash;
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
 }
 
-async function signInWithCode(phoneNumber, code, phoneCodeHash, sessionId) {
-  const client = createClient(sessionId)
-  await client.connect()
+/**
+ * Повна авторизація одною функцією.
+ * - phoneNumber + code
+ * - необов’язково password (cloud password)
+ * Якщо потрібен пароль — повертає { status: '2FA_REQUIRED' }.
+ * Інакше — { status: 'AUTHORIZED', session }.
+ */
+async function authenticate(phoneNumber, code, password, sessionId) {
+  const client = getClient(sessionId);
   try {
-    await client.invoke(
-      new Api.auth.SignIn({ phoneNumber, phoneCodeHash, phoneCode: code })
-    )
-    const sessionString = client.session.save()
-    sessions.set(sessionId, client.session)
-    return sessionString
+    debug(`Connecting for authenticate() session=${sessionId}`);
+    await client.connect();
+
+    await client.start({
+      phoneNumber: async () => phoneNumber,
+      phoneCode: async () => code,
+      password: password ? async () => password : undefined,
+      onError: err => debug('authenticate error:', err)
+    });
+
+    client.persist();
+    return { status: 'AUTHORIZED', session: client.session.save() };
   } catch (err) {
     if (err.errorMessage === 'SESSION_PASSWORD_NEEDED') {
-      return '2FA_REQUIRED'
+      return { status: '2FA_REQUIRED' };
     }
-    throw err
+    debug('authenticate error:', err);
+    throw err;
+  } finally {
+    await client.disconnect().catch(() => {});
   }
 }
 
-async function send2FA(password, sessionId) {
-  const client = createClient(sessionId)
-  await client.connect()
-  try {
-    // Використовуємо SRP-перевірку пароля
-    const passwordInfo = await client.invoke(new Api.account.GetPassword())
-    const { currentSalt, srp_B } = passwordInfo
-    const { A, M1 } = await client.computeCheckPassword({ password, currentSalt, srp_B })
-    await client.invoke(new Api.auth.CheckPassword({ password: A, srpId: passwordInfo.srp_id, srpB: srp_B, srpM1: M1 }))
-    const sessionString = client.session.save()
-    sessions.set(sessionId, client.session)
-    return sessionString
-  } catch (err) {
-    throw err
-  }
-}
-
-module.exports = {
-  sendCode,
-  signInWithCode,
-  send2FA,
-}
+module.exports = { sendCode, authenticate };
