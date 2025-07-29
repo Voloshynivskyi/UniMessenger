@@ -17,7 +17,7 @@ import AccountsPage      from './pages/AccountsPage'
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="flex flex-col h-screen">
+      <div className="flex flex-col w-screen h-screen">
         <Header />
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />

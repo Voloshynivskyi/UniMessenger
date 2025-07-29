@@ -1,139 +1,124 @@
 // src/components/TelegramLogin.tsx
-import React, { useState } from 'react'
-import axios from 'axios'
+import React, { useState, useRef, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { sendCode, authenticate } from '../api/telegramAuth';
+import type { AuthResponse } from '../api/telegramAuth';
 
 const TelegramLogin: React.FC = () => {
-  const [step, setStep] = useState<number>(1)
-  const [phoneNumber, setPhoneNumber] = useState<string>('')
-  const [code, setCode] = useState<string>('')
-  const [password, setPassword] = useState<string>('')
-  const [sessionId] = useState<string>(`user-${Date.now()}`)
-  const [phoneCodeHash, setPhoneCodeHash] = useState<string>('')
-  const [stringSession, setStringSession] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
+  const [sessionId] = useState(() => uuidv4());
+  const [step, setStep] = useState<'phone' | 'code' | 'success'>('phone');
+  const [phoneNumber, setPhoneNumber] = useState('+380');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const codeInputRef = useRef<HTMLInputElement>(null);
 
-  const handleStart = async () => {
-    try {
-      setError(null)
-      const res = await axios.post<{ phoneCodeHash: string }>(
-        'http://localhost:7007/auth/telegram/start',
-        { phoneNumber, sessionId }
-      )
-      setPhoneCodeHash(res.data.phoneCodeHash)
-      setStep(2)
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message)
+  useEffect(() => {
+    if (step === 'code' && codeInputRef.current) {
+      codeInputRef.current.focus();
     }
-  }
+  }, [step]);
 
-  const handleVerify = async () => {
+  const handleSendCode = async () => {
+    setStatusMessage('Sending code…');
     try {
-      setError(null)
-      const res = await axios.post<{ stringSession: string }>(
-        'http://localhost:7007/auth/telegram/verify',
-        { phoneNumber, code, phoneCodeHash, sessionId }
-      )
-      setStringSession(res.data.stringSession)
-      setStep(4)
+      await sendCode(phoneNumber, sessionId);
+      setStep('code');
+      setStatusMessage('📨 Code sent. Please enter it below.');
     } catch (err: any) {
-      if (err.response?.data?.error === '2FA_REQUIRED') {
-        setStep(3)
+      setStatusMessage(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setStatusMessage('Verifying code…');
+    try {
+      const res = (await authenticate({
+        phoneNumber,
+        sessionId,
+        code: code.trim(),
+        password: password.trim() || undefined,
+      })) as AuthResponse;
+
+      if (res.status === 'AUTHORIZED') {
+        setUsername(res.username ?? null);
+        setStatusMessage(`✅ Welcome, @${res.username}!`);
+        setStep('success');
       } else {
-        setError(err.response?.data?.error || err.message)
+        setStatusMessage('🔒 Two-factor password required. Please enter it.');
       }
-    }
-  }
-
-  const handle2FA = async () => {
-    try {
-      setError(null)
-      const res = await axios.post<{ stringSession: string }>(
-        'http://localhost:7007/auth/telegram/2fa',
-        { password, sessionId }
-      )
-      setStringSession(res.data.stringSession)
-      setStep(4)
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message)
+      setStatusMessage(`❌ Error: ${err.message}`);
     }
+  };
+
+  if (step === 'success' && username) {
+    return (
+      <div className="h-full w-full p-4 bg-gray-50">
+        <div className="bg-white rounded-xl shadow-lg p-8 h-full w-full">
+          <h2 className="text-2xl font-semibold mb-4">Login Successful</h2>
+          <p className="text-blue-600 text-lg">@{username}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-md mx-auto p-4 border rounded shadow mt-10">
-      <h2 className="text-xl font-bold mb-4">🔐 Telegram Login</h2>
-      {error && <p className="text-red-500 mb-2">{error}</p>}
+    <div className="h-full w-full p-4 bg-gray-50">
+      <div className="bg-white rounded-xl shadow-lg p-8 h-full w-full space-y-6">
+        <h2 className="text-2xl font-semibold text-center">Login with Telegram</h2>
 
-      {step === 1 && (
-        <>
-          <label className="block mb-1">📱 Phone Number (+380...)</label>
-          <input
-            className="border px-2 py-1 w-full mb-2"
-            type="tel"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-          />
-          <button
-            className="bg-blue-600 text-white px-4 py-1 rounded"
-            onClick={handleStart}
-          >
-            Send Code
-          </button>
-        </>
-      )}
+        {step === 'phone' && (
+          <div className="space-y-4">
+            <input
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              type="text"
+              placeholder="Phone number"
+              value={phoneNumber}
+              onChange={e => setPhoneNumber(e.target.value)}
+            />
+            <button
+              onClick={handleSendCode}
+              className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition"
+            >
+              Send Code
+            </button>
+          </div>
+        )}
 
-      {step === 2 && (
-        <>
-          <label className="block mb-1">📨 Code from Telegram</label>
-          <input
-            className="border px-2 py-1 w-full mb-2"
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-          <button
-            className="bg-blue-600 text-white px-4 py-1 rounded"
-            onClick={handleVerify}
-          >
-            Verify
-          </button>
-        </>
-      )}
+        {step === 'code' && (
+          <div className="space-y-4">
+            <input
+              ref={codeInputRef}
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              type="text"
+              placeholder="Enter Telegram code"
+              value={code}
+              onChange={e => setCode(e.target.value)}
+            />
+            <input
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              type="password"
+              placeholder="2FA password (if any)"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+            />
+            <button
+              onClick={handleConfirm}
+              className="w-full bg-green-500 text-white p-3 rounded-lg hover:bg-green-600 transition"
+            >
+              Confirm Code
+            </button>
+          </div>
+        )}
 
-      {step === 3 && (
-        <>
-          <label className="block mb-1">🔐 2FA Password</label>
-          <input
-            className="border px-2 py-1 w-full mb-2"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button
-            className="bg-blue-600 text-white px-4 py-1 rounded"
-            onClick={handle2FA}
-          >
-            Submit
-          </button>
-        </>
-      )}
-
-      {step === 4 && (
-        <>
-          <p className="text-green-600 font-semibold">✅ Authorized!</p>
-          <label className="block mt-2 mb-1">🗝 stringSession:</label>
-          <textarea
-            className="border p-2 w-full text-xs"
-            rows={6}
-            readOnly
-            value={stringSession}
-          />
-          <p className="text-sm text-gray-600 mt-2">
-            Збережи цей session — він дозволить бекенду отримувати твої повідомлення.
-          </p>
-        </>
-      )}
+        {statusMessage && (
+          <p className="text-center text-gray-700">{statusMessage}</p>
+        )}
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default TelegramLogin
+export default TelegramLogin;
