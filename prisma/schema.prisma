@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  telegramId   String    @unique
+  username     String?
+  firstName    String?
+  lastName     String?
+  createdAt    DateTime  @default(now())
+  sessions     Session[]
+}
+
+model Session {
+  id            Int      @id @default(autoincrement())
+  sessionId     String   @unique
+  sessionString String
+  phoneCodeHash String?  // <--- Save phoneCodeHash from Telegram here
+  phoneNumber   String?  // <--- Optionally save phone number
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+  userId        Int
+}

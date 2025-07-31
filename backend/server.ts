@@ -1,27 +1,31 @@
-// backend/server.ts
+// backend/server.ts — Express setup with cookie-parser
+
 import path from 'path';
 import dotenv from 'dotenv';
-
-// Load .env from the same folder as this file (backend/.env)
-dotenv.config({ path: path.resolve(__dirname, '.env') });
-
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
-const telegramAuthRoutes = require('./routes/telegramAuth').default;
+// use require to avoid missing type declarations error
+const cookieParser = require('cookie-parser');
+
+import telegramAuthRoutes from './routes/telegramAuth';
+import telegramSessionRoutes from './routes/telegramSession';
+
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT ?? 7007;
 
-// DEBUG: ensure variables are loaded
-console.log('Loaded API_ID =', process.env.API_ID);
-console.log('Loaded API_HASH =', process.env.API_HASH?.slice(0, 5) + '…');
-
 app.use(express.json());
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cookieParser()); // Parse HTTP-only cookies
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true,     // Allow sending/receiving cookies
+}));
 
-app.use('/auth/telegram', telegramAuthRoutes);
+app.use('/auth/telegram', telegramAuthRoutes);      // Login routes
+app.use('/auth/telegram', telegramSessionRoutes);   // Session check routes
 
-app.get('/', (_req: Request, res: Response) => {
+app.get('/', (_req, res) => {
   res.send('Backend is running');
 });
 

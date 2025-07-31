@@ -1,12 +1,21 @@
-import React from 'react'
+// src/layouts/Header.tsx — use useTelegramAuth hook directly
+
+import { useTelegramAuth } from '../context/TelegramAuthContext'
 
 export default function Header() {
+  const { status, signOut } = useTelegramAuth();
+
   return (
     <header className="w-full h-12 flex items-center px-4 bg-white shadow">
       <h1 className="text-xl font-bold">UniMessenger</h1>
-      <button className="ml-auto px-2 py-1 rounded hover:bg-gray-100">
-        Profile
-      </button>
+      {status === 'authorized' && (
+        <button
+          onClick={signOut}
+          className="ml-auto px-2 py-1 rounded hover:bg-gray-100"
+        >
+          Logout
+        </button>
+      )}
     </header>
   )
 }

@@ -1,5 +1,5 @@
-// src/App.tsx
-import React from 'react'
+// src/App.tsx — remove unused React import (new JSX transform handles it)
+
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Header from './layouts/Header'
 import Sidebar from './layouts/Sidebar'

@@ -1,121 +1,79 @@
-// src/components/TelegramLogin.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import { sendCode, authenticate } from '../api/telegramAuth';
-import type { AuthResponse } from '../api/telegramAuth';
+import { useTelegramAuth } from '../context/TelegramAuthContext';
 
 const TelegramLogin: React.FC = () => {
-  const [sessionId] = useState(() => uuidv4());
-  const [step, setStep] = useState<'phone' | 'code' | 'success'>('phone');
-  const [phoneNumber, setPhoneNumber] = useState('+380');
+  const { status, username, sendLoginCode, confirmCode, error, signOut } = useTelegramAuth();
+
+  const [phone, setPhone] = useState('+380');
   const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
-  const [username, setUsername] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const codeInputRef = useRef<HTMLInputElement>(null);
+  const [pass, setPass] = useState('');
+  const codeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (step === 'code' && codeInputRef.current) {
-      codeInputRef.current.focus();
+    if ((status === 'sent' || status === '2fa') && codeRef.current) {
+      codeRef.current.focus();
     }
-  }, [step]);
+  }, [status]);
 
-  const handleSendCode = async () => {
-    setStatusMessage('Sending code…');
-    try {
-      await sendCode(phoneNumber, sessionId);
-      setStep('code');
-      setStatusMessage('📨 Code sent. Please enter it below.');
-    } catch (err: any) {
-      setStatusMessage(`❌ Error: ${err.message}`);
-    }
-  };
-
-  const handleConfirm = async () => {
-    setStatusMessage('Verifying code…');
-    try {
-      const res = (await authenticate({
-        phoneNumber,
-        sessionId,
-        code: code.trim(),
-        password: password.trim() || undefined,
-      })) as AuthResponse;
-
-      if (res.status === 'AUTHORIZED') {
-        setUsername(res.username ?? null);
-        setStatusMessage(`✅ Welcome, @${res.username}!`);
-        setStep('success');
-      } else {
-        setStatusMessage('🔒 Two-factor password required. Please enter it.');
-      }
-    } catch (err: any) {
-      setStatusMessage(`❌ Error: ${err.message}`);
-    }
-  };
-
-  if (step === 'success' && username) {
+  if (status === 'authorized') {
     return (
-      <div className="h-full w-full p-4 bg-gray-50">
-        <div className="bg-white rounded-xl shadow-lg p-8 h-full w-full">
-          <h2 className="text-2xl font-semibold mb-4">Login Successful</h2>
-          <p className="text-blue-600 text-lg">@{username}</p>
+      <div className="h-full flex items-center justify-center p-4 bg-gray-50">
+        <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+          <h2 className="text-2xl mb-4">Login Successful</h2>
+          <p className="text-lg text-green-600 mb-4">@{username}</p>
+          <button onClick={signOut} className="px-4 py-2 bg-red-500 text-white rounded-lg">
+            Logout
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full p-4 bg-gray-50">
-      <div className="bg-white rounded-xl shadow-lg p-8 h-full w-full space-y-6">
-        <h2 className="text-2xl font-semibold text-center">Login with Telegram</h2>
+    <div className="h-full p-4 bg-gray-50">
+      <div className="bg-white rounded-xl shadow-lg p-8 space-y-6">
+        <h2 className="text-2xl text-center">Login with Telegram</h2>
 
-        {step === 'phone' && (
-          <div className="space-y-4">
+        {status === 'idle' && (
+          <>
             <input
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full p-3 border rounded-lg"
               type="text"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
               placeholder="Phone number"
-              value={phoneNumber}
-              onChange={e => setPhoneNumber(e.target.value)}
             />
-            <button
-              onClick={handleSendCode}
-              className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition"
-            >
+            <button onClick={() => sendLoginCode(phone)} className="w-full bg-blue-500 text-white p-3 rounded-lg">
               Send Code
             </button>
-          </div>
+          </>
         )}
 
-        {step === 'code' && (
-          <div className="space-y-4">
+        {(status === 'sent' || status === '2fa') && (
+          <>
             <input
-              ref={codeInputRef}
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              ref={codeRef}
+              className="w-full p-3 border rounded-lg"
               type="text"
-              placeholder="Enter Telegram code"
               value={code}
               onChange={e => setCode(e.target.value)}
+              placeholder="Enter code"
             />
             <input
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full p-3 border rounded-lg"
               type="password"
+              value={pass}
+              onChange={e => setPass(e.target.value)}
               placeholder="2FA password (if any)"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
             />
-            <button
-              onClick={handleConfirm}
-              className="w-full bg-green-500 text-white p-3 rounded-lg hover:bg-green-600 transition"
-            >
+            <button onClick={() => confirmCode(code, pass)} className="w-full bg-green-500 text-white p-3 rounded-lg">
               Confirm Code
             </button>
-          </div>
+          </>
         )}
 
-        {statusMessage && (
-          <p className="text-center text-gray-700">{statusMessage}</p>
-        )}
+        {status === 'loading' && <p className="text-center">Loading…</p>}
+        {error && <p className="text-center text-red-600">❌ {error}</p>}
       </div>
     </div>
   );

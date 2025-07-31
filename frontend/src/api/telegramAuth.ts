@@ -1,60 +1,46 @@
-// src/api/telegramAuth.ts
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:7007';
 
-export interface SendCodeResponse {
-  phoneCodeHash: string;
-}
-
+export interface SendCodeResponse { phoneCodeHash: string; }
 export type AuthStatus = 'AUTHORIZED' | '2FA_REQUIRED';
+export interface AuthResponse { status: AuthStatus; session?: string; username?: string; }
+export interface MeResponse { authorized: boolean; username?: string; firstName?: string; lastName?: string; }
 
-export interface AuthResponse {
-  status: AuthStatus;
-  session?: string;
-  username?: string;    // додали username
+async function handleResponse<T>(res: Response): Promise<T> {
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as any).error || 'API error');
+  return data as T;
 }
 
-export async function sendCode(
-  phoneNumber: string,
-  sessionId: string
-): Promise<SendCodeResponse> {
+export async function sendCode(phoneNumber: string, sessionId: string): Promise<SendCodeResponse> {
   const res = await fetch(`${BASE_URL}/auth/telegram/start`, {
-    method: 'POST',
+    method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phoneNumber, sessionId }),
   });
-
-  const data = (await res.json()) as SendCodeResponse | { error: string };
-
-  if (!res.ok) {
-    const errMsg = (data as { error: string }).error || 'Failed to send code';
-    throw new Error(errMsg);
-  }
-
-  return data as SendCodeResponse;
+  return handleResponse<SendCodeResponse>(res);
 }
 
+// Тепер передаємо один обʼєкт з усіма полями
 export async function authenticate(params: {
-  phoneNumber: string;
-  code: string;
-  sessionId: string;
-  password?: string;
+  phoneNumber: string; sessionId: string; code: string; password?: string;
 }): Promise<AuthResponse> {
   const res = await fetch(`${BASE_URL}/auth/telegram/auth`, {
-    method: 'POST',
+    method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-
-  const data = (await res.json()) as AuthResponse | { error: string };
-
   if (res.status === 401) {
-    // повернемо { status: '2FA_REQUIRED' }
-    return { status: (data as AuthResponse).status };
+    const d = await res.json(); return { status: (d as AuthResponse).status };
   }
-  if (!res.ok) {
-    const errMsg = (data as { error: string }).error || 'Authentication failed';
-    throw new Error(errMsg);
-  }
+  return handleResponse<AuthResponse>(res);
+}
 
-  return data as AuthResponse;
+export async function fetchMe(): Promise<MeResponse> {
+  const res = await fetch(`${BASE_URL}/auth/telegram/me`, { method: 'GET', credentials: 'include' });
+  return handleResponse<MeResponse>(res);
+}
+
+export async function logout(): Promise<void> {
+  const res = await fetch(`${BASE_URL}/auth/telegram/logout`, { method: 'POST', credentials: 'include' });
+  if (!res.ok) { const d = await res.json(); throw new Error((d as any).error || 'Logout failed'); }
 }
