@@ -1,6 +1,6 @@
 // src/layouts/Sidebar.tsx
-import React from 'react'
-import { NavLink } from 'react-router-dom'
+import React, { useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import {
   FaTachometerAlt,
   FaInbox,
@@ -9,9 +9,11 @@ import {
   FaBell,
   FaUserCog,
   FaCog
-} from 'react-icons/fa'
+} from 'react-icons/fa';
+import { useTelegramAuth } from '../context/TelegramAuthContext';
+import { fetchChatPreviews } from '../api/telegramChats';
 
-const menuItems = [
+const menuItemsBase = [
   { name: 'Dashboard',    path: '/',           icon: <FaTachometerAlt /> },
   { name: 'Unified Inbox',path: '/inbox',      icon: <FaInbox /> },
   { name: 'Channels',     path: '/channels',   icon: <FaThList /> },
@@ -19,9 +21,30 @@ const menuItems = [
   { name: 'Notifications',path: '/notifications',icon: <FaBell /> },
   { name: 'Accounts',     path: '/accounts',   icon: <FaUserCog /> },
   { name: 'Settings',     path: '/settings',   icon: <FaCog /> },
-]
+];
 
 export default function Sidebar() {
+  const { sessionId, authorized } = useTelegramAuth();
+  const [unreadTotal, setUnreadTotal] = useState<number>(0);
+
+  useEffect(() => {
+    if (authorized && sessionId) {
+      fetchChatPreviews(sessionId, 50)
+        .then(chats => {
+          const total = chats.reduce((sum, chat) => sum + (chat.unreadCount || 0), 0);
+          setUnreadTotal(total);
+        })
+        .catch(() => setUnreadTotal(0));
+    }
+  }, [authorized, sessionId]);
+
+  const menuItems = menuItemsBase.map(item => {
+    if (item.name === 'Unified Inbox' && unreadTotal > 0) {
+      return { ...item, name: `${item.name} (${unreadTotal})` };
+    }
+    return item;
+  });
+
   return (
     <aside className="w-64 h-full bg-white border-r">
       <nav className="mt-4">
@@ -41,5 +64,5 @@ export default function Sidebar() {
         ))}
       </nav>
     </aside>
-  )
+  );
 }

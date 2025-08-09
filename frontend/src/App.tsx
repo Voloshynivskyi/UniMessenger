@@ -12,7 +12,7 @@ import MainMenuPage      from './pages/MainMenuPage'
 // import SettingsPage      from './pages/SettingsPage'
 
 import AccountsPage      from './pages/AccountsPage'
-// import UnifiedInboxPage  from './pages/UnifiedInboxPage'
+import UnifiedInboxPage  from './pages/UnifiedInboxPage'
 
 export default function App() {
   return (
@@ -23,7 +23,7 @@ export default function App() {
           <Sidebar />
           <Routes>
             <Route path="/"            element={<MainMenuPage />} />
-            {/* <Route path="/inbox"       element={<UnifiedInboxPage />} /> */}
+            <Route path="/inbox"       element={<UnifiedInboxPage />} />
             {/* <Route path="/channels"    element={<ChannelsPage />} /> */}
             {/* <Route path="/compose"     element={<ComposePage />} /> */}
             {/* <Route path="/notifications" element={<NotificationsPage />} /> */}

@@ -11,10 +11,14 @@ interface AuthContextType {
   status: 'loading' | 'idle' | 'sent' | '2fa' | 'authorized' | 'error';
   username: string | null;
   error: string | null;
+  sessionId: string;
+  authorized: boolean;
   sendLoginCode: (phone: string) => Promise<void>;
   confirmCode: (code: string, password?: string) => Promise<void>;
   signOut: () => Promise<void>;
+
 }
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -69,9 +73,21 @@ export const TelegramAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
   };
 
   return (
-    <AuthContext.Provider value={{ status, username, error, sendLoginCode, confirmCode, signOut }}>
+    <AuthContext.Provider
+      value={{
+        status,
+        username,
+        error,
+        sessionId,
+        authorized: status === 'authorized',
+        sendLoginCode,
+        confirmCode,
+        signOut
+      }}
+    >
       {children}
     </AuthContext.Provider>
+
   );
 };
 
