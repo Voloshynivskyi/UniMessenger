@@ -1,13 +1,13 @@
+// backend/services/telegramAuthService.ts
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import createDebug from 'debug';
 import { PrismaClient } from '@prisma/client';
-import { encrypt, decrypt } from '../utils/crypto';
+import { encrypt } from '../utils/crypto';
+import { sessionManager } from './sessionManager';
 
 const debug = createDebug('app:telegramAuth');
 const prisma = new PrismaClient();
-
-const telegramClients = new Map<string, TelegramClient>();
 
 export interface AuthResult {
   status: 'AUTHORIZED' | '2FA_REQUIRED';
@@ -15,6 +15,7 @@ export interface AuthResult {
   username?: string;
 }
 
+// Ensure required env variables exist and are valid
 function requireEnv(): { apiId: number; apiHash: string } {
   const apiId = Number(process.env.API_ID);
   const apiHash = process.env.API_HASH;
@@ -22,16 +23,14 @@ function requireEnv(): { apiId: number; apiHash: string } {
   return { apiId, apiHash };
 }
 
-// Send login code and create/update Session
-export async function sendCode(
-  phoneNumber: string,
-  sessionId: string
-): Promise<string> {
+// Send a login code to the user's phone and store phoneCodeHash in DB
+export async function sendCode(phoneNumber: string, sessionId: string): Promise<string> {
   debug('sendCode →', { phoneNumber, sessionId });
 
-  let session = await prisma.session.findUnique({ where: { sessionId } });
-  if (!session) {
-    session = await prisma.session.create({
+  // Ensure DB row for this sessionId exists (create or update phone)
+  const existing = await prisma.session.findUnique({ where: { sessionId } });
+  if (!existing) {
+    await prisma.session.create({
       data: { sessionId, sessionString: '', phoneNumber },
     });
   } else {
@@ -41,20 +40,17 @@ export async function sendCode(
     });
   }
 
+  // Use a temporary client for the login flow only
   const { apiId, apiHash } = requireEnv();
-  const stringSession = new StringSession('');
-  const client = new TelegramClient(
-    stringSession,
-    apiId,
-    apiHash,
-    { connectionRetries: 5, useWSS: true }
-  );
-
-  telegramClients.set(sessionId, client);
-  await client.connect();
+  const tempClient = new TelegramClient(new StringSession(''), apiId, apiHash, {
+    connectionRetries: 5,
+    useWSS: true,
+  });
+  await tempClient.connect();
 
   try {
-    const result: any = await client.invoke(
+    // Request Telegram to send a code via SMS/Telegram app
+    const result: any = await tempClient.invoke(
       new Api.auth.SendCode({
         phoneNumber,
         apiId,
@@ -63,6 +59,7 @@ export async function sendCode(
       })
     );
 
+    // phoneCodeHash is required for the next step (SignIn)
     const hash = result.phoneCodeHash ?? result.phone_code_hash;
     if (!hash) throw new Error('Missing phoneCodeHash in Telegram response');
 
@@ -72,14 +69,13 @@ export async function sendCode(
     });
 
     return hash;
-  } catch (err) {
-    telegramClients.delete(sessionId);
-    await client.disconnect().catch(() => {});
-    throw err;
+  } finally {
+    // Close the temporary client. Long-lived client is created after successful auth.
+    await tempClient.disconnect().catch(() => {});
   }
 }
 
-// Authenticate with code (+ optional 2FA)
+// Complete the login using code (+ optional 2FA), persist encrypted session, and start a live client
 export async function authenticate(
   phoneNumber: string,
   sessionId: string,
@@ -88,44 +84,56 @@ export async function authenticate(
 ): Promise<AuthResult> {
   debug('authenticate →', { phoneNumber, sessionId });
 
+  // We must have phoneCodeHash saved by sendCode()
   const session = await prisma.session.findUnique({ where: { sessionId } });
   if (!session || !session.phoneCodeHash) {
-    telegramClients.delete(sessionId);
-    throw new Error('No phoneCodeHash found for this session');
+    throw new Error('No phoneCodeHash found for this session. Start login again.');
   }
 
-  const client = telegramClients.get(sessionId);
-  if (!client) throw new Error('Session expired. Please start login again.');
+  // Use a temporary client for authentication only
+  const { apiId, apiHash } = requireEnv();
+  const tempClient = new TelegramClient(new StringSession(''), apiId, apiHash, {
+    connectionRetries: 5,
+    useWSS: true,
+  });
+  await tempClient.connect();
 
   try {
     let me: any = null;
 
+    // Try sign-in with code
     try {
-      await client.invoke(
+      await tempClient.invoke(
         new Api.auth.SignIn({
           phoneNumber,
           phoneCodeHash: session.phoneCodeHash!,
           phoneCode: code,
         })
       );
-      me = await client.getMe();
+      me = await tempClient.getMe();
     } catch (err: any) {
+      // If 2FA password is enabled on the account
       if (err?.errorMessage === 'SESSION_PASSWORD_NEEDED') {
-        if (!password) return { status: '2FA_REQUIRED' };
+        if (!password) {
+          // Tell the front-end it must ask for 2FA password
+          return { status: '2FA_REQUIRED' };
+        }
 
-        const passwordInfo = await client.invoke(new Api.account.GetPassword());
-        const { srpId, A, M1 } = await (client as any).computePasswordCheck(passwordInfo, password);
-        await client.invoke(
+        // SRP flow for 2FA
+        const passwordInfo = await tempClient.invoke(new Api.account.GetPassword());
+        const { srpId, A, M1 } = await (tempClient as any).computePasswordCheck(passwordInfo, password);
+        await tempClient.invoke(
           new Api.auth.CheckPassword({
             password: new Api.InputCheckPasswordSRP({ srpId, A, M1 }),
           })
         );
-        me = await client.getMe();
+        me = await tempClient.getMe();
       } else {
         throw err;
       }
     }
 
+    // Upsert local user record
     const telegramId = me.id.toString();
     const username = me.username ?? me.firstName ?? '';
     const user = await prisma.user.upsert({
@@ -134,80 +142,38 @@ export async function authenticate(
       create: { telegramId, username, firstName: me.firstName, lastName: me.lastName },
     });
 
-    // Save encrypted session
-    const stringSession = client.session as StringSession;
+    // Persist encrypted session string for future long-lived client
+    const stringSession = tempClient.session as StringSession;
     const encryptedSession = encrypt(stringSession.save());
 
     await prisma.session.update({
       where: { sessionId },
       data: {
         sessionString: encryptedSession,
-        phoneCodeHash: null,
+        phoneCodeHash: null, // code flow complete
         userId: user.id,
       },
     });
 
-    telegramClients.delete(sessionId);
-    await client.disconnect().catch(() => {});
+    // 🔴 Critical: start/ensure a long-lived Telegram client managed by SessionManager
+    await sessionManager.ensureClient(sessionId);
 
     return { status: 'AUTHORIZED', session: sessionId, username };
-  } catch (err) {
-    telegramClients.delete(sessionId);
-    await client.disconnect().catch(() => {});
-    throw err;
+  } finally {
+    // Close the temporary login client
+    await (tempClient as any).disconnect?.().catch(() => {});
   }
 }
 
-// Get a ready-to-use Telegram client by sessionId from DB
+// Provide a long-lived client for routes/services (never disconnect it in routes)
 export async function getTelegramClientFromDb(sessionId: string): Promise<TelegramClient> {
-  const session = await prisma.session.findUnique({ where: { sessionId } });
-  if (!session || !session.sessionString) {
-    throw new Error('Session not found or not authorized');
-  }
-
-  const { apiId, apiHash } = requireEnv();
-  const decrypted = decrypt(session.sessionString);
-  const client = new TelegramClient(
-    new StringSession(decrypted),
-    apiId,
-    apiHash,
-    { connectionRetries: 5, useWSS: true }
-  );
-  await client.connect();
-  return client;
+  return sessionManager.ensureClient(sessionId);
 }
 
-// Backward-compat alias
+// Backward-compat alias (if other modules import getClient)
 export const getClient = getTelegramClientFromDb;
 
-// Restore sessions on server start (non-fatal on failure)
+// Restore all sessions on server start (best-effort)
 export async function restoreAllSessions(): Promise<void> {
-  debug('restoreAllSessions → start');
-  const sessions = await prisma.session.findMany({
-    // field is non-nullable String → filter out empty strings instead of `not: null`
-    where: { sessionString: { not: '' } },
-    select: { sessionId: true, sessionString: true },
-  });
-
-  const { apiId, apiHash } = requireEnv();
-
-  for (const s of sessions) {
-    try {
-      const decrypted = decrypt(s.sessionString);
-      const client = new TelegramClient(
-        new StringSession(decrypted),
-        apiId,
-        apiHash,
-        { connectionRetries: 3, useWSS: true }
-      );
-      await client.connect();
-      telegramClients.set(s.sessionId, client);
-      debug(`restoreAllSessions → restored ${s.sessionId}`);
-    } catch (err) {
-      debug(`restoreAllSessions → failed for ${s.sessionId}:`, err);
-      // не падаємо, йдемо далі
-    }
-  }
-
-  debug('restoreAllSessions → done');
+  await sessionManager.restoreAll();
 }

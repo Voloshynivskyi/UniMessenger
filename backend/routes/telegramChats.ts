@@ -79,9 +79,10 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
       });
 
       return res.json(previews);
-    } finally {
-      // If you manage long-lived clients elsewhere, you may skip disconnect here
-      try { await client.disconnect(); } catch { /* noop */ }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to fetch dialogs';
+      console.error('[ROUTE] /telegram/chats error:', e);
+      return res.status(500).json({ error: msg });
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to fetch chats';
