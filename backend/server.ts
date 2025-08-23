@@ -7,23 +7,28 @@ import { WebSocketServer, WebSocket } from 'ws';
 const cookieParser = require('cookie-parser');
 
 // Routes
-import telegramAuthRoutes    from './routes/telegramAuth';
-import telegramSessionRoutes from './routes/telegramSession';
-import telegramChatRoutes    from './routes/telegramChats';
+import telegramAuthRoutes     from './routes/telegramAuth';
+import telegramSessionRoutes  from './routes/telegramSession';
+import telegramChatRoutes     from './routes/telegramChats';
 import telegramMessagesRoutes from './routes/telegramMessages';
+import telegramSendRoutes     from './routes/telegramSend';
 
 // Middleware / services
 import { rateLimitBySession } from './middleware/rateLimit';
 import { restoreAllSessions } from './services/telegramAuthService';
 import { sessionManager } from './services/sessionManager';
 
-// Load .env from backend folder
+// 1) Load env
 dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env') });
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 7007);
 
-// Basic middlewares
+// Optional: silence Node's 10-listener warning globally for this emitter
+// (root cause is fixed below; this is just a belt-and-suspenders)
+sessionManager.setMaxListeners(0);
+
+// 2) Middlewares
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
@@ -31,30 +36,26 @@ app.use(cors({
   credentials: true,
 }));
 
-// Health
+// 3) Health
 app.get('/_health', (_req, res) => res.json({ ok: true }));
 
-// Auth routes
+// 4) HTTP routes
 app.use('/auth/telegram', telegramAuthRoutes);
 app.use('/auth/telegram', telegramSessionRoutes);
 
-// API routes (mounted EXACTLY under /api)
-app.use(
-  '/api',
+app.use('/api',
   rateLimitBySession({
     windowMs: 5000,
     max: 20,
   })
 );
-
-// Mount chats and messages under /api
 app.use('/api', telegramChatRoutes);
 app.use('/api', telegramMessagesRoutes);
+app.use('/api', telegramSendRoutes);
 
-// Root
 app.get('/', (_req, res) => res.send('Backend is running'));
 
-// Start server and restore sessions
+// 5) Start + restore sessions
 const server = app.listen(PORT, async () => {
   console.log(`🚀 Server started on port ${PORT}`);
   try { await restoreAllSessions(); } catch (e) {
@@ -62,15 +63,31 @@ const server = app.listen(PORT, async () => {
   }
 });
 
-// ---------------------- WebSocket gateway ----------------------
+// ---------------------- WebSocket real-time gateway ----------------------
+//
+// Problem before:
+// - We added one listener on sessionManager *per WebSocket connection*,
+//   causing >10 listeners for a single "update:<sessionId>" event.
+//
+// Fix now:
+// - Keep a single "bridge" listener per sessionId that broadcasts updates
+//   to all active sockets of that session. Add/remove it when the first
+//   socket joins / last socket leaves.
+
 const wss = new WebSocketServer({ server, path: '/ws' });
+
+// All active sockets per sessionId
 const subs = new Map<string, Set<WebSocket>>();
+
+// One broadcaster function per sessionId
+const bridges = new Map<string, (payload: any) => void>();
+
 const HEARTBEAT_MS = 30000;
 
 function heartbeat() {
   for (const set of subs.values()) {
     for (const ws of set) {
-      // @ts-ignore
+      // @ts-ignore store custom flag
       if ((ws as any).isAlive === false) { try { ws.terminate(); } catch {} continue; }
       // @ts-ignore
       (ws as any).isAlive = false;
@@ -85,23 +102,49 @@ wss.on('connection', (ws, req) => {
   const sessionId = url.searchParams.get('sessionId') || '';
   if (!sessionId) { ws.close(1008, 'sessionId required'); return; }
 
+  // Track liveness
   // @ts-ignore
   (ws as any).isAlive = true;
   ws.on('pong', () => { /* @ts-ignore */ (ws as any).isAlive = true; });
 
+  // Join socket to subs map
   if (!subs.has(sessionId)) subs.set(sessionId, new Set());
   subs.get(sessionId)!.add(ws);
 
-  // ensure client wiring
+  // Ensure Telegram client is ready/wired
   sessionManager.ensureClient(sessionId).catch(() => {});
 
-  const eventName = `update:${sessionId}`;
-  const handler = (payload: any) => { try { ws.send(JSON.stringify(payload)); } catch {} };
-  sessionManager.on(eventName, handler);
+  // Lazy-register single bridge for this sessionId
+  if (!bridges.has(sessionId)) {
+    const eventName = `update:${sessionId}`;
+    const bridge = (payload: any) => {
+      const set = subs.get(sessionId);
+      if (!set || set.size === 0) return;
+      for (const sock of set) {
+        try { sock.send(JSON.stringify(payload)); } catch {}
+      }
+    };
+    bridges.set(sessionId, bridge);
+    sessionManager.on(eventName, bridge);
+  }
 
+  // Cleanup on close
   ws.on('close', () => {
-    sessionManager.off(eventName, handler);
-    subs.get(sessionId)?.delete(ws);
-    if (!subs.get(sessionId)?.size) subs.delete(sessionId);
+    const set = subs.get(sessionId);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) {
+        // No sockets left → remove the single bridge and maps
+        subs.delete(sessionId);
+        const bridge = bridges.get(sessionId);
+        if (bridge) {
+          sessionManager.off(`update:${sessionId}`, bridge);
+          bridges.delete(sessionId);
+        }
+      }
+    }
   });
+
+  // If error happens, the 'close' event will usually follow
+  ws.on('error', () => { try { ws.close(); } catch {} });
 });
