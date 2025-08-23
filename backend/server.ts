@@ -6,20 +6,24 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 const cookieParser = require('cookie-parser');
 
-import telegramAuthRoutes from './routes/telegramAuth';
+// Routes
+import telegramAuthRoutes    from './routes/telegramAuth';
 import telegramSessionRoutes from './routes/telegramSession';
-import telegramChatRoutes from './routes/telegramChats';
+import telegramChatRoutes    from './routes/telegramChats';
+import telegramMessagesRoutes from './routes/telegramMessages';
+
+// Middleware / services
 import { rateLimitBySession } from './middleware/rateLimit';
 import { restoreAllSessions } from './services/telegramAuthService';
 import { sessionManager } from './services/sessionManager';
 
-// 1) Load environment variables early (from backend/.env)
+// Load .env from backend folder
 dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env') });
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 7007);
 
-// 2) Common middlewares
+// Basic middlewares
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
@@ -27,56 +31,48 @@ app.use(cors({
   credentials: true,
 }));
 
-// 3) HTTP routes
+// Health
+app.get('/_health', (_req, res) => res.json({ ok: true }));
+
+// Auth routes
 app.use('/auth/telegram', telegramAuthRoutes);
 app.use('/auth/telegram', telegramSessionRoutes);
+
+// API routes (mounted EXACTLY under /api)
 app.use(
   '/api',
   rateLimitBySession({
-    windowMs: 5000,   // 5 seconds window
-    max: 10,          // up to 10 requests per 5s (per session+method+path)
-    // Розкоментуй, щоб взагалі вимкнути ліміт саме для першого фетча прев'юшок:
-    // excludePaths: ['/api/telegram/chats'],
-    // debugEnvVar: 'RATE_LIMIT_DEBUG', // set to "1" in env to see logs
+    windowMs: 5000,
+    max: 20,
   })
 );
 
+// Mount chats and messages under /api
 app.use('/api', telegramChatRoutes);
+app.use('/api', telegramMessagesRoutes);
 
-// 4) Health-check
+// Root
 app.get('/', (_req, res) => res.send('Backend is running'));
 
-// 5) Start HTTP server and restore long-lived Telegram clients
+// Start server and restore sessions
 const server = app.listen(PORT, async () => {
   console.log(`🚀 Server started on port ${PORT}`);
-  try {
-    // Restore all saved sessions to keep users "online" after server restart
-    await restoreAllSessions();
-  } catch (e) {
+  try { await restoreAllSessions(); } catch (e) {
     console.error('[restoreAllSessions] failed:', e);
   }
 });
 
-// ---------------------- WebSocket real-time gateway ----------------------
-
-// 6) Create a WebSocket server bound to the same HTTP server
+// ---------------------- WebSocket gateway ----------------------
 const wss = new WebSocketServer({ server, path: '/ws' });
-
-// 7) Map of sessionId -> Set<WebSocket> (list of subscribers per session)
 const subs = new Map<string, Set<WebSocket>>();
-
-// 8) Heartbeat (ping/pong) to drop dead sockets
 const HEARTBEAT_MS = 30000;
 
 function heartbeat() {
   for (const set of subs.values()) {
     for (const ws of set) {
-      // @ts-ignore mark as not alive until pong arrives
-      if ((ws as any).isAlive === false) {
-        try { ws.terminate(); } catch {}
-        continue;
-      }
-      // @ts-ignore set probe flag and ping
+      // @ts-ignore
+      if ((ws as any).isAlive === false) { try { ws.terminate(); } catch {} continue; }
+      // @ts-ignore
       (ws as any).isAlive = false;
       try { ws.ping(); } catch {}
     }
@@ -84,41 +80,25 @@ function heartbeat() {
 }
 setInterval(heartbeat, HEARTBEAT_MS).unref();
 
-// 9) Handle new WebSocket connections
 wss.on('connection', (ws, req) => {
-  // Expect: ws://host/ws?sessionId=...
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   const sessionId = url.searchParams.get('sessionId') || '';
+  if (!sessionId) { ws.close(1008, 'sessionId required'); return; }
 
-  if (!sessionId) {
-    ws.close(1008, 'sessionId required');
-    return;
-  }
-
-  // Mark socket as alive; on pong we'll mark alive again
   // @ts-ignore
   (ws as any).isAlive = true;
   ws.on('pong', () => { /* @ts-ignore */ (ws as any).isAlive = true; });
 
-  // Put this socket into subscription bucket for this sessionId
   if (!subs.has(sessionId)) subs.set(sessionId, new Set());
   subs.get(sessionId)!.add(ws);
 
-  // Ensure a long-lived Telegram client exists (starts if not running)
+  // ensure client wiring
   sessionManager.ensureClient(sessionId).catch(() => {});
 
-  // Forward SessionManager updates (update:<sessionId>) to this socket
   const eventName = `update:${sessionId}`;
-  const handler = (payload: any) => {
-    try {
-      ws.send(JSON.stringify(payload));
-    } catch {
-      // ignore send errors (socket might be closing)
-    }
-  };
+  const handler = (payload: any) => { try { ws.send(JSON.stringify(payload)); } catch {} };
   sessionManager.on(eventName, handler);
 
-  // Clean up on socket close
   ws.on('close', () => {
     sessionManager.off(eventName, handler);
     subs.get(sessionId)?.delete(ws);

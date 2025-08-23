@@ -95,22 +95,19 @@ class SessionManager extends EventEmitter {
 
   /**
    * Attach gramJS event handlers once per client.
-   * - NewMessage: simplified "preview" payload (peerId, text, date).
-   * - Raw: raw updates (read states, pins, edits, dialog changes, etc.).
+   * - NewMessage: normalized payload for UI (id, out, peerKey, senderId, text, date).
+   * - Raw: pass-through raw updates (read states, pins, edits, dialog changes, etc.).
    */
   private attachHandlers(sessionId: SessionId, client: TelegramClient) {
     // New incoming/outgoing messages
     (client as any).addEventHandler(async (event: any) => {
       try {
         const msg = event?.message ?? event;
+        if (!msg) return;
+
         const payload: UpdatePayload = {
           type: 'new_message',
-          data: {
-            peerId: String(msg?.peerId || msg?.chatId || ''),
-            text: typeof msg?.message === 'string' ? msg.message : '',
-            date: msg?.date instanceof Date ? msg.date.toISOString() : null,
-            raw: msg, // keep raw for advanced front-end handling if needed
-          },
+          data: this.toWireMessage(msg),
         };
         this.emitUpdate(sessionId, payload);
       } catch (e) {
@@ -119,7 +116,6 @@ class SessionManager extends EventEmitter {
     }, new NewMessage({}));
 
     // Raw updates (read/unread, pins, edits, deletes, dialog changes)
-    // NOTE: your gramJS typings require a params arg → pass an empty object
     (client as any).addEventHandler((update: any) => {
       const payload: UpdatePayload = { type: 'raw', data: update };
       this.emitUpdate(sessionId, payload);
@@ -158,6 +154,71 @@ class SessionManager extends EventEmitter {
       }
     }
     debug('restoreAll done, count =', sessions.length);
+  }
+
+  // --------------------- Helpers: normalization ---------------------
+
+  /** Build a transport-friendly payload for UI/WebSocket. */
+  private toWireMessage(msg: any) {
+    const id: number = Number(msg?.id ?? 0);
+    const out: boolean = Boolean(msg?.out || msg?.isOut);
+    const peerKey = this.toPeerKeyFromMsg(msg);
+    const senderId = this.extractSenderId(msg);
+    const text = this.extractText(msg);
+    const date = this.extractDateISO(msg);
+
+    return { id, out, peerKey, senderId, text, date };
+  }
+
+  /** Build peerKey like "user:123", "chat:456", "channel:789". */
+  private toPeerKeyFromMsg(msg: any): string {
+    const p = msg?.peerId || {};
+    if (p.userId != null) return `user:${p.userId}`;
+    if (p.chatId != null) return `chat:${p.chatId}`;
+    if (p.channelId != null) return `channel:${p.channelId}`;
+    // Fallbacks used by some gramJS versions
+    if (msg?.chatId != null) return `chat:${msg.chatId}`;
+    return '';
+  }
+
+  /** Extract sender id as string or null. */
+  private extractSenderId(msg: any): string | null {
+    const from = msg?.senderId || msg?.fromId;
+    if (!from) return null;
+    const id = from.userId ?? from.chatId ?? from.channelId ?? null;
+    return id != null ? String(id) : null;
+    // Note: for "out" messages, sender is "me" (null here; the client can infer).
+  }
+
+  /** Convert message date to ISO string. */
+  private extractDateISO(msg: any): string | null {
+    const d = msg?.date;
+    if (!d) return null;
+    if (d instanceof Date) return d.toISOString();
+    if (typeof d === 'number') return new Date(d * 1000).toISOString();
+    return null;
+  }
+
+  /** Extract readable text; short placeholders for media/service. */
+  private extractText(msg: any): string {
+    // Service actions (join/left/etc.)
+    if (msg?.action) return '[service message]';
+
+    // Plain text
+    if (typeof msg?.message === 'string' && msg.message.trim().length) {
+      return msg.message;
+    }
+
+    // Media placeholders
+    const m = msg?.media;
+    const className: string | undefined = m?.className;
+    if (className?.includes('Photo')) return '[photo]';
+    if (className?.includes('Document')) return '[document]';
+    if (className?.includes('Geo')) return '[location]';
+    if (className?.includes('Contact')) return '[contact]';
+    if (className?.includes('Dice')) return '[dice]';
+
+    return '';
   }
 }
 
