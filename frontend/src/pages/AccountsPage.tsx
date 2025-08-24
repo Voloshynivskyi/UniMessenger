@@ -1,4 +1,6 @@
-// src/pages/AccountsPage.tsx
+// File: frontend/src/pages/AccountsPage.tsx
+// Accounts page, handles Telegram login and logout UI.
+
 import React from 'react';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
 import TelegramLogin from '../components/TelegramLogin';
@@ -22,7 +24,10 @@ const AccountsPage: React.FC = () => {
               <p className="mb-2">You are logged in!</p>
               <p className="mb-4 text-lg font-medium">@{username}</p>
               <button
-                onClick={signOut}
+                onClick={() => {
+                  console.log('[AccountsPage] User logging out');
+                  signOut();
+                }}
                 className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
               >
                 Logout
@@ -34,11 +39,11 @@ const AccountsPage: React.FC = () => {
         {(status === 'idle' || status === 'sent' || status === '2fa') && (
           <div className="h-full">
             <TelegramLogin />
-            {error && (
+            {error && (() => { console.error('[AccountsPage] Auth error:', error); return (
               <div className="mt-4 text-red-600 text-center">
                 ❌ Error: {error}
               </div>
-            )}
+            ); })()}
           </div>
         )}
       </div>

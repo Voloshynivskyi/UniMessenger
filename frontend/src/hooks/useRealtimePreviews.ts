@@ -1,4 +1,6 @@
-// frontend/src/hooks/useRealtimePreviews.ts
+// File: frontend/src/hooks/useRealtimePreviews.ts
+// Custom React hook for fetching and subscribing to chat previews in real time.
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface ChatPreview {

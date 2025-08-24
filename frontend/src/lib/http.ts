@@ -1,4 +1,6 @@
-// frontend/src/lib/http.ts
+// File: frontend/src/lib/http.ts
+// HTTP and WebSocket base URL helpers for API requests.
+
 export const HTTP_BASE =
   import.meta.env.VITE_BACKEND_HTTP_BASE?.replace(/\/+$/, '') || '';
 

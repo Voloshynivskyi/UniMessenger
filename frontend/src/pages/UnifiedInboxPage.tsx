@@ -1,4 +1,6 @@
-// src/pages/UnifiedInboxPage.tsx
+// File: frontend/src/pages/UnifiedInboxPage.tsx
+// Unified inbox page, displays chat previews and handles live updates.
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
@@ -62,7 +64,8 @@ const UnifiedInboxPage: React.FC = () => {
   // ---- Initial fetch on mount or when auth/session changes ----
   useEffect(() => {
     if (status !== 'authorized' || !authorized || !sessionId) {
-      setError('Будь ласка, увійдіть у Telegram');
+      console.warn('[UnifiedInboxPage] User not authorized for Telegram');
+      setError('Please log in to Telegram');
       setLoading(false);
       setChats([]); // ensure blank when unauthorized
       return;
@@ -73,18 +76,20 @@ const UnifiedInboxPage: React.FC = () => {
 
     setError(null);
     setLoading(true);
-
+    console.log('[UnifiedInboxPage] Fetching chat previews...');
     // Perform fetch (duplicates are acceptable; AbortController cancels stale)
     fetchChatPreviews(sessionId, LIMIT)
       .then(data => {
         if (!cancelled) {
           setChats(data);
           setError(null);
+          console.log(`[UnifiedInboxPage] Loaded ${data.length} chats`);
         }
       })
       .catch(err => {
         if (!cancelled) {
-          setError(err?.message || 'Помилка завантаження');
+          console.error('[UnifiedInboxPage] Error loading chats:', err);
+          setError(err?.message || 'Failed to load');
         }
       })
       .finally(() => {
@@ -102,28 +107,35 @@ const UnifiedInboxPage: React.FC = () => {
     if (status !== 'authorized' || !authorized || !sessionId) return;
 
     function connect() {
+      console.log('[UnifiedInboxPage] Connecting WebSocket for live updates...');
       const ws = new WebSocket(buildWsUrl(sessionId));
       wsRef.current = ws;
 
-      ws.onopen = () => { backoffRef.current = 0; };
+      ws.onopen = () => { 
+        backoffRef.current = 0; 
+        console.log('[UnifiedInboxPage] WebSocket connected');
+      };
 
       ws.onmessage = (ev) => {
         try {
           const payload: UpdatePayload = JSON.parse(ev.data);
           if (payload.type === 'new_message') {
+            console.log('[UnifiedInboxPage] Received new message update:', payload.data);
             setChats(prev => applyNewMessage(prev, payload.data));
           }
         } catch (e) {
-          console.error('WS message parse error', e);
+          console.error('[UnifiedInboxPage] WS message parse error', e);
         }
       };
 
       ws.onerror = () => {
+        console.error('[UnifiedInboxPage] WebSocket error');
         try { ws.close(); } catch {}
       };
 
       ws.onclose = () => {
         const delay = Math.min(1000 * Math.pow(2, backoffRef.current++), 15000);
+        console.warn(`[UnifiedInboxPage] WebSocket closed, reconnecting in ${delay}ms`);
         reconnectTimerRef.current = window.setTimeout(connect, delay);
       };
     }
@@ -152,7 +164,7 @@ const UnifiedInboxPage: React.FC = () => {
     });
   }, [chats]);
 
-  if (loading && chats.length === 0) return <div className="p-4">Завантаження...</div>;
+  if (loading && chats.length === 0) return <div className="p-4">Loading...</div>;
   if (error) return <div className="p-4 text-red-500">{error}</div>;
 
   return (
@@ -174,7 +186,7 @@ const UnifiedInboxPage: React.FC = () => {
               </span>
             </div>
             <div className="text-sm text-gray-600 truncate">
-              {chat.lastMessageText || <span className="italic text-gray-400">Без повідомлень</span>}
+              {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
             </div>
           </div>
           {chat.unreadCount > 0 && (

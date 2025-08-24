@@ -1,4 +1,6 @@
-// src/pages/ChatPage.tsx
+// File: frontend/src/pages/ChatPage.tsx
+// Chat page, displays a single chat window for a selected peer.
+
 import React from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTelegramAuth } from '../context/TelegramAuthContext';

@@ -1,4 +1,5 @@
-// backend/routes/telegramSession.ts — check current Telegram session
+// File: backend/routes/telegramSession.ts
+// Express route for checking current Telegram session and user info.
 
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
@@ -17,7 +18,7 @@ router.get('/me', async (req, res) => {
     include: { user: true },
   });
 
-  if (!dbSession || !dbSession.sessionString) {
+  if (!dbSession || !dbSession.sessionString || !dbSession.user) {
     return res.json({ authorized: false });
   }
 

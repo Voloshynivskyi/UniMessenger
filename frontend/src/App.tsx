@@ -1,4 +1,5 @@
-// src/App.tsx
+// File: frontend/src/App.tsx
+// Main React app component, sets up routing and layout.
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Header from './layouts/Header'

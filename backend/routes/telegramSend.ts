@@ -1,4 +1,6 @@
-// backend/routes/telegramSend.ts
+// File: backend/routes/telegramSend.ts
+// Express route for sending Telegram messages and broadcasting updates.
+
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
@@ -95,10 +97,14 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
     const { sessionId, peerKey, text, replyToId } = req.body ?? {};
     const message = (typeof text === 'string' ? text : '').trim();
 
+    console.log(`[telegram/send] Sending message for sessionId=${sessionId}, peerKey=${peerKey}`);
+
     if (!sessionId || !peerKey) {
+      console.warn('[telegram/send] sessionId or peerKey missing');
       return res.status(400).json({ error: 'sessionId and peerKey are required' });
     }
     if (!message) {
+      console.warn('[telegram/send] Message text is empty');
       return res.status(400).json({ error: 'Message text cannot be empty' });
     }
 
@@ -112,6 +118,8 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
 
     const dto: MessageDTO = toDTO(sent);
 
+    console.log('[telegram/send] Message sent:', dto);
+
     // 👇 Proactively broadcast over WS so the UI updates instantly
     sessionManager.emit(`update:${String(sessionId)}`, {
       type: 'new_message',
@@ -120,7 +128,7 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
 
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
-    console.error('[ROUTE] /telegram/send error:', e);
+    console.error('[telegram/send] Error:', e);
     return res.status(500).json({ error: e?.message || 'Failed to send message' });
   }
 });

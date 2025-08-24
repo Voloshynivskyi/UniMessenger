@@ -1,4 +1,6 @@
-// backend/server.ts
+// File: backend/server.ts
+// Express backend server, sets up API routes and WebSocket gateway.
+
 import path from 'path';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -57,9 +59,12 @@ app.get('/', (_req, res) => res.send('Backend is running'));
 
 // 5) Start + restore sessions
 const server = app.listen(PORT, async () => {
-  console.log(`🚀 Server started on port ${PORT}`);
-  try { await restoreAllSessions(); } catch (e) {
-    console.error('[restoreAllSessions] failed:', e);
+  console.log(`[Server] 🚀 Server started on port ${PORT}`);
+  try { 
+    await restoreAllSessions(); 
+    console.log('[Server] All Telegram sessions restored');
+  } catch (e) {
+    console.error('[Server] Failed to restore sessions:', e);
   }
 });
 
@@ -100,7 +105,13 @@ setInterval(heartbeat, HEARTBEAT_MS).unref();
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   const sessionId = url.searchParams.get('sessionId') || '';
-  if (!sessionId) { ws.close(1008, 'sessionId required'); return; }
+  if (!sessionId) { 
+    console.warn('[WebSocket] Connection rejected: sessionId required');
+    ws.close(1008, 'sessionId required'); 
+    return; 
+  }
+
+  console.log(`[WebSocket] Client connected for sessionId: ${sessionId}`);
 
   // Track liveness
   // @ts-ignore
@@ -130,6 +141,7 @@ wss.on('connection', (ws, req) => {
 
   // Cleanup on close
   ws.on('close', () => {
+    console.log(`[WebSocket] Client disconnected for sessionId: ${sessionId}`);
     const set = subs.get(sessionId);
     if (set) {
       set.delete(ws);
@@ -145,6 +157,8 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  // If error happens, the 'close' event will usually follow
-  ws.on('error', () => { try { ws.close(); } catch {} });
+  ws.on('error', () => { 
+    console.error('[WebSocket] Error on connection');
+    try { ws.close(); } catch {} 
+  });
 });

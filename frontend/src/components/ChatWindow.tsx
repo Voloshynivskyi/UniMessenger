@@ -1,4 +1,6 @@
-// src/components/ChatWindow.tsx
+// File: frontend/src/components/ChatWindow.tsx
+// Chat window component, displays messages and handles sending/receiving.
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatPreview } from '../api/telegramChats';
 import type { MessageDTO } from '../api/telegramMessages';
@@ -48,6 +50,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    console.log('[ChatWindow] Fetching messages for chat:', peerKey);
 
     fetchMessages(sessionId, peerKey, 50)
       .then(data => {
@@ -55,9 +58,15 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
           setMessages(data);
           setHasMore(data.length >= 50);
           setTimeout(scrollToBottom, 0);
+          console.log(`[ChatWindow] Loaded ${data.length} messages`);
         }
       })
-      .catch(err => { if (!cancelled) setError(err?.message || 'Помилка завантаження'); })
+      .catch(err => { 
+        if (!cancelled) {
+          console.error('[ChatWindow] Error loading messages:', err);
+          setError(err?.message || 'Error loading'); 
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
@@ -92,6 +101,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
 
   // ---- WS live ----
   useEffect(() => {
+    console.log('[ChatWindow] Connecting WebSocket for chat:', peerKey);
     const ws = new WebSocket(buildWsUrl(sessionId));
 
     ws.onmessage = (ev) => {
@@ -102,6 +112,8 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
         const p = payload.data || {};
         const pk = String(p.peerKey || '');
         if (pk !== peerKey) return; // not our chat
+
+        console.log('[ChatWindow] Received new message via WebSocket:', p);
 
         const incoming: MessageView = {
           id: Number(p.id || Date.now()),
@@ -144,11 +156,14 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
         });
         setTimeout(scrollToBottom, 0);
       } catch (e) {
-        console.error('WS parse error', e);
+        console.error('[ChatWindow] WS parse error', e);
       }
     };
 
-    ws.onerror = () => { try { ws.close(); } catch {} };
+    ws.onerror = () => { 
+      console.error('[ChatWindow] WebSocket error');
+      try { ws.close(); } catch {} 
+    };
     return () => { try { ws.close(); } catch {} };
   }, [sessionId, peerKey]);
 
@@ -156,6 +171,8 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
   async function handleSend() {
     const text = input.trim();
     if (!text || sending) return;
+
+    console.log('[ChatWindow] Sending message:', text);
 
     // Create optimistic message
     const tempId = Date.now();
@@ -183,6 +200,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
       const real = resp?.message as MessageDTO | undefined;
 
       if (real) {
+        console.log('[ChatWindow] Message sent successfully:', real);
         setMessages(prev => {
           const next = prev.slice();
           // A) replace by tempId if still present
@@ -207,6 +225,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
       }
       // Note: WS таймінг тепер неважливий — ми вже оновили UI по HTTP-відповіді.
     } catch (e: any) {
+      console.error('[ChatWindow] Error sending message:', e);
       // On error, mark the optimistic bubble as failed
       setMessages(prev => prev.map(m =>
         m.id === tempId ? { ...m, text: `${m.text}\n(не надіслано: ${e?.message || 'помилка'})`, _local: false } : m
@@ -229,15 +248,15 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
   if (loading && messages.length === 0) {
     return (
       <div className="p-4">
-        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200 mr-3">← Назад</button>
-        Завантаження повідомлень...
+        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200 mr-3">← Back</button>
+        Loading messages...
       </div>
     );
   }
   if (error) {
     return (
       <div className="p-4 text-red-500">
-        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200 mr-3">← Назад</button>
+        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200 mr-3">← Back</button>
         {error}
       </div>
     );
@@ -247,7 +266,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b flex items-center gap-3">
-        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200">← Назад</button>
+        <button onClick={onBack} className="px-3 py-1 rounded bg-gray-200">← Back</button>
         <div className="font-semibold">{title}</div>
       </div>
 
@@ -258,7 +277,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
           disabled={!hasMore || olderLoading}
           className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
         >
-          {olderLoading ? 'Завантаження...' : hasMore ? 'Показати старіші' : 'Старіших немає'}
+          {olderLoading ? 'Loading...' : hasMore ? 'Show older' : 'No older messages'}
         </button>
       </div>
 
@@ -275,7 +294,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
                   <div className="whitespace-pre-wrap break-words">{m.text || ' '}</div>
                   <div className="text-[10px] opacity-70 text-right">
                     {m.date ? new Date(m.date).toLocaleString() : ''}
-                    {m._local && ' • надсилається...'}
+                    {m._local && ' • sending...'}
                   </div>
                 </>
               ) : (
@@ -293,7 +312,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Напишіть повідомлення…"
+            placeholder="Type a message…"
             rows={1}
             className="flex-1 resize-none rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
@@ -301,9 +320,9 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
             onClick={handleSend}
             disabled={sending || !input.trim()}
             className="px-4 py-2 rounded-lg bg-blue-500 text-white disabled:opacity-50 hover:bg-blue-600"
-            title="Надіслати (Enter)"
+            title="Send (Enter)"
           >
-            Надіслати
+            Send
           </button>
         </div>
       </div>

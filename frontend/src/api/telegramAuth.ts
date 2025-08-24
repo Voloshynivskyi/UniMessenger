@@ -1,3 +1,6 @@
+// File: frontend/src/api/telegramAuth.ts
+// API functions for Telegram authentication (login, logout, me).
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:7007';
 
 export interface SendCodeResponse { phoneCodeHash: string; }

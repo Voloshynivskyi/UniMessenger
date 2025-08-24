@@ -1,3 +1,6 @@
+// File: backend/services/telegramChatService.ts
+// Service functions for fetching Telegram chat previews.
+
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { PrismaClient } from '@prisma/client';

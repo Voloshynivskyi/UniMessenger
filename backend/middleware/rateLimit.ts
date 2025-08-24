@@ -1,4 +1,6 @@
-// backend/middleware/rateLimit.ts
+// File: backend/middleware/rateLimit.ts
+// Express middleware for rate limiting requests per session.
+
 import type { Request, Response, NextFunction } from 'express';
 
 type Options = {

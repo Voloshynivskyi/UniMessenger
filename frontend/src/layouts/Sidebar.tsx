@@ -1,4 +1,6 @@
-// src/layouts/Sidebar.tsx
+// File: frontend/src/layouts/Sidebar.tsx
+// Sidebar navigation component with menu items and unread count.
+
 import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {

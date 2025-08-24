@@ -1,10 +1,13 @@
+// File: frontend/src/components/TelegramLogin.tsx
+// Telegram login form component for authentication flow.
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
 
 const TelegramLogin: React.FC = () => {
   const { status, username, sendLoginCode, confirmCode, error, signOut } = useTelegramAuth();
 
-  const [phone, setPhone] = useState('+380');
+  const [phone, setPhone] = useState('+48');
   const [code, setCode] = useState('');
   const [pass, setPass] = useState('');
   const codeRef = useRef<HTMLInputElement>(null);
@@ -43,7 +46,10 @@ const TelegramLogin: React.FC = () => {
               onChange={e => setPhone(e.target.value)}
               placeholder="Phone number"
             />
-            <button onClick={() => sendLoginCode(phone)} className="w-full bg-blue-500 text-white p-3 rounded-lg">
+            <button onClick={() => {
+              console.log('[TelegramLogin] Sending login code for phone:', phone);
+              sendLoginCode(phone);
+            }} className="w-full bg-blue-500 text-white p-3 rounded-lg">
               Send Code
             </button>
           </>
@@ -66,14 +72,19 @@ const TelegramLogin: React.FC = () => {
               onChange={e => setPass(e.target.value)}
               placeholder="2FA password (if any)"
             />
-            <button onClick={() => confirmCode(code, pass)} className="w-full bg-green-500 text-white p-3 rounded-lg">
+            <button onClick={() => {
+              console.log('[TelegramLogin] Confirming code for phone:', phone);
+              confirmCode(code, pass);
+            }} className="w-full bg-green-500 text-white p-3 rounded-lg">
               Confirm Code
             </button>
           </>
         )}
 
         {status === 'loading' && <p className="text-center">Loading…</p>}
-        {error && <p className="text-center text-red-600">❌ {error}</p>}
+        {error && (() => { console.error('[TelegramLogin] Error:', error); return (
+          <p className="text-center text-red-600">❌ {error}</p>
+        ); })()}
       </div>
     </div>
   );

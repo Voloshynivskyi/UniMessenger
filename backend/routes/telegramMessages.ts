@@ -1,4 +1,6 @@
-// backend/routes/telegramMessages.ts
+// File: backend/routes/telegramMessages.ts
+// Express route for fetching Telegram messages for a chat.
+
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
@@ -111,8 +113,11 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
       if (peerId && peerType) peerKey = `${peerType}:${peerId}`;
     }
     if (!sessionId || !peerKey) {
+      console.warn('[telegram/messages] sessionId or peerKey missing');
       return res.status(400).json({ error: 'sessionId and peerKey are required' });
     }
+
+    console.log(`[telegram/messages] Fetching messages for sessionId=${sessionId}, peerKey=${peerKey}, limit=${limit}`);
 
     const client: TelegramClient = await getClient(sessionId);
     const entity = await resolveEntityByPeerKey(client, peerKey);
@@ -128,9 +133,10 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
     raw.sort((a, b) => (a.id || 0) - (b.id || 0));
     const out: MessageDTO[] = raw.map(toDTO);
 
+    console.log(`[telegram/messages] Returned ${out.length} messages`);
     res.json(out);
   } catch (e: any) {
-    console.error('[ROUTE] /telegram/messages error:', e);
+    console.error('[telegram/messages] Error:', e);
     res.status(500).json({ error: e?.message || 'Failed to fetch messages' });
   }
 });

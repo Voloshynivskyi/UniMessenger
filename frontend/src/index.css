@@ -1,3 +1,6 @@
+/* File: frontend/src/index.css
+   Global styles and Tailwind setup for the frontend. */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

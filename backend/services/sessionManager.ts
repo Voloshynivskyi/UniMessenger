@@ -1,4 +1,6 @@
-// backend/services/sessionManager.ts
+// File: backend/services/sessionManager.ts
+// Manages long-lived TelegramClient instances and emits real-time updates.
+
 import { EventEmitter } from 'events';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';

@@ -1,4 +1,6 @@
-// src/api/telegramMessages.ts
+// File: frontend/src/api/telegramMessages.ts
+// API functions for fetching and sending Telegram messages.
+
 import { apiUrl } from '../lib/http';
 
 export interface MessageDTO {

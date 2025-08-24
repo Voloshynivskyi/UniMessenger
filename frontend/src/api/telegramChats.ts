@@ -1,4 +1,6 @@
-// src/api/telegramChats.ts
+// File: frontend/src/api/telegramChats.ts
+// API functions for fetching Telegram chat previews.
+
 import { apiUrl } from '../lib/http';
 
 export type PeerType = 'user' | 'chat' | 'channel';

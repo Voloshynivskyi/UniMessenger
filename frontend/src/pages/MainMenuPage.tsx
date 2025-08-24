@@ -1,4 +1,6 @@
-// src/pages/MainMenuPage.tsx
+// File: frontend/src/pages/MainMenuPage.tsx
+// Main menu page, shows dashboard and navigation cards.
+
 import React from 'react'
 
 export default function MainMenuPage() {

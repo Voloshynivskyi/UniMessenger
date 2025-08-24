@@ -1,3 +1,6 @@
+// File: backend/routes/telegramChats.ts
+// Express route for fetching Telegram chat previews.
+
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
@@ -45,8 +48,11 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
     const limit = req.query.limit ? Number(req.query.limit) : 30;
 
     if (!sessionId) {
+      console.warn('[telegram/chats] sessionId missing');
       return res.status(400).json({ error: 'sessionId is required' });
     }
+
+    console.log(`[telegram/chats] Fetching chats for sessionId=${sessionId}, limit=${limit}`);
 
     const client: TelegramClient = await getClient(sessionId);
 
@@ -78,15 +84,16 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
         };
       });
 
+      console.log(`[telegram/chats] Returned ${previews.length} chats`);
       return res.json(previews);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to fetch dialogs';
-      console.error('[ROUTE] /telegram/chats error:', e);
+      console.error('[telegram/chats] Error:', e);
       return res.status(500).json({ error: msg });
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to fetch chats';
-    console.error('[ROUTE] /telegram/chats error:', e);
+    console.error('[telegram/chats] Error:', e);
     return res.status(500).json({ error: msg });
   }
 });

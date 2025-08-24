@@ -1,4 +1,6 @@
-// backend/routes/telegramAuth.ts
+// File: backend/routes/telegramAuth.ts
+// Express route for Telegram authentication (login, logout, code, etc).
+
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { sendCode, authenticate, resendCode, AuthResult } from '../services/telegramAuthService';

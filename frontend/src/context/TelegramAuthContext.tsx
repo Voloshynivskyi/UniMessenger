@@ -1,4 +1,5 @@
-// src/context/TelegramAuthContext.tsx
+// File: frontend/src/context/TelegramAuthContext.tsx
+// React context for Telegram authentication state and actions.
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
@@ -34,41 +35,68 @@ export const TelegramAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('[TelegramAuthContext] Checking Telegram session...');
     fetchMe().then((data: MeResponse) => {
-      if (data.authorized) { setUsername(data.username ?? null); setStatus('authorized'); }
-      else setStatus('idle');
-    }).catch(err => { console.error(err); setError(err.message); setStatus('error'); });
+      if (data.authorized) { 
+        setUsername(data.username ?? null); 
+        setStatus('authorized'); 
+        console.log('[TelegramAuthContext] User authorized:', data.username);
+      }
+      else {
+        setStatus('idle');
+        console.warn('[TelegramAuthContext] User not authorized');
+      }
+    }).catch(err => { 
+      console.error('[TelegramAuthContext] Error fetching session:', err); 
+      setError(err.message); 
+      setStatus('error'); 
+    });
   }, []);
 
   const sendLoginCode = async (phone: string) => {
     setError(null); setStatus('loading');
     try {
+      console.log('[TelegramAuthContext] Sending login code for phone:', phone);
       await sendCode(phone, sessionId);
       setPhoneNumber(phone);
       setStatus('sent');
+      console.log('[TelegramAuthContext] Login code sent');
     } catch (err: any) {
-      console.error(err); setError(err.message); setStatus('error');
+      console.error('[TelegramAuthContext] Error sending login code:', err);
+      setError(err.message); setStatus('error');
     }
   };
 
   const confirmCode = async (code: string, password?: string) => {
     setError(null); setStatus('loading');
     try {
+      console.log('[TelegramAuthContext] Confirming code:', code);
       const result: AuthResponse = await authenticate({ phoneNumber, sessionId, code, password });
-      if (result.status === 'AUTHORIZED') { setUsername(result.username ?? null); setStatus('authorized'); }
-      else setStatus('2fa');
+      if (result.status === 'AUTHORIZED') { 
+        setUsername(result.username ?? null); 
+        setStatus('authorized'); 
+        console.log('[TelegramAuthContext] User authorized:', result.username);
+      }
+      else {
+        setStatus('2fa');
+        console.warn('[TelegramAuthContext] 2FA required');
+      }
     } catch (err: any) {
-      console.error(err); setError(err.message); setStatus('error');
+      console.error('[TelegramAuthContext] Error confirming code:', err);
+      setError(err.message); setStatus('error');
     }
   };
 
   const signOut = async () => {
     try {
+      console.log('[TelegramAuthContext] Logging out');
       await logout();
       setUsername(null); setStatus('idle');
       localStorage.removeItem('tg_sessionId');
+      console.log('[TelegramAuthContext] Logged out');
     } catch (err: any) {
-      console.error(err); setError(err.message); setStatus('error');
+      console.error('[TelegramAuthContext] Error logging out:', err);
+      setError(err.message); setStatus('error');
     }
   };
 

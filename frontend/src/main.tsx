@@ -1,4 +1,6 @@
-// src/main.tsx
+// File: frontend/src/main.tsx
+// Entry point for React frontend, renders the app and provides Telegram auth context.
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

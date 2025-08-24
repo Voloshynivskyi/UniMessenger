@@ -1,4 +1,5 @@
-// src/layouts/Header.tsx — use useTelegramAuth hook directly
+// File: frontend/src/layouts/Header.tsx
+// Header component, displays app title and logout button.
 
 import { useTelegramAuth } from '../context/TelegramAuthContext'
 
