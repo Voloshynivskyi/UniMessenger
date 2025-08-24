@@ -7,19 +7,18 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Зберігатимемо активні клієнти у пам’яті, щоб не створювати нові під кожен запит
+// Store active clients in memory to avoid creating new ones for each request
 const telegramClients = new Map<string, TelegramClient>();
 
 /**
- * Отримати клієнт Telegram за sessionId (і створити, якщо ще немає)
+ * Get Telegram client by sessionId (create if not exists)
  */
 async function getClientBySessionId(sessionId: string): Promise<TelegramClient> {
-  // Якщо клієнт уже є в пам’яті — повертаємо
   if (telegramClients.has(sessionId)) {
     return telegramClients.get(sessionId)!;
   }
 
-  // Дістаємо сесію з бази
+  // Get session from database
   const session = await prisma.session.findUnique({
     where: { sessionId },
   });
@@ -42,7 +41,7 @@ async function getClientBySessionId(sessionId: string): Promise<TelegramClient> 
 }
 
 /**
- * Отримати список чатів з останнім повідомленням (прев’ю)
+ * Get list of chats with last message preview
  */
 export async function getChatPreviews(sessionId: string, limit = 20) {
   const client = await getClientBySessionId(sessionId);
@@ -51,7 +50,7 @@ export async function getChatPreviews(sessionId: string, limit = 20) {
 
   return dialogs.map((dialog: any) => ({
     peerId: dialog.id.toString(),
-    title: dialog.name || 'Без назви',
+    title: dialog.name || 'Untitled',
     peerType: dialog.entity?.className?.toLowerCase() || 'unknown',
     lastMessageText: dialog.message?.message || null,
     lastMessageAt: dialog.message?.date ? new Date(dialog.message.date * 1000) : null,
@@ -60,3 +59,4 @@ export async function getChatPreviews(sessionId: string, limit = 20) {
     photo: dialog.photo || null,
   }));
 }
+

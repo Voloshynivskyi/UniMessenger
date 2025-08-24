@@ -1,10 +1,8 @@
-// File: backend/routes/telegramChats.ts
-// Express route for fetching Telegram chat previews.
-
+// backend/routes/telegramChats.ts
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
-import { resolveSessionId } from '../utils/sessionResolver';
+import { withDialogsCache } from '../services/dialogsCache'; 
 
 const router = Router();
 
@@ -38,30 +36,34 @@ function resolvePeer(entity: any): { id: string; type: PeerType } {
 
 function extractMessageText(msg: any): string {
   if (!msg) return '';
-  if ('message' in msg && typeof msg.message === 'string' && msg.message.trim().length) return msg.message;
+  if ('message' in msg && typeof msg.message === 'string') return msg.message;
   if ('action' in msg) return '[service message]';
-  const m = msg?.media;
-  const cls = m?.className || '';
-  if (cls.includes('Photo')) return '[photo]';
-  if (cls.includes('Document')) return '[document]';
   return '';
 }
 
 router.get('/telegram/chats', async (req: Request, res: Response) => {
   try {
-    const sessionId = await resolveSessionId(req); // ✅ use robust resolver
+    const sessionId = String(req.query.sessionId ?? '');
     const limit = req.query.limit ? Math.min(Number(req.query.limit), 200) : 30;
+
+    if (!sessionId) {
+      console.warn('[telegram/chats] sessionId missing');
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
 
     console.log(`[telegram/chats] Fetching chats for sessionId=${sessionId}, limit=${limit}`);
 
     const client: TelegramClient = await getClient(sessionId);
-    const dialogs: any[] = await (client as any).getDialogs({ limit });
+
+    // ⛱️ кеш + дедуп на 6s
+    const dialogs: any[] = await withDialogsCache(sessionId, limit, () =>
+      (client as any).getDialogs({ limit })
+    );
 
     const previews: ChatPreview[] = dialogs.map((d: any): ChatPreview => {
       const entity = d.entity;
       const { id, type } = resolvePeer(entity);
       const title = resolveTitle(entity);
-
       const last = d.message;
       const lastAt =
         last?.date instanceof Date
@@ -82,20 +84,12 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
       };
     });
 
-    // Pinned first, then by last message time desc
-    previews.sort((a, b) => {
-      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-      const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
-      const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
-      return tb - ta;
-    });
-
     console.log(`[telegram/chats] Returned ${previews.length} chats`);
     return res.json(previews);
-  } catch (e: any) {
-    const msg = e?.message || 'Failed to fetch chats';
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Failed to fetch chats';
     console.error('[telegram/chats] Error:', e);
-    return res.status(400).json({ error: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 

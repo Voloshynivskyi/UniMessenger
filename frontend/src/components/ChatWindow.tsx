@@ -1,6 +1,5 @@
 // File: frontend/src/components/ChatWindow.tsx
 // Chat window component, displays messages and handles sending/receiving.
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatPreview } from '../api/telegramChats';
 import type { MessageDTO } from '../api/telegramMessages';
@@ -25,6 +24,22 @@ interface Props {
 // Local view type with optional _local flag for optimistic items
 type MessageView = MessageDTO & { _local?: boolean };
 
+const MAX_MESSAGES = 1000;
+
+function isNearBottom(el: HTMLDivElement, threshold = 120) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+function sortByOrder(a: MessageView, b: MessageView) {
+  const ai = a.id ?? 0;
+  const bi = b.id ?? 0;
+  const aneg = ai < 0;
+  const bneg = bi < 0;
+  if (aneg && !bneg) return 1;   // optimistic (negative) завжди після реальних
+  if (!aneg && bneg) return -1;
+  return ai - bi;
+}
+
 const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
   const peerKey = useMemo(() => `${chat.peerType}:${chat.peerId}`, [chat.peerType, chat.peerId]);
 
@@ -38,6 +53,19 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
   const [sending, setSending] = useState(false);
 
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  // temp ids: -1, -2, -3...
+  const tempIdSeq = useRef(-1);
+
+  // quick dedup set
+  const seenIds = useRef<Set<number>>(new Set());
+
+  function rememberId(id?: number) {
+    if (typeof id === 'number') seenIds.current.add(id);
+  }
+  function isSeen(id?: number) {
+    return typeof id === 'number' && seenIds.current.has(id);
+  }
 
   function scrollToBottom() {
     const el = listRef.current;
@@ -55,9 +83,18 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
     fetchMessages(sessionId, peerKey, 50)
       .then(data => {
         if (!cancelled) {
-          setMessages(data);
+          // prime dedup set
+          const ids = new Set<number>();
+          for (const m of data) if (typeof m.id === 'number') ids.add(m.id);
+          seenIds.current = ids;
+
+          setMessages([...data].sort(sortByOrder));
           setHasMore(data.length >= 50);
-          setTimeout(scrollToBottom, 0);
+
+          const el = listRef.current;
+          const shouldScroll = !!el && isNearBottom(el);
+          if (shouldScroll) setTimeout(scrollToBottom, 0);
+
           console.log(`[ChatWindow] Loaded ${data.length} messages`);
         }
       })
@@ -75,14 +112,25 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
   // ---- pagination up ----
   async function loadOlder() {
     if (olderLoading || !messages.length) return;
+    const first = messages[0];
+    if (!first?.id) { setHasMore(false); return; }
+
     setOlderLoading(true);
     try {
-      const firstId = messages[0]?.id;
-      const older = await fetchMessages(sessionId, peerKey, 50, firstId);
+      const older = await fetchMessages(sessionId, peerKey, 50, first.id);
       if (older.length === 0) {
         setHasMore(false);
       } else {
-        setMessages(prev => [...older, ...prev]);
+        // merge & dedup
+        setMessages(prev => {
+          const m = [...older, ...prev];
+          // update seenIds
+          for (const it of older) rememberId(it.id as number);
+          m.sort(sortByOrder);
+          if (m.length > MAX_MESSAGES) m.splice(0, m.length - MAX_MESSAGES);
+          return m;
+        });
+
         const el = listRef.current;
         if (el) {
           const prevHeight = el.scrollHeight;
@@ -99,72 +147,102 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
     }
   }
 
-  // ---- WS live ----
+  // ---- WS live (with reconnection backoff) ----
   useEffect(() => {
     console.log('[ChatWindow] Connecting WebSocket for chat:', peerKey);
-    const ws = new WebSocket(buildWsUrl(sessionId));
 
-    ws.onmessage = (ev) => {
-      try {
-        const payload: UpdatePayload = JSON.parse(ev.data);
-        if (payload.type !== 'new_message') return;
+    let closedByEffect = false;
+    let ws: WebSocket | null = null;
+    let retryMs = 500;
+    const maxMs = 8000;
 
-        const p = payload.data || {};
-        const pk = String(p.peerKey || '');
-        if (pk !== peerKey) return; // not our chat
+    const connect = () => {
+      if (closedByEffect) return;
+      ws = new WebSocket(buildWsUrl(sessionId));
 
-        console.log('[ChatWindow] Received new message via WebSocket:', p);
+      ws.onopen = () => { retryMs = 500; };
 
-        const incoming: MessageView = {
-          id: Number(p.id || Date.now()),
-          peerKey,
-          senderId: p.senderId ? String(p.senderId) : null,
-          text: typeof p.text === 'string' ? p.text : '',
-          date: p.date || new Date().toISOString(),
-          out: Boolean(p.out),
-          service: Boolean(p.service),
-        };
+      ws.onmessage = (ev) => {
+        try {
+          const payload: UpdatePayload = JSON.parse(ev.data);
+          if (payload.type !== 'new_message') return;
 
-        setMessages(prev => {
-          // 1) If we already have this id — replace (ensures no _local leftovers)
-          const byId = prev.findIndex(m => m.id === incoming.id);
-          if (byId !== -1) {
-            const next = prev.slice();
-            next[byId] = { ...incoming };
-            next.sort((a, b) => (a.id || 0) - (b.id || 0));
+          const p = payload.data || {};
+          const pk = String(p.peerKey || '');
+          if (pk !== peerKey) return; // not our chat
+
+          const incoming: MessageView = {
+            id: Number(p.id || Date.now()),
+            peerKey,
+            senderId: p.senderId ? String(p.senderId) : null,
+            text: typeof p.text === 'string' ? p.text : '',
+            date: p.date || new Date().toISOString(),
+            out: Boolean(p.out),
+            service: Boolean(p.service),
+          };
+
+          const el = listRef.current;
+          const shouldScroll = !!el && isNearBottom(el);
+
+          setMessages(prev => {
+            // Ignore duplicates early
+            if (isSeen(incoming.id)) return prev;
+
+            // 1) If we already have this id — replace
+            const byId = prev.findIndex(m => m.id === incoming.id);
+            if (byId !== -1) {
+              const next = prev.slice();
+              next[byId] = { ...incoming };
+              next.sort(sortByOrder);
+              rememberId(incoming.id);
+              return next;
+            }
+
+            // 2) Try to reconcile with the latest optimistic local message (fallback)
+            const localIdxFromEnd = [...prev].reverse().findIndex(m =>
+              m._local && m.out && incoming.out && m.text === incoming.text
+            );
+            if (localIdxFromEnd !== -1) {
+              const idx = prev.length - 1 - localIdxFromEnd;
+              const next = prev.slice();
+              next[idx] = { ...incoming };
+              next.sort(sortByOrder);
+              rememberId(incoming.id);
+              return next;
+            }
+
+            // 3) Otherwise append if it's newer than last real id
+            const next = [...prev, incoming];
+            next.sort(sortByOrder);
+            if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
+            rememberId(incoming.id);
             return next;
-          }
+          });
 
-          // 2) Try to reconcile with the latest optimistic local message (fallback)
-          const localIdxFromEnd = [...prev].reverse().findIndex(m =>
-            m._local && m.out && incoming.out && m.text === incoming.text
-          );
-          if (localIdxFromEnd !== -1) {
-            const idx = prev.length - 1 - localIdxFromEnd;
-            const next = prev.slice();
-            next[idx] = { ...incoming };
-            next.sort((a, b) => (a.id || 0) - (b.id || 0));
-            return next;
-          }
+          if (shouldScroll) setTimeout(scrollToBottom, 0);
+        } catch (e) {
+          console.error('[ChatWindow] WS parse error', e);
+        }
+      };
 
-          // 3) Otherwise append if it's newer than last
-          const last = prev.length ? prev[prev.length - 1] : null;
-          if (last && incoming.id && last.id && incoming.id <= last.id) return prev;
-          const next = [...prev, incoming];
-          next.sort((a, b) => (a.id || 0) - (b.id || 0));
-          return next;
-        });
-        setTimeout(scrollToBottom, 0);
-      } catch (e) {
-        console.error('[ChatWindow] WS parse error', e);
-      }
+      ws.onerror = () => {
+        console.error('[ChatWindow] WebSocket error');
+        try { ws?.close(); } catch {}
+      };
+
+      ws.onclose = () => {
+        if (closedByEffect) return;
+        setTimeout(connect, retryMs);
+        retryMs = Math.min(retryMs * 2, maxMs);
+      };
     };
 
-    ws.onerror = () => { 
-      console.error('[ChatWindow] WebSocket error');
-      try { ws.close(); } catch {} 
+    connect();
+
+    return () => {
+      closedByEffect = true;
+      try { ws?.close(); } catch {}
     };
-    return () => { try { ws.close(); } catch {} };
   }, [sessionId, peerKey]);
 
   // ---- send message (optimistic + authoritative replace by HTTP response) ----
@@ -174,8 +252,8 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
 
     console.log('[ChatWindow] Sending message:', text);
 
-    // Create optimistic message
-    const tempId = Date.now();
+    // Create optimistic message with negative id
+    const tempId = tempIdSeq.current--;
     const optimistic: MessageView = {
       id: tempId,
       peerKey,
@@ -186,13 +264,18 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
       service: false,
       _local: true,
     };
+
+    const el = listRef.current;
+    const shouldScroll = !!el && isNearBottom(el);
+
     setMessages(prev => {
       const next = [...prev, optimistic];
-      next.sort((a, b) => (a.id || 0) - (b.id || 0));
+      next.sort(sortByOrder);
+      if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
       return next;
     });
     setInput('');
-    setTimeout(scrollToBottom, 0);
+    if (shouldScroll) setTimeout(scrollToBottom, 0);
 
     setSending(true);
     try {
@@ -203,27 +286,38 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
         console.log('[ChatWindow] Message sent successfully:', real);
         setMessages(prev => {
           const next = prev.slice();
+
           // A) replace by tempId if still present
           const idxByTemp = next.findIndex(m => m._local && m.id === tempId);
           if (idxByTemp !== -1) {
             next[idxByTemp] = { ...real };
-            next.sort((a, b) => (a.id || 0) - (b.id || 0));
+            next.sort(sortByOrder);
+            rememberId(real.id as number);
+            if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
             return next;
           }
           // B) maybe WS already added real — ensure no duplicate
           const idxById = next.findIndex(m => m.id === real.id);
           if (idxById !== -1) {
             next[idxById] = { ...(next[idxById]), ...real };
-            next.sort((a, b) => (a.id || 0) - (b.id || 0));
+            next.sort(sortByOrder);
+            rememberId(real.id as number);
+            if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
             return next;
           }
           // C) else append
           next.push({ ...real });
-          next.sort((a, b) => (a.id || 0) - (b.id || 0));
+          next.sort(sortByOrder);
+          rememberId(real.id as number);
+          if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
           return next;
         });
+
+        const el2 = listRef.current;
+        const shouldScroll2 = !!el2 && isNearBottom(el2);
+        if (shouldScroll2) setTimeout(scrollToBottom, 0);
       }
-      // Note: WS таймінг тепер неважливий — ми вже оновили UI по HTTP-відповіді.
+      // WS таймінг неважливий — UI вже оновлено по HTTP.
     } catch (e: any) {
       console.error('[ChatWindow] Error sending message:', e);
       // On error, mark the optimistic bubble as failed
@@ -275,6 +369,7 @@ const ChatWindow: React.FC<Props> = ({ sessionId, chat, onBack }) => {
         <button
           onClick={loadOlder}
           disabled={!hasMore || olderLoading}
+          aria-busy={olderLoading}
           className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
         >
           {olderLoading ? 'Loading...' : hasMore ? 'Show older' : 'No older messages'}

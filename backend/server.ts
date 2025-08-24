@@ -20,6 +20,7 @@ import debugSessionsRoutes    from './routes/debugSessions'; // ✅ mount separa
 import { rateLimitBySession } from './middleware/rateLimit';
 import { restoreAllSessions } from './services/telegramAuthService';
 import { sessionManager } from './services/sessionManager';
+import telegramHealth from './routes/telegramHealth';
 
 // 1) Load env
 dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env') });
@@ -45,7 +46,7 @@ app.get('/_health', (_req, res) => res.json({ ok: true }));
 // 4) HTTP routes
 app.use('/auth/telegram', telegramAuthRoutes);
 app.use('/auth/telegram', telegramSessionRoutes);
-
+app.use('/api', telegramHealth);
 app.use('/api',
   rateLimitBySession({
     windowMs: 5000,

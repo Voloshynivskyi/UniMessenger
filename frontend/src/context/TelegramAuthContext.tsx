@@ -1,6 +1,5 @@
 // File: frontend/src/context/TelegramAuthContext.tsx
 // React context for Telegram authentication state and actions.
-// Fix: after successful /auth, resync localStorage/session state with sessionId returned by backend.
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
@@ -34,7 +33,7 @@ export const TelegramAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [username, setUsername] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Check current auth (cookie-based)
+  // Check current authentication (cookie-based)
   useEffect(() => {
     fetchMe()
       .then((data: MeResponse) => {
@@ -55,7 +54,7 @@ export const TelegramAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     setError(null);
     setStatus('loading');
     try {
-      await sendCode(phone, sessionId); // API should include credentials: 'include'
+      await sendCode(phone, sessionId);
       setPhoneNumber(phone);
       setStatus('sent');
     } catch (err: any) {
@@ -71,7 +70,7 @@ export const TelegramAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       const result: AuthResponse = await authenticate({ phoneNumber, sessionId, code, password });
       if (result.status === 'AUTHORIZED') {
         const newId = result.session || sessionId;
-        // Resync local + state so all next requests & WS use the right session
+        // Resync local and state so all next requests & WS use the right session
         localStorage.setItem('tg_sessionId', newId);
         setSessionId(newId);
 
@@ -121,3 +120,4 @@ export function useTelegramAuth(): AuthContextType {
   if (!ctx) throw new Error('useTelegramAuth must be used within TelegramAuthProvider');
   return ctx;
 }
+

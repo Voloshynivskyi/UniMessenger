@@ -120,7 +120,7 @@ export async function resendCode(sessionId: string): Promise<string> {
   }
   const age = Date.now() - p.sentAt;
   if (age < RESEND_COOLDOWN_MS) {
-    const err = new Error('Зачекайте кілька секунд перед повторною відправкою коду.');
+    const err = new Error('Please wait a few seconds before resending the code.');
     (err as any).status = 429;
     throw err;
   }
@@ -166,7 +166,7 @@ export async function authenticate(
     hashForAuth = row?.phoneCodeHash || undefined;
   }
   if (!hashForAuth) {
-    const err = new Error('Немає активного коду. Надішліть код ще раз.');
+    const err = new Error('No active code. Please send the code again.');
     (err as any).status = 400;
     throw err;
   }
@@ -195,15 +195,15 @@ export async function authenticate(
         }));
         me = await tempClient.getMe();
       } else if (em.includes('PHONE_CODE_EXPIRED')) {
-        const e2 = new Error('Код прострочений. Отримайте новий і введіть останній код.');
+        const e2 = new Error('Code expired. Get a new one and enter the latest code.');
         (e2 as any).status = 400;
         throw e2;
       } else if (em.includes('PHONE_CODE_INVALID')) {
-        const e2 = new Error('Невірний код. Перевірте цифри або надішліть код ще раз.');
+        const e2 = new Error('Invalid code. Check the digits or send the code again.');
         (e2 as any).status = 400;
         throw e2;
       } else if (em.includes('FLOOD_WAIT')) {
-        const e2 = new Error('Забагато спроб. Зачекайте кілька хвилин і спробуйте знову.');
+        const e2 = new Error('Too many attempts. Please wait a few minutes and try again.');
         (e2 as any).status = 429;
         throw e2;
       } else {
@@ -252,4 +252,14 @@ export const getClient = getTelegramClientFromDb;
 // Restore persisted sessions on server start
 export async function restoreAllSessions(): Promise<void> {
   await sessionManager.restoreAll();
+}
+
+/**
+ * Health util: read stored (encrypted) session string for a given sessionId.
+ * Returns the encrypted value stored in DB.
+ * If you need to compare fingerprints, do it on the /health endpoint.
+ */
+export async function getSessionStringFor(sessionId: string): Promise<string | null> {
+  const row = await prisma.session.findUnique({ where: { sessionId } });
+  return row?.sessionString ?? null;
 }

@@ -1,6 +1,5 @@
 // File: backend/services/sessionManager.ts
 // Manages long-lived TelegramClient instances and emits real-time updates.
-// Fix: detect sessionString change in DB and recreate the client for the same sessionId.
 
 import { EventEmitter } from 'events';
 import { TelegramClient } from 'telegram';
@@ -72,6 +71,7 @@ class SessionManager extends EventEmitter {
         }
       } catch {
         // If anything goes wrong reading active session -> recreate
+        console.log('[sessionManager] sessionString changed — recreating client for', sessionId);
         await this.safeDispose(sessionId, existing);
       }
     }
@@ -147,6 +147,15 @@ class SessionManager extends EventEmitter {
       const payload: UpdatePayload = { type: 'raw', data: update };
       this.emitUpdate(sessionId, payload);
     }, new Raw({}));
+    const updates = (client as any)._updates;
+
+    if (updates?.on) {
+      updates.on('error', (err: any) => {
+        const msg = String(err?.message || err || '');
+        if (msg.includes('TIMEOUT')) return;
+        console.error('[gramjs updates error]', msg);
+      });
+    }
   }
 
   /** Re-emit update for WS or other listeners (scoped by sessionId). */

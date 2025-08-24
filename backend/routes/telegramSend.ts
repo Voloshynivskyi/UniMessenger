@@ -6,6 +6,7 @@ import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
 import { sessionManager } from '../services/sessionManager';
 import { resolveSessionId } from '../utils/sessionResolver';
+import { invalidateDialogsCache } from '../services/dialogsCache';
 
 const router = Router();
 
@@ -127,7 +128,7 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
       type: 'new_message',
       data: dto,
     });
-
+    invalidateDialogsCache(String(sessionId));
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
     console.error('[telegram/send] Error:', e);
