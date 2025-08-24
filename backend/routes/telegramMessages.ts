@@ -4,6 +4,7 @@
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
+import { resolveSessionId } from '../utils/sessionResolver';
 
 const router = Router();
 
@@ -13,11 +14,9 @@ interface MessageDTO {
   senderId: string | null;
   text: string;
   date: string | null;
-  out: boolean;                // true = my message
-  service: boolean;            // true = service (join/left/etc.)
+  out: boolean;
+  service: boolean;
 }
-
-// --- helpers to normalize gramJS messages ---
 
 function extractDateISO(msg: any): string | null {
   const d = msg?.date;
@@ -27,16 +26,9 @@ function extractDateISO(msg: any): string | null {
   return null;
 }
 
-function serviceFlag(msg: any): boolean {
-  if (msg?.action) return true;            // service action
-  if (typeof msg?.message === 'string') return false;
-  return false;
-}
-
 function textFrom(msg: any): string {
   if (msg?.action) return '[service message]';
   if (typeof msg?.message === 'string' && msg.message.trim().length) return msg.message;
-
   const m = msg?.media;
   const cls = m?.className || '';
   if (cls.includes('Photo')) return '[photo]';
@@ -45,6 +37,12 @@ function textFrom(msg: any): string {
   if (cls.includes('Contact')) return '[contact]';
   if (cls.includes('Dice')) return '[dice]';
   return '';
+}
+
+function serviceFlag(msg: any): boolean {
+  if (msg?.action) return true;
+  if (typeof msg?.message === 'string') return false;
+  return false;
 }
 
 function toPeerKeyFromEntity(e: any): string {
@@ -84,7 +82,6 @@ function toDTO(msg: any): MessageDTO {
 }
 
 async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): Promise<any> {
-  // Prefer dialogs scan (stable), then fallback to getEntity(number)
   const dialogs: any[] = await (client as any).getDialogs({ limit: 200 });
   for (const d of dialogs) {
     const e = d.entity;
@@ -98,11 +95,10 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
   throw new Error('Peer not found: ' + peerKey);
 }
 
-// GET /api/telegram/messages?sessionId=...&peerKey=...&limit=50&beforeId=12345
-// Backward-compat: accept peerId+peerType if peerKey is absent
+// GET /api/telegram/messages?peerKey=...&limit=50&beforeId=12345
 router.get('/telegram/messages', async (req: Request, res: Response) => {
   try {
-    const sessionId = String(req.query.sessionId ?? '');
+    const sessionId = await resolveSessionId(req);
     const limit = req.query.limit ? Math.min(Number(req.query.limit), 200) : 50;
     const beforeId = req.query.beforeId ? Number(req.query.beforeId) : undefined;
 
@@ -112,9 +108,9 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
       const peerType = String(req.query.peerType ?? '');
       if (peerId && peerType) peerKey = `${peerType}:${peerId}`;
     }
-    if (!sessionId || !peerKey) {
-      console.warn('[telegram/messages] sessionId or peerKey missing');
-      return res.status(400).json({ error: 'sessionId and peerKey are required' });
+    if (!peerKey) {
+      console.warn('[telegram/messages] peerKey missing');
+      return res.status(400).json({ error: 'peerKey is required' });
     }
 
     console.log(`[telegram/messages] Fetching messages for sessionId=${sessionId}, peerKey=${peerKey}, limit=${limit}`);
@@ -126,9 +122,7 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
     if (beforeId) opts.maxId = beforeId;
 
     const raw: any[] = [];
-    for await (const m of (client as any).iterMessages(entity, opts)) {
-      raw.push(m);
-    }
+    for await (const m of (client as any).iterMessages(entity, opts)) raw.push(m);
 
     raw.sort((a, b) => (a.id || 0) - (b.id || 0));
     const out: MessageDTO[] = raw.map(toDTO);
@@ -137,7 +131,7 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
     res.json(out);
   } catch (e: any) {
     console.error('[telegram/messages] Error:', e);
-    res.status(500).json({ error: e?.message || 'Failed to fetch messages' });
+    res.status(400).json({ error: e?.message || 'Failed to fetch messages' });
   }
 });
 

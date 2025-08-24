@@ -14,6 +14,7 @@ import telegramSessionRoutes  from './routes/telegramSession';
 import telegramChatRoutes     from './routes/telegramChats';
 import telegramMessagesRoutes from './routes/telegramMessages';
 import telegramSendRoutes     from './routes/telegramSend';
+import debugSessionsRoutes    from './routes/debugSessions'; // ✅ mount separate debug router
 
 // Middleware / services
 import { rateLimitBySession } from './middleware/rateLimit';
@@ -55,13 +56,16 @@ app.use('/api', telegramChatRoutes);
 app.use('/api', telegramMessagesRoutes);
 app.use('/api', telegramSendRoutes);
 
+// Debug endpoints (mounted as a router)
+app.use('/', debugSessionsRoutes);
+
 app.get('/', (_req, res) => res.send('Backend is running'));
 
 // 5) Start + restore sessions
 const server = app.listen(PORT, async () => {
   console.log(`[Server] 🚀 Server started on port ${PORT}`);
-  try { 
-    await restoreAllSessions(); 
+  try {
+    await restoreAllSessions();
     console.log('[Server] All Telegram sessions restored');
   } catch (e) {
     console.error('[Server] Failed to restore sessions:', e);
@@ -70,14 +74,9 @@ const server = app.listen(PORT, async () => {
 
 // ---------------------- WebSocket real-time gateway ----------------------
 //
-// Problem before:
-// - We added one listener on sessionManager *per WebSocket connection*,
-//   causing >10 listeners for a single "update:<sessionId>" event.
-//
-// Fix now:
-// - Keep a single "bridge" listener per sessionId that broadcasts updates
-//   to all active sockets of that session. Add/remove it when the first
-//   socket joins / last socket leaves.
+// Keep a single "bridge" listener per sessionId that broadcasts updates
+// to all active sockets of that session. Add/remove it when the first
+// socket joins / last socket leaves.
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -88,6 +87,18 @@ const subs = new Map<string, Set<WebSocket>>();
 const bridges = new Map<string, (payload: any) => void>();
 
 const HEARTBEAT_MS = 30000;
+
+/** Parse a Cookie header (tiny helper for WS fallback). */
+function parseCookie(header?: string | string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const h = Array.isArray(header) ? header.join(';') : header || '';
+  h.split(/;\s*/).forEach(kv => {
+    const [k, ...rest] = kv.split('=');
+    if (!k) return;
+    out[k.trim()] = decodeURIComponent((rest.join('=') || '').trim());
+  });
+  return out;
+}
 
 function heartbeat() {
   for (const set of subs.values()) {
@@ -104,11 +115,18 @@ setInterval(heartbeat, HEARTBEAT_MS).unref();
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
-  const sessionId = url.searchParams.get('sessionId') || '';
-  if (!sessionId) { 
+  let sessionId = url.searchParams.get('sessionId') || '';
+
+  // Fallback: take sessionId from cookie if query missing
+  if (!sessionId) {
+    const cookies = parseCookie(req.headers.cookie);
+    if (cookies.sessionId) sessionId = cookies.sessionId;
+  }
+
+  if (!sessionId) {
     console.warn('[WebSocket] Connection rejected: sessionId required');
-    ws.close(1008, 'sessionId required'); 
-    return; 
+    ws.close(1008, 'sessionId required');
+    return;
   }
 
   console.log(`[WebSocket] Client connected for sessionId: ${sessionId}`);
@@ -123,7 +141,9 @@ wss.on('connection', (ws, req) => {
   subs.get(sessionId)!.add(ws);
 
   // Ensure Telegram client is ready/wired
-  sessionManager.ensureClient(sessionId).catch(() => {});
+  sessionManager.ensureClient(sessionId).catch((e) => {
+    console.warn('[WebSocket] ensureClient failed:', e?.message || e);
+  });
 
   // Lazy-register single bridge for this sessionId
   if (!bridges.has(sessionId)) {
@@ -157,8 +177,8 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('error', () => { 
+  ws.on('error', () => {
     console.error('[WebSocket] Error on connection');
-    try { ws.close(); } catch {} 
+    try { ws.close(); } catch {}
   });
 });

@@ -4,7 +4,8 @@
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
-import { sessionManager } from '../services/sessionManager'; // 👈 for immediate WS broadcast
+import { sessionManager } from '../services/sessionManager';
+import { resolveSessionId } from '../utils/sessionResolver';
 
 const router = Router();
 
@@ -29,7 +30,6 @@ function extractDateISO(msg: any): string | null {
 function textFrom(msg: any): string {
   if (msg?.action) return '[service message]';
   if (typeof msg?.message === 'string' && msg.message.trim().length) return msg.message;
-
   const m = msg?.media;
   const cls = m?.className || '';
   if (cls.includes('Photo')) return '[photo]';
@@ -49,6 +49,17 @@ function toPeerKeyFromMsg(msg: any): string {
   return '';
 }
 
+function toPeerKeyFromEntity(e: any): string {
+  if (e?.className === 'User' && e?.id != null) return `user:${e.id}`;
+  if (e?.className === 'Chat' && e?.id != null) return `chat:${e.id}`;
+  if (e?.className === 'Channel' && e?.id != null) return `channel:${e.id}`;
+  const p = e?.peer;
+  if (p?.userId != null) return `user:${p.userId}`;
+  if (p?.chatId != null) return `chat:${p.chatId}`;
+  if (p?.channelId != null) return `channel:${p.channelId}`;
+  return '';
+}
+
 function toDTO(msg: any): MessageDTO {
   return {
     id: Number(msg?.id ?? 0),
@@ -65,19 +76,7 @@ function toDTO(msg: any): MessageDTO {
   };
 }
 
-function toPeerKeyFromEntity(e: any): string {
-  if (e?.className === 'User' && e?.id != null) return `user:${e.id}`;
-  if (e?.className === 'Chat' && e?.id != null) return `chat:${e.id}`;
-  if (e?.className === 'Channel' && e?.id != null) return `channel:${e.id}`;
-  const p = e?.peer;
-  if (p?.userId != null) return `user:${p.userId}`;
-  if (p?.chatId != null) return `chat:${p.chatId}`;
-  if (p?.channelId != null) return `channel:${p.channelId}`;
-  return '';
-}
-
 async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): Promise<any> {
-  // Prefer dialogs scan (stable), then fallback to getEntity(number)
   const dialogs: any[] = await (client as any).getDialogs({ limit: 200 });
   for (const d of dialogs) {
     const e = d.entity;
@@ -91,24 +90,28 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
   throw new Error('Peer not found: ' + peerKey);
 }
 
-// Body: { sessionId: string, peerKey: string, text: string, replyToId?: number }
+// Body: { peerKey?: string, peerId?: string, peerType?: 'user'|'chat'|'channel', text: string, replyToId?: number }
 router.post('/telegram/send', async (req: Request, res: Response) => {
   try {
-    const { sessionId, peerKey, text, replyToId } = req.body ?? {};
+    const sessionId = await resolveSessionId(req);
+
+    let { peerKey, peerId, peerType, text, replyToId } = req.body ?? {};
     const message = (typeof text === 'string' ? text : '').trim();
+
+    if (!peerKey && peerId && peerType) peerKey = `${String(peerType)}:${String(peerId)}`;
 
     console.log(`[telegram/send] Sending message for sessionId=${sessionId}, peerKey=${peerKey}`);
 
-    if (!sessionId || !peerKey) {
-      console.warn('[telegram/send] sessionId or peerKey missing');
-      return res.status(400).json({ error: 'sessionId and peerKey are required' });
+    if (!peerKey) {
+      console.warn('[telegram/send] peerKey missing');
+      return res.status(400).json({ error: 'peerKey (or peerId+peerType) is required' });
     }
     if (!message) {
       console.warn('[telegram/send] Message text is empty');
       return res.status(400).json({ error: 'Message text cannot be empty' });
     }
 
-    const client: TelegramClient = await getClient(String(sessionId));
+    const client: TelegramClient = await getClient(sessionId);
     const entity = await resolveEntityByPeerKey(client, String(peerKey));
 
     const sent = await (client as any).sendMessage(entity, {
@@ -117,10 +120,9 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
     });
 
     const dto: MessageDTO = toDTO(sent);
-
     console.log('[telegram/send] Message sent:', dto);
 
-    // 👇 Proactively broadcast over WS so the UI updates instantly
+    // Push to WS subscribers immediately
     sessionManager.emit(`update:${String(sessionId)}`, {
       type: 'new_message',
       data: dto,
@@ -129,7 +131,7 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
     console.error('[telegram/send] Error:', e);
-    return res.status(500).json({ error: e?.message || 'Failed to send message' });
+    return res.status(400).json({ error: e?.message || 'Failed to send message' });
   }
 });
 
