@@ -1,66 +1,79 @@
 // File: backend/routes/telegramAuth.ts
-// Express route for Telegram authentication (login, logout, code, etc).
+// Telegram authentication routes (send code, confirm, resend, logout).
+// Uses the actual exports from services/telegramAuthService.ts.
 
-import express from 'express';
+import { Router, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
-import { sendCode, authenticate, resendCode, AuthResult } from '../services/telegramAuthService';
+import { sendCode, resendCode, authenticate, AuthResult } from '../services/telegramAuthService';
 
-const router = express.Router();
+const router = Router();
 router.use(cookieParser());
 
-interface StartBody { phoneNumber: string; sessionId: string; }
-interface AuthBody  { phoneNumber: string; sessionId: string; code: string; password?: string; }
-interface ResendBody{ sessionId: string; }
+type StartBody  = { phoneNumber: string; sessionId: string };
+type AuthBody   = { phoneNumber: string; sessionId: string; code: string; password?: string };
+type ResendBody = { sessionId: string };
 
-// 1) Send code (idempotent while recent)
-router.post('/start', async (req, res) => {
-  try {
-    const { phoneNumber, sessionId } = req.body as StartBody;
-    if (!phoneNumber || !sessionId) return res.status(400).json({ error: 'phoneNumber and sessionId are required' });
-    const phoneCodeHash = await sendCode(phoneNumber, sessionId);
-    res.json({ phoneCodeHash });
-  } catch (err: any) {
-    res.status(err?.status || 400).json({ error: err?.message || 'sendCode failed' });
-  }
-});
+/** Helper: pick sessionId from header or body/query (header preferred). */
+function pickSessionId(req: Request): string | null {
+  const h = (req.headers['x-session-id'] as string | undefined)?.trim() || null;
+  const b = (req.body?.sessionId as string | undefined)?.trim() || null;
+  const q = (req.query?.sessionId as string | undefined)?.trim() || null;
+  return h || b || q;
+}
 
-// 2) Resend code (must use the same temp session)
-router.post('/resend', async (req, res) => {
+/** POST /api/telegram/start  — send login code (idempotent while recent) */
+router.post('/start', async (req: Request<{}, {}, StartBody>, res: Response) => {
   try {
-    const { sessionId } = req.body as ResendBody;
+    const sessionId = pickSessionId(req);
+    const phoneNumber = String(req.body?.phoneNumber || '').trim();
+
     if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
-    const phoneCodeHash = await resendCode(sessionId);
-    res.json({ phoneCodeHash });
-  } catch (err: any) {
-    res.status(err?.status || 400).json({ error: err?.message || 'resendCode failed' });
+    if (!phoneNumber) return res.status(400).json({ error: 'phoneNumber is required' });
+
+    await sendCode(phoneNumber, sessionId);
+    // We intentionally do NOT set cookies here to avoid cross-account confusion.
+    return res.json({ ok: true });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message || 'Failed to start auth' });
   }
 });
 
-// 3) Confirm code (and 2FA if needed)
-router.post('/auth', async (req, res) => {
+/** POST /api/telegram/resend  — force resend code (respects cooldown/ttl inside service) */
+router.post('/resend', async (req: Request<{}, {}, ResendBody>, res: Response) => {
   try {
-    const { phoneNumber, sessionId, code, password } = req.body as AuthBody;
-    if (!phoneNumber || !sessionId || !code) {
-      return res.status(400).json({ error: 'phoneNumber, sessionId and code are required' });
-    }
-    const result: AuthResult = await authenticate(phoneNumber, sessionId, code, password);
-    if (result.status === '2FA_REQUIRED') return res.status(401).json(result);
+    const sessionId = pickSessionId(req);
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
 
-    res.cookie('sessionId', result.session!, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-    });
-    res.json(result);
-  } catch (err: any) {
-    res.status(err?.status || 400).json({ error: err?.message || 'auth failed' });
+    await resendCode(sessionId);
+    return res.json({ ok: true });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message || 'Failed to resend code' });
   }
 });
 
-// 4) Logout
-router.post('/logout', (_req, res) => {
+/** POST /api/telegram/confirm — confirm with code (+ optional 2FA password) */
+router.post('/confirm', async (req: Request<{}, {}, AuthBody>, res: Response) => {
+  try {
+    const sessionId = pickSessionId(req);
+    const phoneNumber = String(req.body?.phoneNumber || '').trim();
+    const code = String(req.body?.code || '').trim();
+    const password = req.body?.password ? String(req.body.password) : undefined;
+
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    if (!phoneNumber || !code) return res.status(400).json({ error: 'phoneNumber and code are required' });
+
+    const result: AuthResult = await authenticate(phoneNumber, sessionId, code, password);
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message || 'Failed to confirm auth' });
+  }
+});
+
+/** POST /api/telegram/logout — front-only logout (clear cookie if you used it) */
+router.post('/logout', (_req: Request, res: Response) => {
+  // We avoid cookies now, but clear it just in case legacy UI set it before.
   res.clearCookie('sessionId');
-  res.json({ success: true });
+  return res.json({ ok: true });
 });
 
 export default router;

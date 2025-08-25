@@ -1,93 +1,120 @@
 // File: frontend/src/components/TelegramLogin.tsx
-// Telegram login form component for authentication flow.
+// Purpose: Standalone login widget for a new Telegram account.
 
-import React, { useState, useRef, useEffect } from 'react';
-import { useTelegramAuth } from '../context/TelegramAuthContext';
+import React, { useEffect, useRef, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { sendCode, authenticate } from '../api/telegramAuth';
 
-const TelegramLogin: React.FC = () => {
-  const { status, username, sendLoginCode, confirmCode, error, signOut } = useTelegramAuth();
+type Props = {
+  onSuccess: (acc: { sessionId: string; username: string | null }) => void;
+};
 
+type Stage = 'idle' | 'code_sent' | 'twofa' | 'loading' | 'done' | 'error';
+
+const TelegramLogin: React.FC<Props> = ({ onSuccess }) => {
+  const [stage, setStage] = useState<Stage>('idle');
   const [phone, setPhone] = useState('+48');
   const [code, setCode] = useState('');
   const [pass, setPass] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const [sessionId] = useState<string>(() => uuidv4());
   const codeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if ((status === 'sent' || status === '2fa') && codeRef.current) {
-      codeRef.current.focus();
-    }
-  }, [status]);
+    if ((stage === 'code_sent' || stage === 'twofa') && codeRef.current) codeRef.current.focus();
+  }, [stage]);
 
-  if (status === 'authorized') {
-    return (
-      <div className="h-full flex items-center justify-center p-4 bg-gray-50">
-        <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-          <h2 className="text-2xl mb-4">Login Successful</h2>
-          <p className="text-lg text-green-600 mb-4">@{username}</p>
-          <button onClick={signOut} className="px-4 py-2 bg-red-500 text-white rounded-lg">
-            Logout
-          </button>
-        </div>
-      </div>
-    );
+  async function handleSendCode() {
+    setError(null);
+    setStage('loading');
+    try {
+      await sendCode(phone, sessionId);
+      setStage('code_sent');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to send code');
+      setStage('error');
+    }
+  }
+
+  async function handleConfirm() {
+    setError(null);
+    setStage('loading');
+    try {
+      const res = await authenticate({
+        phoneNumber: phone,
+        sessionId,
+        code,
+        password: pass,
+      });
+      if (res.status === 'AUTHORIZED') {
+        const sid = res.session || sessionId;
+        const username = res.username ?? null;
+        setStage('done');
+        onSuccess({ sessionId: sid, username });
+      } else {
+        setStage('twofa');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Authentication failed');
+      setStage('error');
+    }
   }
 
   return (
-    <div className="h-full p-4 bg-gray-50">
-      <div className="bg-white rounded-xl shadow-lg p-8 space-y-6">
-        <h2 className="text-2xl text-center">Login with Telegram</h2>
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
+      <h3 className="text-xl font-semibold text-center">Add Telegram Account</h3>
 
-        {status === 'idle' && (
-          <>
-            <input
-              className="w-full p-3 border rounded-lg"
-              type="text"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="Phone number"
-            />
-            <button onClick={() => {
-              console.log('[TelegramLogin] Sending login code for phone:', phone);
-              sendLoginCode(phone);
-            }} className="w-full bg-blue-500 text-white p-3 rounded-lg">
-              Send Code
-            </button>
-          </>
-        )}
+      {(stage === 'idle' || stage === 'error') && (
+        <>
+          <input
+            className="w-full p-3 border rounded-lg"
+            type="text"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="Phone number"
+          />
+          <button
+            onClick={handleSendCode}
+            className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600"
+          >
+            Send Code
+          </button>
+          {error && <p className="text-center text-red-600">❌ {error}</p>}
+        </>
+      )}
 
-        {(status === 'sent' || status === '2fa') && (
-          <>
-            <input
-              ref={codeRef}
-              className="w-full p-3 border rounded-lg"
-              type="text"
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              placeholder="Enter code"
-            />
-            <input
-              className="w-full p-3 border rounded-lg"
-              type="password"
-              value={pass}
-              onChange={e => setPass(e.target.value)}
-              placeholder="2FA password (if any)"
-            />
-            <button onClick={() => {
-              console.log('[TelegramLogin] Confirming code for phone:', phone);
-              confirmCode(code, pass);
-            }} className="w-full bg-green-500 text-white p-3 rounded-lg">
-              Confirm Code
-            </button>
-          </>
-        )}
-
-        {status === 'loading' && <p className="text-center">Loading…</p>}
-        {error && (() => { console.error('[TelegramLogin] Error:', error); return (
-          <p className="text-center text-red-600">❌ {error}</p>
-        ); })()}
-      </div>
+      {(stage === 'code_sent' || stage === 'twofa' || stage === 'loading') && (
+        <>
+          <input
+            ref={codeRef}
+            className="w-full p-3 border rounded-lg"
+            type="text"
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            placeholder="Enter code from Telegram"
+          />
+          <input
+            className="w-full p-3 border rounded-lg"
+            type="password"
+            value={pass}
+            onChange={e => setPass(e.target.value)}
+            placeholder="2FA password (if any)"
+          />
+          <button
+            onClick={handleConfirm}
+            disabled={stage === 'loading'}
+            className="w-full bg-green-600 text-white p-3 rounded-lg hover:bg-green-700 disabled:opacity-60"
+          >
+            Confirm
+          </button>
+          {stage === 'loading' && <p className="text-center">Loading...</p>}
+          {error && <p className="text-center text-red-600">❌ {error}</p>}
+        </>
+      )}
     </div>
   );
 };
 
 export default TelegramLogin;
+

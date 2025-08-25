@@ -1,6 +1,5 @@
 // backend/utils/sessionResolver.ts
-// Resolve a usable sessionId: prefer ?sessionId if it exists in DB and has a non-empty
-// sessionString; otherwise fall back to cookie.sessionId. Throw a readable error if none.
+// Purpose: Resolve a usable sessionId from request with clear precedence.
 
 import type { Request } from 'express';
 import { PrismaClient } from '@prisma/client';
@@ -15,17 +14,37 @@ async function findValid(id?: string | null): Promise<string | null> {
   return row.sessionId;
 }
 
-export async function resolveSessionId(req: Request): Promise<string> {
+type ResolveOpts = {
+  /** If false, cookie will not be considered as a fallback. Defaults to true. */
+  allowCookieFallback?: boolean;
+};
+
+export async function resolveSessionId(req: Request, opts?: ResolveOpts): Promise<string> {
+  const allowCookie = opts?.allowCookieFallback !== false;
+
+  // Read candidates from all common places
   const q = (req.query?.sessionId as string | undefined)?.trim();
+  const h = (req.headers?.['x-session-id'] as string | undefined)?.trim();
+  const b = (req.body?.sessionId as string | undefined)?.trim();
   const c = (req.cookies?.sessionId as string | undefined)?.trim();
 
-  const qValid = await findValid(q);
-  if (qValid) return qValid;
+  // Precedence: query -> header -> body -> cookie (cookie optional)
+  const candidates = [q, h, b, allowCookie ? c : undefined];
 
-  const cValid = await findValid(c);
-  if (cValid) return cValid;
+  for (const cand of candidates) {
+    const valid = await findValid(cand);
+    if (valid) return valid;
+  }
 
-  if (q && !qValid) throw new Error(`Session not found or not authorized (query): ${q}`);
-  if (c && !cValid) throw new Error(`Session not found or not authorized (cookie): ${c}`);
+  // Build informative error
+  const tried: string[] = [];
+  if (q) tried.push(`query:${q}`);
+  if (h) tried.push(`header:${h}`);
+  if (b) tried.push(`body:${b}`);
+  if (allowCookie && c) tried.push(`cookie:${c}`);
+
+  if (tried.length) {
+    throw new Error(`Session not found or not authorized (checked ${tried.join(', ')})`);
+  }
   throw new Error('Session not found or not authorized');
 }

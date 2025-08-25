@@ -1,5 +1,5 @@
 // File: frontend/src/api/telegramChats.ts
-// API functions for fetching Telegram chat previews.
+// Purpose: API client for fetching Telegram chat previews.
 
 import { apiUrl } from '../lib/http';
 
@@ -10,7 +10,7 @@ export interface ChatPreview {
   peerType: PeerType;
   title: string;
   lastMessageText: string | null;
-  lastMessageAt: string | null; // ISO
+  lastMessageAt: string | null;
   unreadCount: number;
   isPinned: boolean;
   photo: string | null;
@@ -18,17 +18,17 @@ export interface ChatPreview {
 
 export async function fetchChatPreviews(sessionId: string, limit = 30): Promise<ChatPreview[]> {
   const params = new URLSearchParams({ sessionId, limit: String(limit) });
-  const res = await fetch(apiUrl(`/api/telegram/chats?${params.toString()}`));
-
-  // Defensive: some setups return HTML (index.html). Guard before json()
+  const res = await fetch(apiUrl(`/api/telegram/chats?${params.toString()}`), {
+    headers: { 'x-session-id': sessionId },
+  });
   const ct = res.headers.get('content-type') || '';
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    try { const json = JSON.parse(text); throw new Error(json?.error || text); }
+    catch { throw new Error(text || `HTTP ${res.status}`); }
   }
   if (!ct.includes('application/json')) {
-    const text = await res.text();
     throw new Error(`Non-JSON response from API:\n${text.slice(0, 200)}`);
   }
-  return res.json();
+  return JSON.parse(text);
 }

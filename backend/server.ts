@@ -1,173 +1,210 @@
 // File: backend/server.ts
-// Express backend server, sets up API routes and WebSocket gateway.
+// Express HTTP + WebSocket server, wired to current SessionManager.
+//
+// - WebSocketServer lives here (path: /ws) and bridges sessionManager events
+// - Safe JSON packing for payloads (removes cycles / 'client' refs)
+// - CORS enabled for Vite (:5173)
+// - Mounts routes under '/api/*'
 
 import path from 'path';
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+import http from 'http';
+import cookieParser from 'cookie-parser';
 import { WebSocketServer, WebSocket } from 'ws';
-const cookieParser = require('cookie-parser');
 
-// Routes
-import telegramAuthRoutes     from './routes/telegramAuth';
-import telegramSessionRoutes  from './routes/telegramSession';
-import telegramChatRoutes     from './routes/telegramChats';
+import telegramAuthRoutes from './routes/telegramAuth';
+import telegramSessionRoutes from './routes/telegramSession';
+import telegramChatsRoutes from './routes/telegramChats';
 import telegramMessagesRoutes from './routes/telegramMessages';
-import telegramSendRoutes     from './routes/telegramSend';
-import debugSessionsRoutes    from './routes/debugSessions'; // ✅ mount separate debug router
+import telegramSendRoutes from './routes/telegramSend';
+import telegramHealthRoutes from './routes/telegramHealth';
+import debugSessionsRoutes from './routes/debugSessions';
 
-// Middleware / services
-import { rateLimitBySession } from './middleware/rateLimit';
-import { restoreAllSessions } from './services/telegramAuthService';
 import { sessionManager } from './services/sessionManager';
-import telegramHealth from './routes/telegramHealth';
+import { rateLimitBySession } from './middleware/rateLimit';
 
-// 1) Load env
-dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env') });
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
-const PORT = Number(process.env.PORT ?? 7007);
 
-// Optional: silence Node's 10-listener warning globally for this emitter
-// (root cause is fixed below; this is just a belt-and-suspenders)
-sessionManager.setMaxListeners(0);
+// ----- CORS (adjust if needed) -----
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (/^http:\/\/localhost:5173$/i.test(origin)) return cb(null, true);
+      if (/^http:\/\/127\.0\.0\.1:5173$/i.test(origin)) return cb(null, true);
+      return cb(null, true);
+    },
+    credentials: true,
+  })
+);
 
-// 2) Middlewares
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
-app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true,
-}));
 
-// 3) Health
-app.get('/_health', (_req, res) => res.json({ ok: true }));
+// ----- Routes -----
+app.use('/api/telegram', telegramAuthRoutes); // /start, /confirm, /resend, /logout
+app.use('/api', telegramSessionRoutes);       // /me (MTProto-based check)
+app.use('/api', telegramHealthRoutes);        // /telegram/health (DB-only check)
 
-// 4) HTTP routes
-app.use('/auth/telegram', telegramAuthRoutes);
-app.use('/auth/telegram', telegramSessionRoutes);
-app.use('/api', telegramHealth);
-app.use('/api',
+// Optional rate limit per session (safe defaults)
+app.use(
+  '/api',
   rateLimitBySession({
     windowMs: 5000,
     max: 20,
+    excludePaths: ['/api/telegram/health'],
   })
 );
-app.use('/api', telegramChatRoutes);
-app.use('/api', telegramMessagesRoutes);
-app.use('/api', telegramSendRoutes);
 
-// Debug endpoints (mounted as a router)
+app.use('/api', telegramChatsRoutes);         // /telegram/chats
+app.use('/api', telegramMessagesRoutes);      // /telegram/messages
+app.use('/api', telegramSendRoutes);          // /telegram/send
+
+// Debug endpoints
 app.use('/', debugSessionsRoutes);
 
-app.get('/', (_req, res) => res.send('Backend is running'));
+// Simple root
+app.get('/', (_req, res) => res.send('Unified Messenger backend is up'));
 
-// 5) Start + restore sessions
-const server = app.listen(PORT, async () => {
-  console.log(`[Server] 🚀 Server started on port ${PORT}`);
-  try {
-    await restoreAllSessions();
-    console.log('[Server] All Telegram sessions restored');
-  } catch (e) {
-    console.error('[Server] Failed to restore sessions:', e);
-  }
-});
+// ----- HTTP + WS server -----
+const port = Number(process.env.PORT || 7007);
+const server = http.createServer(app);
 
-// ---------------------- WebSocket real-time gateway ----------------------
-//
-// Keep a single "bridge" listener per sessionId that broadcasts updates
-// to all active sockets of that session. Add/remove it when the first
-// socket joins / last socket leaves.
-
+// WebSocket server at /ws?sessionId=...
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// All active sockets per sessionId
+// sessionId -> Set<WebSocket>
 const subs = new Map<string, Set<WebSocket>>();
-
-// One broadcaster function per sessionId
+// sessionId -> listener
 const bridges = new Map<string, (payload: any) => void>();
+// WebSocket liveness (no custom properties on ws instance)
+const alive = new WeakMap<WebSocket, boolean>();
 
-const HEARTBEAT_MS = 30000;
-
-/** Parse a Cookie header (tiny helper for WS fallback). */
-function parseCookie(header?: string | string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  const h = Array.isArray(header) ? header.join(';') : header || '';
-  h.split(/;\s*/).forEach(kv => {
-    const [k, ...rest] = kv.split('=');
-    if (!k) return;
-    out[k.trim()] = decodeURIComponent((rest.join('=') || '').trim());
-  });
-  return out;
-}
-
+// Heartbeat: ping/pong to drop dead connections
 function heartbeat() {
   for (const set of subs.values()) {
     for (const ws of set) {
-      // @ts-ignore store custom flag
-      if ((ws as any).isAlive === false) { try { ws.terminate(); } catch {} continue; }
-      // @ts-ignore
-      (ws as any).isAlive = false;
+      const isAlive = alive.get(ws);
+      if (isAlive === false) {
+        try { ws.terminate(); } catch {}
+        continue;
+      }
+      // Mark as not alive; will set back to true on 'pong'
+      alive.set(ws, false);
       try { ws.ping(); } catch {}
     }
   }
 }
-setInterval(heartbeat, HEARTBEAT_MS).unref();
+setInterval(heartbeat, 30000).unref();
+
+function parseCookie(header?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  header.split(';').forEach((pair) => {
+    const [k, v] = pair.split('=');
+    if (!k) return;
+    out[k.trim()] = decodeURIComponent((v || '').trim());
+  });
+  return out;
+}
+
+/** Safely stringify payloads that may contain gramJS structures with cycles.
+ *  - removes functions
+ *  - removes 'client' property (common cycle root in NewMessage, etc.)
+ *  - breaks other cycles with WeakSet
+ *  - clamps output size to avoid flooding the wire
+ */
+function safeStringify(payload: any, limitBytes = 100_000): string {
+  const seen = new WeakSet<object>();
+
+  const replacer = (_key: string, value: any) => {
+    if (typeof value === 'function') return undefined;
+    if (value && typeof value === 'object') {
+      // Remove 'client' property that closes the TelegramClient cycle
+      if ('client' in value) {
+        try {
+          const shallow = Array.isArray(value) ? [...value] : { ...value };
+          delete (shallow as any).client;
+          value = shallow;
+        } catch {
+          // ignore
+        }
+      }
+      if (seen.has(value)) return '[Circular]';
+      seen.add(value);
+    }
+    return value;
+  };
+
+  let s = JSON.stringify(payload, replacer);
+  // Clamp huge messages to a compact placeholder
+  if (s.length > limitBytes) {
+    s = JSON.stringify({ type: 'raw', note: 'omitted large update', bytes: s.length });
+  }
+  return s;
+}
 
 wss.on('connection', (ws, req) => {
+  // Extract sessionId from query or (legacy) from cookie
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   let sessionId = url.searchParams.get('sessionId') || '';
-
-  // Fallback: take sessionId from cookie if query missing
   if (!sessionId) {
     const cookies = parseCookie(req.headers.cookie);
     if (cookies.sessionId) sessionId = cookies.sessionId;
   }
+  sessionId = String(sessionId || '').trim();
 
   if (!sessionId) {
-    console.warn('[WebSocket] Connection rejected: sessionId required');
-    ws.close(1008, 'sessionId required');
+    try { ws.close(1008, 'sessionId required'); } catch {}
     return;
   }
 
-  console.log(`[WebSocket] Client connected for sessionId: ${sessionId}`);
+  // Track liveness using WeakMap
+  alive.set(ws, true);
+  ws.on('pong', () => alive.set(ws, true));
 
-  // Track liveness
-  // @ts-ignore
-  (ws as any).isAlive = true;
-  ws.on('pong', () => { /* @ts-ignore */ (ws as any).isAlive = true; });
-
-  // Join socket to subs map
+  // Subscribe socket
   if (!subs.has(sessionId)) subs.set(sessionId, new Set());
   subs.get(sessionId)!.add(ws);
 
-  // Ensure Telegram client is ready/wired
+  // Ensure MTProto client for this session exists (will log if DB row missing)
   sessionManager.ensureClient(sessionId).catch((e) => {
     console.warn('[WebSocket] ensureClient failed:', e?.message || e);
   });
 
-  // Lazy-register single bridge for this sessionId
+  // Bridge emitter -> this session's sockets (register once)
   if (!bridges.has(sessionId)) {
     const eventName = `update:${sessionId}`;
-    const bridge = (payload: any) => {
+    const listener = (payload: any) => {
+      // Prefer compact, known shape for our custom events; otherwise safely stringify whatever came
+      let pack: string;
+      try {
+        // If payload already a plain object with type+data (DTO), this will serialize fast
+        pack = safeStringify(payload);
+      } catch {
+        // Last resort: send a minimal stub so the bridge never crashes
+        pack = JSON.stringify({ type: 'raw', note: 'failed to serialize update' });
+      }
+
       const set = subs.get(sessionId);
-      if (!set || set.size === 0) return;
+      if (!set) return;
       for (const sock of set) {
-        try { sock.send(JSON.stringify(payload)); } catch {}
+        try { sock.send(pack); } catch {}
       }
     };
-    bridges.set(sessionId, bridge);
-    sessionManager.on(eventName, bridge);
+    sessionManager.on(eventName, listener);
+    bridges.set(sessionId, listener);
   }
 
-  // Cleanup on close
   ws.on('close', () => {
-    console.log(`[WebSocket] Client disconnected for sessionId: ${sessionId}`);
     const set = subs.get(sessionId);
     if (set) {
       set.delete(ws);
       if (set.size === 0) {
-        // No sockets left → remove the single bridge and maps
         subs.delete(sessionId);
         const bridge = bridges.get(sessionId);
         if (bridge) {
@@ -176,10 +213,21 @@ wss.on('connection', (ws, req) => {
         }
       }
     }
+    alive.delete(ws);
   });
 
   ws.on('error', () => {
-    console.error('[WebSocket] Error on connection');
     try { ws.close(); } catch {}
   });
+});
+
+// ----- Start -----
+server.listen(port, async () => {
+  console.log('[Server] Server started on port', port);
+  try {
+    await sessionManager.restoreAll();
+    console.log('[Server] All Telegram sessions restored');
+  } catch (e) {
+    console.error('[Server] Session restore failed:', e);
+  }
 });

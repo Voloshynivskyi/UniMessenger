@@ -1,5 +1,4 @@
-// File: backend/services/sessionManager.ts
-// Manages long-lived TelegramClient instances and emits real-time updates.
+// Purpose: Manages long-lived TelegramClient instances and emits real-time updates.
 
 import { EventEmitter } from 'events';
 import { TelegramClient } from 'telegram';

@@ -1,5 +1,5 @@
 // File: frontend/src/api/telegramMessages.ts
-// API functions for fetching and sending Telegram messages.
+// Purpose: API client for fetching and sending Telegram messages.
 
 import { apiUrl } from '../lib/http';
 
@@ -22,7 +22,10 @@ export async function fetchMessages(
   const params = new URLSearchParams({ sessionId, peerKey, limit: String(limit) });
   if (beforeId) params.set('beforeId', String(beforeId));
 
-  const res = await fetch(apiUrl(`/api/telegram/messages?${params.toString()}`));
+  const res = await fetch(apiUrl(`/api/telegram/messages?${params.toString()}`), {
+    headers: { 'x-session-id': sessionId },
+  });
+
   const ct = res.headers.get('content-type') || '';
   if (!res.ok) {
     const text = await res.text();
@@ -43,13 +46,11 @@ export async function sendMessage(
 ): Promise<{ ok: boolean; message: MessageDTO }> {
   const res = await fetch(apiUrl('/api/telegram/send'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId,
-      peerKey,
-      text,
-      ...(replyToId ? { replyToId } : {}),
-    }),
+    headers: {
+      'Content-Type': 'application/json',
+      'x-session-id': sessionId,
+    },
+    body: JSON.stringify({ sessionId, peerKey, text, ...(replyToId ? { replyToId } : {}) }),
   });
 
   const ct = res.headers.get('content-type') || '';

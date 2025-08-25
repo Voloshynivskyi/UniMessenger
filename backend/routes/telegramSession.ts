@@ -1,5 +1,5 @@
 // File: backend/routes/telegramSession.ts
-// Express route for checking current Telegram session and user info.
+// Purpose: Express route for checking current Telegram session and user info.
 
 import express from 'express';
 import { PrismaClient } from '@prisma/client';

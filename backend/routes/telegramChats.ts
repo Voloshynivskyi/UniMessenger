@@ -1,4 +1,6 @@
 // backend/routes/telegramChats.ts
+// Purpose: Express route for fetching Telegram chat previews.
+
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
@@ -55,7 +57,6 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
 
     const client: TelegramClient = await getClient(sessionId);
 
-    // ⛱️ кеш + дедуп на 6s
     const dialogs: any[] = await withDialogsCache(sessionId, limit, () =>
       (client as any).getDialogs({ limit })
     );

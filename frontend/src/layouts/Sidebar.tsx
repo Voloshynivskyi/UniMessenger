@@ -1,5 +1,4 @@
-// File: frontend/src/layouts/Sidebar.tsx
-// Sidebar navigation component with menu items and unread count.
+// Purpose: Sidebar with unread counter aggregated across all accounts.
 
 import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
@@ -26,19 +25,30 @@ const menuItemsBase = [
 ];
 
 export default function Sidebar() {
-  const { sessionId, authorized } = useTelegramAuth();
+  const { accounts } = useTelegramAuth();
   const [unreadTotal, setUnreadTotal] = useState<number>(0);
 
   useEffect(() => {
-    if (authorized && sessionId) {
-      fetchChatPreviews(sessionId, 50)
-        .then(chats => {
-          const total = chats.reduce((sum, chat) => sum + (chat.unreadCount || 0), 0);
-          setUnreadTotal(total);
-        })
-        .catch(() => setUnreadTotal(0));
+    let cancelled = false;
+
+    async function aggregate() {
+      try {
+        const results = await Promise.all(
+          accounts.map(a => fetchChatPreviews(a.sessionId, 50).catch(() => []))
+        );
+        if (cancelled) return;
+        const total = results.flat().reduce((sum, chat) => sum + (chat.unreadCount || 0), 0);
+        setUnreadTotal(total);
+      } catch {
+        if (!cancelled) setUnreadTotal(0);
+      }
     }
-  }, [authorized, sessionId]);
+
+    if (accounts.length) aggregate();
+    else setUnreadTotal(0);
+
+    return () => { cancelled = true; };
+  }, [accounts]);
 
   const menuItems = menuItemsBase.map(item => {
     if (item.name === 'Unified Inbox' && unreadTotal > 0) {

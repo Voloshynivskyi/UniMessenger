@@ -1,4 +1,6 @@
 // backend/services/dialogsCache.ts
+// Purpose: In-memory cache for Telegram dialogs per session.
+
 type Key = string;
 
 interface Entry<T> {
@@ -41,7 +43,6 @@ export async function withDialogsCache<T>(
   return inflight;
 }
 
-// ✅ опційна інвалідація (коли треба примусово скинути кеш, наприклад після відправки повідомлення)
 export function invalidateDialogsCache(sessionId?: string) {
   if (!sessionId) { store.clear(); return; }
   for (const key of store.keys()) {

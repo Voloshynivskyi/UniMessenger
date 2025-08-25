@@ -1,5 +1,4 @@
-// File: backend/routes/telegramMessages.ts
-// Express route for fetching Telegram messages for a chat.
+// Purpose: Express route for fetching Telegram messages for a chat.
 
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';

@@ -1,5 +1,5 @@
 // backend/routes/debugSessions.ts
-// Debug endpoints to inspect session rows in DB and force-restore a client.
+// Purpose: Debug endpoints to inspect session rows in DB and force-restore a client.
 
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';

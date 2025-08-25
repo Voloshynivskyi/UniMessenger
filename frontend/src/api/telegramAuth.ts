@@ -1,49 +1,80 @@
 // File: frontend/src/api/telegramAuth.ts
-// API functions for Telegram authentication (login, logout, me).
+// Purpose: Auth API client for Telegram login, session check, and logout.
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:7007';
+import { apiUrl } from '../lib/http';
 
-export interface SendCodeResponse { phoneCodeHash: string; }
-export type AuthStatus = 'AUTHORIZED' | '2FA_REQUIRED';
-export interface AuthResponse { status: AuthStatus; session?: string; username?: string; }
-export interface MeResponse { authorized: boolean; username?: string; firstName?: string; lastName?: string; }
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  const data = await res.json();
-  if (!res.ok) throw new Error((data as any).error || 'API error');
-  return data as T;
+export interface AuthResponse {
+  status: 'AUTHORIZED' | '2FA_REQUIRED';
+  session?: string;
+  username?: string | null;
 }
 
-export async function sendCode(phoneNumber: string, sessionId: string): Promise<SendCodeResponse> {
-  const res = await fetch(`${BASE_URL}/auth/telegram/start`, {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+export interface MeResponse {
+  authorized: boolean;
+  username?: string | null;
+}
+
+export async function sendCode(phoneNumber: string, sessionId: string): Promise<void> {
+  const res = await fetch(apiUrl('/api/telegram/start'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-session-id': sessionId,
+    },
     body: JSON.stringify({ phoneNumber, sessionId }),
   });
-  return handleResponse<SendCodeResponse>(res);
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `HTTP ${res.status}`);
+  }
 }
 
-// Тепер передаємо один обʼєкт з усіма полями
-export async function authenticate(params: {
-  phoneNumber: string; sessionId: string; code: string; password?: string;
+export async function authenticate(payload: {
+  phoneNumber: string;
+  sessionId: string;
+  code: string;
+  password?: string;
 }): Promise<AuthResponse> {
-  const res = await fetch(`${BASE_URL}/auth/telegram/auth`, {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+  const res = await fetch(apiUrl('/api/telegram/confirm'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-session-id': payload.sessionId },
+    body: JSON.stringify(payload),
   });
-  if (res.status === 401) {
-    const d = await res.json(); return { status: (d as AuthResponse).status };
+  const ct = res.headers.get('content-type') || '';
+  const txt = await res.text();
+  if (!res.ok) {
+    try { const j = JSON.parse(txt); throw new Error(j?.error || txt); }
+    catch { throw new Error(txt || `HTTP ${res.status}`); }
   }
-  return handleResponse<AuthResponse>(res);
+  if (!ct.includes('application/json')) throw new Error(`Non-JSON response:\n${txt.slice(0,200)}`);
+  return JSON.parse(txt);
 }
 
 export async function fetchMe(): Promise<MeResponse> {
-  const res = await fetch(`${BASE_URL}/auth/telegram/me`, { method: 'GET', credentials: 'include' });
-  return handleResponse<MeResponse>(res);
+  const res = await fetch(apiUrl('/api/telegram/me'), { credentials: 'include' });
+  const ct = res.headers.get('content-type') || '';
+  const txt = await res.text();
+  if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
+  if (!ct.includes('application/json')) throw new Error(`Non-JSON response:\n${txt.slice(0,200)}`);
+  return JSON.parse(txt);
 }
 
 export async function logout(): Promise<void> {
-  const res = await fetch(`${BASE_URL}/auth/telegram/logout`, { method: 'POST', credentials: 'include' });
-  if (!res.ok) { const d = await res.json(); throw new Error((d as any).error || 'Logout failed'); }
+  const res = await fetch(apiUrl('/api/telegram/logout'), {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `HTTP ${res.status}`);
+  }
+}
+
+/** Lightweight validation against backend DB only (no Telegram calls). */
+export async function checkSession(sessionId: string): Promise<boolean> {
+  const url = apiUrl(`/api/telegram/health?sessionId=${encodeURIComponent(sessionId)}`);
+  const res = await fetch(url, { headers: { 'x-session-id': sessionId } });
+  if (res.ok) return true;
+  // 404 means not found; anything else — treat as invalid to be safe
+  return false;
 }

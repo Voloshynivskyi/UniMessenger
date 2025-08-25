@@ -1,37 +1,60 @@
 // File: frontend/src/components/UnifiedInbox.tsx
-// Unified inbox component, displays chat previews and handles live updates.
+// Single-account inbox component (kept for compatibility).
+// It now works with the new auth context ('status' = 'ready', 'sessionId' can be null).
+// If there is no account (authorized=false or sessionId=null) it shows a gentle prompt.
+//
+// NOTE:
+// - We still fetch previews for a single account (first account).
+// - WebSocket URL is built via WS_BASE(), consistent with the app.
+// - "new_message" payloads can be with `peerKey` (preferred) or legacy `peerId`.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchChatPreviews } from '../api/telegramChats';
-import type { ChatPreview } from '../api/telegramChats';
+import type { ChatPreview, PeerType } from '../api/telegramChats';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
+import { WS_BASE } from '../lib/http';
 
-/** Build a WS URL; env override is supported via VITE_BACKEND_WS_BASE */
+type UpdatePayload =
+  | { type: 'new_message'; data: any }
+  | { type: 'raw'; data: any };
+
+/** Build a WS URL for a given sessionId using app-wide base helper. */
 function buildWsUrl(sessionId: string): string {
-  // If you define VITE_BACKEND_WS_BASE at build time (e.g. ws://localhost:7007),
-  // we will use it. Otherwise, infer from current page hostname on port 7007.
-  const base =
-    (import.meta as any).env?.VITE_BACKEND_WS_BASE ||
-    `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:7007`;
-  return `${base}/ws?sessionId=${encodeURIComponent(sessionId)}`;
+  return `${WS_BASE()}/ws?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
+/** Extract {peerType, peerId} from an update payload. Supports peerKey ('user:123') and legacy peerId only. */
+function readPeerFromUpdate(data: any): { peerType: PeerType; peerId: string } | null {
+  // Preferred new format: peerKey = "user:123" | "chat:456" | "channel:789"
+  if (typeof data?.peerKey === 'string' && data.peerKey.includes(':')) {
+    const [t, id] = data.peerKey.split(':');
+    const peerType = (t as PeerType) || 'chat';
+    const peerId = String(id || '');
+    if (peerId) return { peerType, peerId };
+  }
+  // Legacy support: only peerId (we don't know type, fallback to 'chat')
+  if (data?.peerId != null) {
+    return { peerType: 'chat', peerId: String(data.peerId) };
+  }
+  return null;
 }
 
 /** Apply an incoming "new_message" update to an array of chat previews. */
 function applyNewMessage(prevs: ChatPreview[], data: any): ChatPreview[] {
-  const peerId = String(data?.peerId || '');
+  const peer = readPeerFromUpdate(data);
   const text = typeof data?.text === 'string' ? data.text : '';
   const date = data?.date ?? null;
 
-  if (!peerId) return prevs;
+  if (!peer) return prevs;
 
-  const i = prevs.findIndex(p => p.peerId === peerId);
-  if (i === -1) {
+  const idx = prevs.findIndex(p => p.peerId === peer.peerId && p.peerType === peer.peerType);
+  if (idx === -1) {
     // Chat not present yet → create a minimal shadow preview at the top
     const shadow: ChatPreview = {
-      peerId,
+      peerId: peer.peerId,
+      peerType: peer.peerType,
       title: 'Unknown',
-      peerType: 'chat',
-      lastMessageText: text,
+      lastMessageText: text || null,
       lastMessageAt: date,
       unreadCount: 1,
       isPinned: false,
@@ -41,21 +64,26 @@ function applyNewMessage(prevs: ChatPreview[], data: any): ChatPreview[] {
   }
 
   // Update existing preview and move it to the top
-  const updated = { ...prevs[i] };
+  const updated = { ...prevs[idx] };
   if (text) updated.lastMessageText = text;
   if (date) updated.lastMessageAt = date;
   updated.unreadCount = (updated.unreadCount ?? 0) + 1;
 
-  const next = prevs.slice(0, i).concat(prevs.slice(i + 1));
+  const next = prevs.slice(0, idx).concat(prevs.slice(idx + 1));
   return [updated, ...next];
 }
 
-type UpdatePayload =
-  | { type: 'new_message'; data: any }
-  | { type: 'raw'; data: any };
-
 const UnifiedInbox: React.FC = () => {
-  const { sessionId, authorized, status } = useTelegramAuth();
+  // New context surface: authorized + possibly-null sessionId + status='ready'
+  const { authorized, sessionId } = useTelegramAuth();
+
+  // Guard: if no accounts added yet
+  if (!authorized || !sessionId) {
+    return <div className="p-4 text-gray-600">Please add a Telegram account in Accounts.</div>;
+  }
+
+  // --- From this point, sessionId is a non-null string ---
+  const sid = sessionId as string;
 
   // UI state
   const [chats, setChats] = useState<ChatPreview[]>([]);
@@ -67,30 +95,21 @@ const UnifiedInbox: React.FC = () => {
   const timerRef = useRef<number | null>(null);
   const backoffRef = useRef<number>(0); // exponential reconnect backoff counter
 
-  // 1) Initial fetch once we are authorized
+  // 1) Initial fetch once we have a valid session
   useEffect(() => {
-    if (status !== 'authorized' || !authorized || !sessionId) {
-      console.warn('[UnifiedInbox] User not authorized for Telegram');
-      setError('Please log in to Telegram');
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
     setError(null);
     setLoading(true);
-    console.log('[UnifiedInbox] Fetching chat previews...');
-    fetchChatPreviews(sessionId, 30)
+
+    fetchChatPreviews(sid, 30)
       .then(data => {
         if (!cancelled) {
           setChats(data);
           setError(null);
-          console.log(`[UnifiedInbox] Loaded ${data.length} chats`);
         }
       })
       .catch(err => {
         if (!cancelled) {
-          console.error('[UnifiedInbox] Error loading chats:', err);
           setError(err?.message || 'Failed to load');
         }
       })
@@ -98,46 +117,35 @@ const UnifiedInbox: React.FC = () => {
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, authorized, status]);
+    return () => { cancelled = true; };
+  }, [sid]);
 
   // 2) WebSocket connect + auto-reconnect
   useEffect(() => {
-    if (status !== 'authorized' || !authorized || !sessionId) return;
-
     function connect() {
-      console.log('[UnifiedInbox] Connecting WebSocket for live updates...');
-      const wsUrl = buildWsUrl(sessionId);
+      const wsUrl = buildWsUrl(sid);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        backoffRef.current = 0;
-        console.log('[UnifiedInbox] WebSocket connected');
-      };
+      ws.onopen = () => { backoffRef.current = 0; };
 
       ws.onmessage = (ev) => {
         try {
           const payload: UpdatePayload = JSON.parse(ev.data);
           if (payload.type === 'new_message') {
-            console.log('[UnifiedInbox] Received new message update:', payload.data);
             setChats(prev => applyNewMessage(prev, payload.data));
           }
-        } catch (e) {
-          console.error('[UnifiedInbox] WS message parse error', e);
+        } catch {
+          // ignore parse errors
         }
       };
 
       ws.onerror = () => {
-        console.error('[UnifiedInbox] WebSocket error');
         try { ws.close(); } catch {}
       };
 
       ws.onclose = () => {
         const delay = Math.min(1000 * Math.pow(2, backoffRef.current++), 15000);
-        console.warn(`[UnifiedInbox] WebSocket closed, reconnecting in ${delay}ms`);
         timerRef.current = window.setTimeout(connect, delay);
       };
     }
@@ -155,7 +163,7 @@ const UnifiedInbox: React.FC = () => {
         wsRef.current = null;
       }
     };
-  }, [sessionId, authorized, status]);
+  }, [sid]);
 
   // 3) Sort: pinned first, then by lastMessageAt desc
   const sortedChats = useMemo(() => {
@@ -178,7 +186,7 @@ const UnifiedInbox: React.FC = () => {
     <div className="p-4 space-y-2">
       {sortedChats.map(chat => (
         <div
-          key={chat.peerId}
+          key={`${chat.peerType}:${chat.peerId}`}
           className="flex items-start p-3 bg-white rounded-lg shadow hover:bg-gray-50 cursor-pointer"
         >
           <div className="flex-1">
@@ -189,9 +197,7 @@ const UnifiedInbox: React.FC = () => {
               </span>
             </div>
             <div className="text-sm text-gray-600 truncate">
-              {chat.lastMessageText || (
-                <span className="italic text-gray-400">No messages</span>
-              )}
+              {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
             </div>
           </div>
           {chat.unreadCount > 0 && (

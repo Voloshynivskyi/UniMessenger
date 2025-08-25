@@ -1,5 +1,4 @@
-// File: backend/services/telegramAuthService.ts
-// Service functions for Telegram authentication and session management.
+// Purpose: Service functions for Telegram authentication and session management.
 
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions';

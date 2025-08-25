@@ -1,5 +1,4 @@
-// File: backend/routes/telegramSend.ts
-// Express route for sending Telegram messages and broadcasting updates.
+// Purpose: Express route for sending Telegram messages and broadcasting updates.
 
 import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
@@ -29,6 +28,7 @@ function extractDateISO(msg: any): string | null {
 }
 
 function textFrom(msg: any): string {
+  // Short human-friendly placeholders for non-text messages
   if (msg?.action) return '[service message]';
   if (typeof msg?.message === 'string' && msg.message.trim().length) return msg.message;
   const m = msg?.media;
@@ -78,11 +78,13 @@ function toDTO(msg: any): MessageDTO {
 }
 
 async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): Promise<any> {
+  // Try fast-path via dialogs (works for most recent chats)
   const dialogs: any[] = await (client as any).getDialogs({ limit: 200 });
   for (const d of dialogs) {
     const e = d.entity;
     if (toPeerKeyFromEntity(e) === peerKey) return e;
   }
+  // Fallback: parse number and getEntity
   const [_, idStr] = (peerKey || '').split(':');
   const num = Number(idStr);
   if (Number.isFinite(num)) {
@@ -94,7 +96,8 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
 // Body: { peerKey?: string, peerId?: string, peerType?: 'user'|'chat'|'channel', text: string, replyToId?: number }
 router.post('/telegram/send', async (req: Request, res: Response) => {
   try {
-    const sessionId = await resolveSessionId(req);
+    // IMPORTANT: no cookie fallback for multi-account safety
+    const sessionId = await resolveSessionId(req, { allowCookieFallback: false });
 
     let { peerKey, peerId, peerType, text, replyToId } = req.body ?? {};
     const message = (typeof text === 'string' ? text : '').trim();
@@ -128,7 +131,10 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
       type: 'new_message',
       data: dto,
     });
+
+    // Invalidate dialogs cache so previews refresh with latest message
     invalidateDialogsCache(String(sessionId));
+
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
     console.error('[telegram/send] Error:', e);

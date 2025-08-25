@@ -1,5 +1,6 @@
 // File: frontend/src/components/ChatWindow.tsx
-// Chat window component, displays messages and handles sending/receiving.
+// Purpose: Chat window component, displays messages and handles sending/receiving.
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatPreview } from '../api/telegramChats';
 import type { MessageDTO } from '../api/telegramMessages';

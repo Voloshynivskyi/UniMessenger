@@ -1,5 +1,4 @@
-/* File: frontend/src/App.css
-   Styles for the main app container and cards. */
+/* Purpose: Styles for the main app container and cards. */
 
 #root {
   max-width: 1280px;
@@ -42,4 +41,5 @@
 
 .read-the-docs {
   color: #888;
+}
 }

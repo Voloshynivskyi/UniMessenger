@@ -1,5 +1,9 @@
+// Purpose: Unified inbox for multiple Telegram accounts, each with its own live stream.
+
 // File: frontend/src/pages/UnifiedInboxPage.tsx
-// Unified inbox page, displays chat previews and handles live updates.
+// Unified inbox for MULTIPLE Telegram accounts.
+// Renders one collapsible section per account, each with its own HTTP+WS stream.
+// Clicking on a chat navigates to /inbox/chat/:peerType/:peerId with sessionId in state.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,12 +15,12 @@ type UpdatePayload =
   | { type: 'new_message'; data: any }
   | { type: 'raw'; data: any };
 
-// Build WS url against same-origin (Vite proxy or env)
+// Build WS url for a specific account session
 function buildWsUrl(sessionId: string): string {
   return `${WS_BASE()}/ws?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
-// Apply "new message" preview to the chats list (move updated chat to top)
+// Apply "new message" to an array of previews (move updated to top)
 function applyNewMessage(prevs: ChatPreview[], data: any): ChatPreview[] {
   const peerKey = String(data?.peerKey || '');
   const text = typeof data?.text === 'string' ? data.text : '';
@@ -47,10 +51,10 @@ function applyNewMessage(prevs: ChatPreview[], data: any): ChatPreview[] {
   return [updated, ...next];
 }
 
-const UnifiedInboxPage: React.FC = () => {
+const AccountSection: React.FC<{ sessionId: string; header: string }> = ({ sessionId, header }) => {
   const navigate = useNavigate();
-  const { sessionId, authorized, status } = useTelegramAuth();
 
+  const [open, setOpen] = useState(true);
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,34 +65,20 @@ const UnifiedInboxPage: React.FC = () => {
 
   const LIMIT = 30;
 
-  // ---- Initial fetch on mount or when auth/session changes ----
+  // initial fetch
   useEffect(() => {
-    if (status !== 'authorized' || !authorized || !sessionId) {
-      console.warn('[UnifiedInboxPage] User not authorized for Telegram');
-      setError('Please log in to Telegram');
-      setLoading(false);
-      setChats([]); // ensure blank when unauthorized
-      return;
-    }
-
     let cancelled = false;
-    const controller = new AbortController();
-
-    setError(null);
     setLoading(true);
-    console.log('[UnifiedInboxPage] Fetching chat previews...');
-    // Perform fetch (duplicates are acceptable; AbortController cancels stale)
+    setError(null);
+
     fetchChatPreviews(sessionId, LIMIT)
       .then(data => {
         if (!cancelled) {
           setChats(data);
-          setError(null);
-          console.log(`[UnifiedInboxPage] Loaded ${data.length} chats`);
         }
       })
       .catch(err => {
         if (!cancelled) {
-          console.error('[UnifiedInboxPage] Error loading chats:', err);
           setError(err?.message || 'Failed to load');
         }
       })
@@ -96,50 +86,32 @@ const UnifiedInboxPage: React.FC = () => {
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [sessionId, authorized, status]);
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
-  // ---- Live updates via WebSocket ----
+  // live WS
   useEffect(() => {
-    if (status !== 'authorized' || !authorized || !sessionId) return;
-
     function connect() {
-      console.log('[UnifiedInboxPage] Connecting WebSocket for live updates...');
       const ws = new WebSocket(buildWsUrl(sessionId));
       wsRef.current = ws;
 
-      ws.onopen = () => { 
-        backoffRef.current = 0; 
-        console.log('[UnifiedInboxPage] WebSocket connected');
-      };
-
+      ws.onopen = () => { backoffRef.current = 0; };
       ws.onmessage = (ev) => {
         try {
           const payload: UpdatePayload = JSON.parse(ev.data);
           if (payload.type === 'new_message') {
-            console.log('[UnifiedInboxPage] Received new message update:', payload.data);
             setChats(prev => applyNewMessage(prev, payload.data));
           }
         } catch (e) {
-          console.error('[UnifiedInboxPage] WS message parse error', e);
+          // ignore parse errors
         }
       };
-
-      ws.onerror = () => {
-        console.error('[UnifiedInboxPage] WebSocket error');
-        try { ws.close(); } catch {}
-      };
-
+      ws.onerror = () => { try { ws.close(); } catch {} };
       ws.onclose = () => {
         const delay = Math.min(1000 * Math.pow(2, backoffRef.current++), 15000);
-        console.warn(`[UnifiedInboxPage] WebSocket closed, reconnecting in ${delay}ms`);
         reconnectTimerRef.current = window.setTimeout(connect, delay);
       };
     }
-
     connect();
 
     return () => {
@@ -152,10 +124,10 @@ const UnifiedInboxPage: React.FC = () => {
         wsRef.current = null;
       }
     };
-  }, [sessionId, authorized, status]);
+  }, [sessionId]);
 
-  // Sort: pinned first, then by lastMessageAt desc
-  const sortedChats = useMemo(() => {
+  // pinned first, then by lastMessageAt desc
+  const sorted = useMemo(() => {
     return [...chats].sort((a, b) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
       const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
@@ -164,37 +136,73 @@ const UnifiedInboxPage: React.FC = () => {
     });
   }, [chats]);
 
-  if (loading && chats.length === 0) return <div className="p-4">Loading...</div>;
-  if (error) return <div className="p-4 text-red-500">{error}</div>;
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 border-b hover:bg-gray-50"
+      >
+        <span className="font-semibold">{header}</span>
+        <span className="text-sm text-gray-500">{open ? 'Hide' : 'Show'}</span>
+      </button>
+
+      {!open ? null : (
+        <div className="p-3 space-y-2">
+          {loading && <div>Loading…</div>}
+          {error && <div className="text-red-600">{error}</div>}
+          {!loading && !error && sorted.map(chat => (
+            <button
+              key={`${chat.peerType}:${chat.peerId}`}
+              onClick={() => navigate(`/inbox/chat/${chat.peerType}/${chat.peerId}`, {
+                state: { chat, sessionId } // 👈 pass the correct account to chat page
+              })}
+              className="w-full text-left flex items-start p-3 bg-white rounded-lg border hover:bg-gray-50 cursor-pointer"
+            >
+              <div className="flex-1">
+                <div className="flex justify-between">
+                  <span className="font-semibold">{chat.title}</span>
+                  <span className="text-sm text-gray-500">
+                    {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleString() : ''}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600 truncate">
+                  {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
+                </div>
+              </div>
+              {chat.unreadCount > 0 && (
+                <div className="ml-2 flex items-center justify-center w-6 h-6 text-white bg-blue-500 rounded-full text-xs">
+                  {chat.unreadCount}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const UnifiedInboxPage: React.FC = () => {
+  const { accounts } = useTelegramAuth();
+
+  if (accounts.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded">
+          No accounts connected. Go to <span className="font-semibold">Accounts</span> to add a Telegram account.
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 space-y-2 overflow-auto w-full">
-      {sortedChats.map(chat => (
-        <button
-          key={`${chat.peerType}:${chat.peerId}`}
-          // Navigate to /inbox/chat/:peerType/:peerId and pass preview in state
-          onClick={() =>
-            navigate(`/inbox/chat/${chat.peerType}/${chat.peerId}`, { state: { chat } })
-          }
-          className="w-full text-left flex items-start p-3 bg-white rounded-lg shadow hover:bg-gray-50 cursor-pointer"
-        >
-          <div className="flex-1">
-            <div className="flex justify-between">
-              <span className="font-semibold">{chat.title}</span>
-              <span className="text-sm text-gray-500">
-                {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleString() : ''}
-              </span>
-            </div>
-            <div className="text-sm text-gray-600 truncate">
-              {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
-            </div>
-          </div>
-          {chat.unreadCount > 0 && (
-            <div className="ml-2 flex items-center justify-center w-6 h-6 text-white bg-blue-500 rounded-full text-xs">
-              {chat.unreadCount}
-            </div>
-          )}
-        </button>
+    <div className="p-4 space-y-4 overflow-auto w-full">
+      {accounts.map((a, i) => (
+        <AccountSection
+          key={a.sessionId}
+          sessionId={a.sessionId}
+          header={a.username ? `@${a.username}` : `Account ${i + 1}`}
+        />
       ))}
     </div>
   );

@@ -1,5 +1,5 @@
 // File: backend/utils/crypto.ts
-// Utility functions for encrypting and decrypting session strings.
+// Purpose: Utility functions for encrypting and decrypting session strings.
 
 import crypto from 'crypto';
 import path from 'path';

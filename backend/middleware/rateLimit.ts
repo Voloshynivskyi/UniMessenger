@@ -1,5 +1,5 @@
 // File: backend/middleware/rateLimit.ts
-// Express middleware for rate limiting requests per session.
+// Purpose: Express middleware for rate limiting requests per session.
 
 import type { Request, Response, NextFunction } from 'express';
 

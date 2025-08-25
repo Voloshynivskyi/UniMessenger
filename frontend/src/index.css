@@ -1,5 +1,4 @@
-/* File: frontend/src/index.css
-   Global styles and Tailwind setup for the frontend. */
+/* Purpose: Global styles and Tailwind setup for the frontend. */
 
 @tailwind base;
 @tailwind components;

@@ -1,16 +1,19 @@
 // File: frontend/src/main.tsx
-// Entry point for React frontend, renders the app and provides Telegram auth context.
+// Purpose: Entry point for React app, sets up Router and AuthProvider.
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import { BrowserRouter } from 'react-router-dom';
 import { TelegramAuthProvider } from './context/TelegramAuthContext';
+import App from './App';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <TelegramAuthProvider>
-      <App />
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
     </TelegramAuthProvider>
   </React.StrictMode>
 );

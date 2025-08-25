@@ -1,21 +1,24 @@
 // File: frontend/src/pages/ChatPage.tsx
-// Chat page, displays a single chat window for a selected peer.
+// Purpose: Chat page for a single chat, for a specific account (sessionId passed via state).
 
 import React from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useTelegramAuth } from '../context/TelegramAuthContext';
 import ChatWindow from '../components/ChatWindow';
 import type { ChatPreview } from '../api/telegramChats';
 
 const ChatPage: React.FC = () => {
-  // Read :peerType and :peerId from route
   const { peerType, peerId } = useParams<{ peerType: 'user'|'chat'|'channel', peerId: string }>();
   const { state } = useLocation();
   const navigate = useNavigate();
-  const { sessionId } = useTelegramAuth();
 
-  // Allow opening chat directly via URL (no state). Build minimal preview.
+  const sessionId: string | undefined = (state as any)?.sessionId;
   const chatFromState: ChatPreview | undefined = (state as any)?.chat;
+
+  if (!sessionId || !peerType || !peerId) {
+    navigate('/inbox', { replace: true });
+    return null;
+  }
+
   const chat: ChatPreview = chatFromState ?? {
     peerId: peerId || '',
     peerType: (peerType as any) || 'chat',
@@ -26,11 +29,6 @@ const ChatPage: React.FC = () => {
     isPinned: false,
     photo: null,
   };
-
-  if (!sessionId || !peerType || !peerId) {
-    navigate('/inbox', { replace: true });
-    return null;
-  }
 
   return (
     <div className="w-full h-full">
