@@ -1,11 +1,6 @@
 // File: frontend/src/components/ChatWindow.tsx
 // Chat window with scrollable message list, sticky composer, auto-scroll,
 // and robust de-duplication of messages (optimistic + WS echo).
-//
-// - Reads account from ?s=<sessionId>, peer from route params
-// - Subscribes to account-level WS via wsHub and filters by peerKey
-// - Maintains a Set of seen message keys to avoid duplicates
-// - Comments in English as requested.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
@@ -181,7 +176,7 @@ const ChatWindow: React.FC = () => {
   };
 
   if (!activeAccount) {
-    return <div className="p-4 text-red-600">Оберіть акаунт через список чатів.</div>;
+    return <div className="p-4 text-red-600">Please select an account from the chat list.</div>;
   }
 
   return (
@@ -217,7 +212,7 @@ const ChatWindow: React.FC = () => {
         <div className="flex gap-2">
           <input
             className="flex-1 border rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-blue-400"
-            placeholder="Напишіть повідомлення…"
+            placeholder="Type a message…"
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => {
@@ -228,7 +223,7 @@ const ChatWindow: React.FC = () => {
             onClick={onSend}
             className="px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"
           >
-            Надіслати
+            Send
           </button>
         </div>
       </div>

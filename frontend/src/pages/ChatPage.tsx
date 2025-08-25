@@ -53,7 +53,7 @@ const ChatPage: React.FC = () => {
           <div className="font-semibold">Select account</div>
         </div>
         <div className="p-4 text-red-500">
-          В URL немає параметра <code>?s=&lt;sessionId&gt;</code>. Оберіть чат зі списку у Unified Inbox.
+          No <code>?s=&lt;sessionId&gt;</code> parameter in URL. Please select a chat from the Unified Inbox list.
         </div>
       </div>
     );
