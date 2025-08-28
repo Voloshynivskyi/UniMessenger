@@ -98,19 +98,36 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
 router.get('/telegram/messages', async (req: Request, res: Response) => {
   try {
     const sessionId = await resolveSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'MISSING_SESSION_ID',
+        message: 'Provide session id via header "x-session-id" or query "?s|?session|?sessionId".',
+      });
+    }
     const limit = req.query.limit ? Math.min(Number(req.query.limit), 200) : 50;
     const beforeId = req.query.beforeId ? Number(req.query.beforeId) : undefined;
 
-    let peerKey = String(req.query.peerKey ?? '');
+    let peerKey =
+      (typeof req.query.peerKey === 'string' && req.query.peerKey) ||
+      (typeof req.query.peer === 'string' && req.query.peer) ||
+      '';
+
     if (!peerKey) {
-      const peerId = String(req.query.peerId ?? '');
-      const peerType = String(req.query.peerType ?? '');
+      const peerId = typeof req.query.peerId === 'string' ? req.query.peerId : '';
+      const peerType = typeof req.query.peerType === 'string' ? req.query.peerType : '';
       if (peerId && peerType) peerKey = `${peerType}:${peerId}`;
     }
+
     if (!peerKey) {
       console.warn('[telegram/messages] peerKey missing');
-      return res.status(400).json({ error: 'peerKey is required' });
+      return res.status(400).json({
+        ok: false,
+        error: 'MISSING_PEER',
+        message: 'Provide peer via ?peer= or ?peerKey=, or pass both ?peerType=&peerId=',
+      });
     }
+
 
     console.log(`[telegram/messages] Fetching messages for sessionId=${sessionId}, peerKey=${peerKey}, limit=${limit}`);
 
@@ -128,10 +145,21 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
 
     console.log(`[telegram/messages] Returned ${out.length} messages`);
     res.json(out);
-  } catch (e: any) {
-    console.error('[telegram/messages] Error:', e);
-    res.status(400).json({ error: e?.message || 'Failed to fetch messages' });
-  }
+    } catch (e: any) {
+      const msg = String(e?.message || 'Failed to fetch messages');
+      console.error('[telegram/messages] Error:', e);
+
+      if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
+        return res.status(401).json({
+          ok: false,
+          error: 'SESSION_NOT_FOUND',
+          message: 'Session not found or not authorized',
+          details: msg,
+        });
+      }
+
+      return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
+    }
 });
 
 export default router;

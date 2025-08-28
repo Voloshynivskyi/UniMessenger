@@ -1,227 +1,230 @@
 // File: frontend/src/pages/UnifiedInboxPage.tsx
-// Unified inbox with collapsible sections per account.
-// Visual style: simple list (no cards), avatar circle on the left,
-// bold title, gray last message, date on the right, unread badge.
-// Uses a single WebSocket per account via wsHub and merges live updates.
+// Purpose: Unified inbox grouped by Telegram accounts (collapsible sections), with live updates.
+// Notes:
+// - Per-account fetch with x-session-id; WS per account.
+// - Clean look: section headers, counters, unread pills, hover states.
+// - Clicking chat navigates to /inbox/chat/:peerType/:peerId?s=<sessionId>.
 
-// Comments are in English as requested.
-
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import http from '../lib/http';
+import { ensureSessionSocket, onSessionUpdate } from '../lib/wsHub';
+import type { UpdatePayload } from '../lib/wsHub';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
-import { fetchChatPreviews, type ChatPreview, type PeerType } from '../api/telegramChats';
-import { wsHub, type UpdatePayload } from '../lib/wsHub';
 
-// Build initials for avatar circle
-function initials(title: string): string {
-  const parts = title.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function readPeer(data: any): { peerType: PeerType; peerId: string } | null {
-  if (typeof data?.peerKey === 'string' && data.peerKey.includes(':')) {
-    const [t, id] = data.peerKey.split(':');
-    if (id) return { peerType: t as PeerType, peerId: String(id) };
-  }
-  if (data?.peerId != null) return { peerType: 'chat', peerId: String(data.peerId) };
-  return null;
-}
-
-function applyNewMessage(prevs: ChatPreview[], data: any): ChatPreview[] {
-  const peer = readPeer(data);
-  const text = typeof data?.text === 'string' ? data.text : '';
-  const date = data?.date ?? null;
-  if (!peer) return prevs;
-
-  const idx = prevs.findIndex(p => p.peerId === peer.peerId && p.peerType === peer.peerType);
-  if (idx === -1) {
-    const shadow: ChatPreview = {
-      peerId: peer.peerId,
-      peerType: peer.peerType,
-      title: 'Unknown',
-      lastMessageText: text || null,
-      lastMessageAt: date,
-      unreadCount: 1,
-      isPinned: false,
-      photo: null,
-    };
-    return [shadow, ...prevs];
-  }
-  const updated = { ...prevs[idx] };
-  if (text) updated.lastMessageText = text;
-  if (date) updated.lastMessageAt = date;
-  updated.unreadCount = (updated.unreadCount ?? 0) + 1;
-
-  const next = prevs.slice(0, idx).concat(prevs.slice(idx + 1));
-  return [updated, ...next];
-}
-
-type AccountState = {
-  sessionId: string;
-  username: string | null;
-  open: boolean;
-  chats: ChatPreview[];
-  loading: boolean;
-  error: string | null;
+type ChatPreview = {
+  peerId: string | number;
+  peerType: 'user' | 'chat' | 'channel' | string;
+  title?: string | null;
+  lastMessageText?: string | null;
+  lastMessageAt?: string | number | null;
+  unreadCount?: number;
+  isPinned?: boolean;
+  photo?: string | null;
 };
 
+type Account = {
+  sessionId: string;
+  username?: string | null;
+  active?: boolean;
+};
+
+function makePeerKey(cp: { peerType: string; peerId: string | number }) {
+  return `${cp.peerType}:${cp.peerId}`;
+}
+function formatTime(ts?: string | number | null): string {
+  if (!ts) return '';
+  const d = typeof ts === 'number' ? new Date(ts) : new Date(String(ts));
+  return isNaN(d.getTime()) ? '' : d.toLocaleString();
+}
+function labelForAccount(acc: Account, idx: number) {
+  return acc.username ? `@${acc.username}` : `Account #${idx + 1} (${acc.sessionId.slice(0, 8)})`;
+}
+
 const UnifiedInboxPage: React.FC = () => {
-  const { accounts } = useTelegramAuth();
-  const navigate = useNavigate();
+  const nav = useNavigate();
+  const { accounts = [] } = useTelegramAuth() as { accounts: Account[] };
 
-  const [state, setState] = useState<AccountState[]>(() =>
-    accounts.map(a => ({
-      sessionId: a.sessionId,
-      username: a.username ?? null,
-      open: true,
-      chats: [],
-      loading: true,
-      error: null,
-    }))
-  );
+  const [lists, setLists] = React.useState<Record<string, ChatPreview[]>>({});
+  const [loading, setLoading] = React.useState<Record<string, boolean>>({});
+  const [errors, setErrors] = React.useState<Record<string, string | null>>({});
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 
-  // Keep state aligned with accounts list
-  useEffect(() => {
-    setState(prev => {
-      const map = new Map(prev.map(p => [p.sessionId, p]));
-      return accounts.map(a => {
-        const old = map.get(a.sessionId);
-        return old
-          ? { ...old, username: a.username ?? old.username }
-          : { sessionId: a.sessionId, username: a.username ?? null, open: true, chats: [], loading: true, error: null };
-      });
-    });
-  }, [accounts]);
+  // ---- Load chats per account ----------------------------------------------
+  React.useEffect(() => {
+    let aborted = false;
 
-  // Load chats + subscribe to WS per account
-  useEffect(() => {
-    const unsubscribers: Array<() => void> = [];
+    const initLoading: Record<string, boolean> = {};
+    const initErrors: Record<string, string | null> = {};
+    for (const acc of accounts) {
+      initLoading[acc.sessionId] = true;
+      initErrors[acc.sessionId] = null;
+    }
+    setLoading(initLoading);
+    setErrors(initErrors);
 
-    state.forEach((acc, idx) => {
-      // initial load
-      fetchChatPreviews(acc.sessionId, 50)
-        .then(list => {
-          setState(cur => {
-            const c = [...cur];
-            c[idx] = { ...c[idx], chats: list, loading: false, error: null };
-            return c;
-          });
+    (async () => {
+      await Promise.all(
+        accounts.map(async (acc: Account) => {
+          try {
+            const res = await http.get<any>('/api/telegram/chats?limit=200', {
+              sessionId: acc.sessionId,
+            });
+            if (aborted) return;
+            const list: ChatPreview[] = Array.isArray(res)
+              ? res
+              : (res?.dialogs || res?.items || res?.chats || []);
+            setLists((prev) => ({ ...prev, [acc.sessionId]: list }));
+            setLoading((prev) => ({ ...prev, [acc.sessionId]: false }));
+          } catch (e: any) {
+            if (aborted) return;
+            setErrors((prev) => ({
+              ...prev,
+              [acc.sessionId]: e?.message || 'Не вдалося завантажити діалоги',
+            }));
+            setLoading((prev) => ({ ...prev, [acc.sessionId]: false }));
+          }
         })
-        .catch(e => {
-          setState(cur => {
-            const c = [...cur];
-            c[idx] = { ...c[idx], loading: false, error: e?.message || 'Failed to load' };
-            return c;
-          });
-        });
-
-      // WS subscribe
-      const unsub = wsHub.subscribe(acc.sessionId, (payload: UpdatePayload) => {
-        if (payload.type !== 'new_message') return;
-        setState(cur => {
-          const c = [...cur];
-          const me = c.findIndex(s => s.sessionId === acc.sessionId);
-          if (me === -1) return cur;
-          c[me] = { ...c[me], chats: applyNewMessage(c[me].chats, payload.data) };
-          return c;
-        });
-      });
-      unsubscribers.push(unsub);
-    });
+      );
+    })();
 
     return () => {
-      unsubscribers.forEach(fn => fn());
+      aborted = true;
     };
-    // Only re-run when number of accounts changes (avoid resubscribing on minor state updates)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.length]);
+  }, [accounts.map((a) => a.sessionId).join('|')]);
 
-  const toggle = (sid: string) => {
-    setState(cur => cur.map(s => (s.sessionId === sid ? { ...s, open: !s.open } : s)));
+  // ---- WS updates per account ----------------------------------------------
+  React.useEffect(() => {
+    const unsubs: Array<() => void> = [];
+    for (const acc of accounts) {
+      ensureSessionSocket(acc.sessionId);
+      unsubs.push(
+        onSessionUpdate(acc.sessionId, (payload: UpdatePayload) => {
+          const p: any = payload || {};
+          const data = p.data || p;
+
+          let peerKey: string | null = null;
+          if (data?.peerKey) peerKey = String(data.peerKey);
+          else if (data?.peerType && data?.peerId != null) peerKey = `${data.peerType}:${data.peerId}`;
+          if (!peerKey) return;
+
+          setLists((prev) => {
+            const list = prev[acc.sessionId] || [];
+            const idx = list.findIndex((c) => makePeerKey(c) === peerKey);
+            if (idx < 0) return prev;
+
+            const item = list[idx];
+            const updated: ChatPreview = {
+              ...item,
+              lastMessageText: data.text ?? data.message ?? item.lastMessageText ?? '',
+              lastMessageAt: data.date ?? Date.now(),
+              unreadCount: data.out === false ? (item.unreadCount || 0) + 1 : item.unreadCount ?? 0,
+            };
+            const next = list.slice();
+            next.splice(idx, 1);
+            return { ...prev, [acc.sessionId]: [updated, ...next] };
+          });
+        })
+      );
+    }
+    return () => {
+      for (const off of unsubs) try { off(); } catch {}
+    };
+  }, [accounts.map((a) => a.sessionId).join('|')]);
+
+  // ---- Navigation -----------------------------------------------------------
+  const openChat = (acc: Account, c: ChatPreview) => {
+    const url = `/inbox/chat/${encodeURIComponent(c.peerType)}/${encodeURIComponent(
+      String(c.peerId)
+    )}?s=${encodeURIComponent(acc.sessionId)}`;
+    // Pass minimal state so ChatPage can instantly show proper title without extra fetch
+    nav(url, { state: { chat: c } });
   };
 
-  const sorted = useMemo(() => {
-    return state.map(s => ({
-      ...s,
-      chats: [...s.chats].sort((a, b) => {
-        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-        const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
-        const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
-        return tb - ta;
-      }),
-    }));
-  }, [state]);
+  if (!accounts.length) {
+    return (
+      <div className="p-4 text-sm text-red-600">
+        Немає підключених Telegram-акаунтів. Додайте акаунт у розділі <b>Accounts</b>.
+      </div>
+    );
+  }
 
   return (
-    <div className="h-full overflow-auto">
-      {sorted.map(acc => (
-        <div key={acc.sessionId} className="border-b border-gray-200">
-          {/* Section header */}
-          <button
-            onClick={() => toggle(acc.sessionId)}
-            className="w-full flex items-center justify-between px-4 py-2 bg-gray-100 hover:bg-gray-200"
-          >
-            <span className="font-semibold">
-              {acc.username ? `@${acc.username}` : acc.sessionId.slice(0, 8)}
-            </span>
-            <span className="text-sm text-gray-600">{acc.open ? '▲' : '▼'}</span>
-          </button>
+    <div className="h-full overflow-auto bg-white">
+      <div className="p-3 border-b bg-white">
+        <h1 className="text-lg font-semibold">Unified Inbox</h1>
+      </div>
 
-          {/* Section body */}
-          {acc.open && (
-            <div className="divide-y">
-              {acc.loading && <div className="p-4 text-gray-600">Loading…</div>}
-              {acc.error && <div className="p-4 text-red-600">{acc.error}</div>}
-              {!acc.loading && !acc.error && acc.chats.length === 0 && (
-                <div className="p-4 text-gray-500">No chats yet</div>
-              )}
-              {!acc.loading &&
-                !acc.error &&
-                acc.chats.map(chat => (
-                  <div
-                    key={`${chat.peerType}:${chat.peerId}`}
-                    className="px-4 py-3 hover:bg-gray-50 cursor-pointer"
-                    onClick={() =>
-                      navigate(`/inbox/chat/${chat.peerType}/${chat.peerId}?s=${acc.sessionId}`, {
-                        state: { chat },
-                      })
-                    }
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Avatar circle */}
-                      <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-semibold text-white">
-                          {initials(chat.title || 'C')}
-                        </span>
+      <div className="divide-y">
+        {accounts.map((acc: Account, idx: number) => {
+          const list = lists[acc.sessionId] || [];
+          const isLoading = !!loading[acc.sessionId];
+          const err = errors[acc.sessionId] || null;
+          const isCollapsed = !!collapsed[acc.sessionId];
+
+          return (
+            <section key={acc.sessionId}>
+              {/* Section header */}
+              <div
+                className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer select-none sticky top-0 z-10"
+                onClick={() =>
+                  setCollapsed((prev) => ({ ...prev, [acc.sessionId]: !prev[acc.sessionId] }))
+                }
+              >
+                <div className="font-medium">
+                  {labelForAccount(acc, idx)}{' '}
+                  <span className="opacity-60 text-sm">({list.length})</span>
+                </div>
+                <div className="text-sm opacity-60">{isCollapsed ? '▶' : '▼'}</div>
+              </div>
+
+              {/* Section body */}
+              {!isCollapsed && (
+                <ul className="divide-y">
+                  {isLoading && (
+                    <li className="p-4 text-sm opacity-70">Завантаження діалогів…</li>
+                  )}
+                  {err && (
+                    <li className="p-4 text-xs text-amber-700 bg-amber-50 border border-amber-200">
+                      {err}
+                    </li>
+                  )}
+                  {!isLoading && !err && list.length === 0 && (
+                    <li className="p-4 text-sm opacity-60">Чатів не знайдено</li>
+                  )}
+                  {list.map((c) => (
+                    <li
+                      key={`${c.peerType}:${c.peerId}`}
+                      className="px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3"
+                      onClick={() => openChat(acc, c)}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm">
+                        {(c.title || '').slice(0, 2).toUpperCase() || '??'}
                       </div>
-
-                      {/* Middle block: title + last message */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium truncate">{chat.title}</span>
-                          <span className="text-xs text-gray-500 ml-3">
-                            {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleString() : ''}
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium truncate">{c.title || '(без назви)'}</div>
+                          {c.unreadCount ? (
+                            <span className="ml-auto text-xs bg-blue-600 text-white rounded-full px-2 py-0.5">
+                              {c.unreadCount}
+                            </span>
+                          ) : null}
                         </div>
-                        <div className="text-sm text-gray-600 truncate">
-                          {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
+                        <div className="text-xs text-gray-600 truncate">
+                          {c.lastMessageText || '—'}
                         </div>
                       </div>
-
-                      {/* Unread badge */}
-                      {chat.unreadCount > 0 && (
-                        <div className="ml-2 min-w-[24px] h-6 px-2 flex items-center justify-center text-white bg-blue-500 rounded-full text-xs">
-                          {chat.unreadCount}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-      ))}
+                      <div className="text-xs text-gray-500 whitespace-nowrap">
+                        {formatTime(c.lastMessageAt)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 };
