@@ -1,12 +1,15 @@
 // File: backend/server.ts
 // Express HTTP + WebSocket server, wired to current SessionManager.
 //
-// - WebSocketServer lives here (path: /ws) and bridges sessionManager events
+// - Robust .env loading with fallback (backend/.env -> project .env)
+// - WebSocketServer at /ws bridges SessionManager events
 // - Safe JSON packing for payloads (removes cycles / 'client' refs)
 // - CORS enabled for Vite (:5173)
-// - Mounts routes under '/api/*'
+// - Routes mounted under '/api/*'
+// - TELEGRAM_SESSION env is explicitly ignored (security)
 
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
@@ -25,7 +28,31 @@ import debugSessionsRoutes from './routes/debugSessions';
 import { sessionManager } from './services/sessionManager';
 import { rateLimitBySession } from './middleware/rateLimit';
 
-dotenv.config({ path: path.resolve(__dirname, '.env') });
+// ----- Load env with fallback -----
+(function loadEnvFallback() {
+  const candidates = [
+    path.resolve(process.cwd(), 'backend', '.env'),     // dev ts-node
+    path.resolve(process.cwd(), '.env'),               // project root
+    path.resolve(__dirname, '.env'),                   // compiled near server.js
+    path.resolve(__dirname, '..', '.env'),             // compiled parent
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const res = dotenv.config({ path: p, override: false });
+        if (res.parsed) break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+})();
+
+// ----- Security: ignore TELEGRAM_SESSION if present -----
+if (process.env.TELEGRAM_SESSION) {
+  console.warn('[SECURITY] TELEGRAM_SESSION env is set but will be IGNORED. ' +
+               'Sessions are stored only in DB. Please remove TELEGRAM_SESSION from .env.');
+}
 
 const app = express();
 
@@ -36,7 +63,7 @@ app.use(
       if (!origin) return cb(null, true);
       if (/^http:\/\/localhost:5173$/i.test(origin)) return cb(null, true);
       if (/^http:\/\/127\.0\.0\.1:5173$/i.test(origin)) return cb(null, true);
-      return cb(null, true);
+      return cb(null, true); // allow during dev; tighten in prod
     },
     credentials: true,
   })
