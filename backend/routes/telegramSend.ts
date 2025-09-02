@@ -1,8 +1,12 @@
+// backend/routes/telegramSend.ts
 // Purpose: Express route for sending Telegram messages and broadcasting updates.
+// Notes:
+// - Accepts peer via body.peerKey (primary) or pair peerType+peerId (aliases).
+// - Session is resolved header-first; cookie fallback allowed (configurable).
+// - Immediately emits WS update and invalidates dialogs cache for fresh previews.
 
 import { Router, Request, Response } from 'express';
-import { TelegramClient } from 'telegram';
-import { getClient } from '../services/telegramAuthService';
+import type { TelegramClient } from 'telegram';
 import { sessionManager } from '../services/sessionManager';
 import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 import { invalidateDialogsCache } from '../services/dialogsCache';
@@ -19,6 +23,9 @@ interface MessageDTO {
   service: boolean;
 }
 
+// ---- helpers ---------------------------------------------------------------
+
+// Extract ISO date from various gramJS shapes
 function extractDateISO(msg: any): string | null {
   const d = msg?.date;
   if (!d) return null;
@@ -27,8 +34,8 @@ function extractDateISO(msg: any): string | null {
   return null;
 }
 
+// Human-friendly text for non-text messages
 function textFrom(msg: any): string {
-  // Short human-friendly placeholders for non-text messages
   if (msg?.action) return '[service message]';
   if (typeof msg?.message === 'string' && msg.message.trim().length) return msg.message;
   const m = msg?.media;
@@ -85,7 +92,7 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
     if (toPeerKeyFromEntity(e) === peerKey) return e;
   }
   // Fallback: parse number and getEntity
-  const [_, idStr] = (peerKey || '').split(':');
+  const [, idStr] = (peerKey || '').split(':');
   const num = Number(idStr);
   if (Number.isFinite(num)) {
     try { return await (client as any).getEntity(num); } catch {}
@@ -93,10 +100,11 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
   throw new Error('Peer not found: ' + peerKey);
 }
 
+// ---- route -----------------------------------------------------------------
 // Body: { peerKey?: string, peerId?: string, peerType?: 'user'|'chat'|'channel', text: string, replyToId?: number }
 router.post('/telegram/send', async (req: Request, res: Response) => {
   try {
-    // IMPORTANT: no cookie fallback for multi-account safety
+    // Header-first; cookie fallback allowed (opt-in)
     const sessionId = await resolveSessionId(req, { allowCookie: true });
 
     let { peerKey, peerId, peerType, text, replyToId } = req.body ?? {};
@@ -104,20 +112,18 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
 
     if (!peerKey && peerId && peerType) peerKey = `${String(peerType)}:${String(peerId)}`;
 
-    console.log(`[telegram/send] Sending message for sessionId=${sessionId}, peerKey=${peerKey}`);
-
     if (!peerKey) {
       console.warn('[telegram/send] peerKey missing');
-      return res.status(400).json({ error: 'peerKey (or peerId+peerType) is required' });
+      return res.status(400).json({ ok: false, error: 'MISSING_PEER', message: 'peerKey (or peerId+peerType) is required' });
     }
     if (!message) {
       console.warn('[telegram/send] Message text is empty');
-      return res.status(400).json({ error: 'Message text cannot be empty' });
+      return res.status(400).json({ ok: false, error: 'EMPTY_MESSAGE', message: 'Message text cannot be empty' });
     }
 
     const sid = await requireSessionId(req, { allowCookie: true });
     const client = await sessionManager.ensureClient(sid);
-    const entity = await resolveEntityByPeerKey(client, String(peerKey));
+    const entity = await resolveEntityByPeerKey(client as any, String(peerKey));
 
     const sent = await (client as any).sendMessage(entity, {
       message,
@@ -128,18 +134,29 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
     console.log('[telegram/send] Message sent:', dto);
 
     // Push to WS subscribers immediately
-    sessionManager.emit(`update:${String(sessionId)}`, {
+    sessionManager.emit(`update:${String(sid)}`, {
       type: 'new_message',
       data: dto,
     });
 
     // Invalidate dialogs cache so previews refresh with latest message
-    invalidateDialogsCache(String(sessionId));
+    invalidateDialogsCache(String(sid));
 
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
     console.error('[telegram/send] Error:', e);
-    return res.status(400).json({ error: e?.message || 'Failed to send message' });
+    const msg = String(e?.message || 'Failed to send message');
+
+    if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
+      return res.status(401).json({
+        ok: false,
+        error: 'SESSION_NOT_FOUND',
+        message: 'Session not found or not authorized',
+        details: msg,
+      });
+    }
+
+    return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
   }
 });
 

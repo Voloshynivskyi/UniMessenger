@@ -1,9 +1,14 @@
+// backend/routes/telegramMessages.ts
 // Purpose: Express route for fetching Telegram messages for a chat.
+// Notes:
+// - Accepts peer via ?peerKey= (primary) or ?peer=, or pair ?peerType=&peerId= (aliases).
+// - Session is resolved header-first (x-session-id), with cookie fallback allowed.
+// - Messages are returned in ascending order by id (oldest -> newest).
 
 import { Router, Request, Response } from 'express';
-import { TelegramClient } from 'telegram';
-import { getClient } from '../services/telegramAuthService';
-import { resolveSessionId } from '../utils/sessionResolver';
+import type { TelegramClient } from 'telegram';
+import { sessionManager } from '../services/sessionManager';
+import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 
 const router = Router();
 
@@ -17,6 +22,9 @@ interface MessageDTO {
   service: boolean;
 }
 
+// ---- helpers ---------------------------------------------------------------
+
+// Extract ISO date from various gramJS shapes
 function extractDateISO(msg: any): string | null {
   const d = msg?.date;
   if (!d) return null;
@@ -25,6 +33,7 @@ function extractDateISO(msg: any): string | null {
   return null;
 }
 
+// Human-friendly text for non-text messages
 function textFrom(msg: any): string {
   if (msg?.action) return '[service message]';
   if (typeof msg?.message === 'string' && msg.message.trim().length) return msg.message;
@@ -39,9 +48,16 @@ function textFrom(msg: any): string {
 }
 
 function serviceFlag(msg: any): boolean {
-  if (msg?.action) return true;
-  if (typeof msg?.message === 'string') return false;
-  return false;
+  return Boolean(msg?.action);
+}
+
+function toPeerKeyFromMsg(msg: any): string {
+  const p = msg?.peerId || {};
+  if (p.userId != null) return `user:${p.userId}`;
+  if (p.chatId != null) return `chat:${p.chatId}`;
+  if (p.channelId != null) return `channel:${p.channelId}`;
+  if (msg?.chatId != null) return `chat:${msg.chatId}`;
+  return '';
 }
 
 function toPeerKeyFromEntity(e: any): string {
@@ -52,15 +68,6 @@ function toPeerKeyFromEntity(e: any): string {
   if (p?.userId != null) return `user:${p.userId}`;
   if (p?.chatId != null) return `chat:${p.chatId}`;
   if (p?.channelId != null) return `channel:${p.channelId}`;
-  return '';
-}
-
-function toPeerKeyFromMsg(msg: any): string {
-  const p = msg?.peerId || {};
-  if (p.userId != null) return `user:${p.userId}`;
-  if (p.chatId != null) return `chat:${p.chatId}`;
-  if (p.channelId != null) return `channel:${p.channelId}`;
-  if (msg?.chatId != null) return `chat:${msg.chatId}`;
   return '';
 }
 
@@ -81,12 +88,14 @@ function toDTO(msg: any): MessageDTO {
 }
 
 async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): Promise<any> {
+  // Try fast-path via dialogs
   const dialogs: any[] = await (client as any).getDialogs({ limit: 200 });
   for (const d of dialogs) {
     const e = d.entity;
     if (toPeerKeyFromEntity(e) === peerKey) return e;
   }
-  const [_, idStr] = (peerKey || '').split(':');
+  // Fallback: parse numeric id and resolve entity
+  const [, idStr] = (peerKey || '').split(':');
   const num = Number(idStr);
   if (Number.isFinite(num)) {
     try { return await (client as any).getEntity(num); } catch {}
@@ -94,20 +103,24 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
   throw new Error('Peer not found: ' + peerKey);
 }
 
+// ---- route -----------------------------------------------------------------
 // GET /api/telegram/messages?peerKey=...&limit=50&beforeId=12345
 router.get('/telegram/messages', async (req: Request, res: Response) => {
   try {
-    const sessionId = await resolveSessionId(req);
+    // Header-first; cookie fallback allowed for convenience
+    const sessionId = await resolveSessionId(req, { allowCookie: true });
     if (!sessionId) {
       return res.status(400).json({
         ok: false,
         error: 'MISSING_SESSION_ID',
-        message: 'Provide session id via header "x-session-id" or query "?s|?session|?sessionId".',
+        message: 'Provide session id via header "x-session-id" or query (?s|?session|?sessionId).',
       });
     }
+
     const limit = req.query.limit ? Math.min(Number(req.query.limit), 200) : 50;
     const beforeId = req.query.beforeId ? Number(req.query.beforeId) : undefined;
 
+    // Accept aliases for backward compatibility
     let peerKey =
       (typeof req.query.peerKey === 'string' && req.query.peerKey) ||
       (typeof req.query.peer === 'string' && req.query.peer) ||
@@ -124,15 +137,15 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
       return res.status(400).json({
         ok: false,
         error: 'MISSING_PEER',
-        message: 'Provide peer via ?peer= or ?peerKey=, or pass both ?peerType=&peerId=',
+        message: 'Provide ?peerKey= (or alias ?peer=, or pair ?peerType=&peerId=).',
       });
     }
 
+    console.log(`[telegram/messages] sessionId=${sessionId}, peerKey=${peerKey}, limit=${limit}`);
 
-    console.log(`[telegram/messages] Fetching messages for sessionId=${sessionId}, peerKey=${peerKey}, limit=${limit}`);
-
-    const client: TelegramClient = await getClient(sessionId);
-    const entity = await resolveEntityByPeerKey(client, peerKey);
+    const sid = await requireSessionId(req, { allowCookie: true });
+    const client = await sessionManager.ensureClient(sid);
+    const entity = await resolveEntityByPeerKey(client as any, peerKey);
 
     const opts: any = { limit };
     if (beforeId) opts.maxId = beforeId;
@@ -140,26 +153,29 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
     const raw: any[] = [];
     for await (const m of (client as any).iterMessages(entity, opts)) raw.push(m);
 
+    // Ascending by id (oldest -> newest) for stable UI
     raw.sort((a, b) => (a.id || 0) - (b.id || 0));
+
     const out: MessageDTO[] = raw.map(toDTO);
-
     console.log(`[telegram/messages] Returned ${out.length} messages`);
+
+    // Return as plain array to preserve FE compatibility
     res.json(out);
-    } catch (e: any) {
-      const msg = String(e?.message || 'Failed to fetch messages');
-      console.error('[telegram/messages] Error:', e);
+  } catch (e: any) {
+    const msg = String(e?.message || 'Failed to fetch messages');
+    console.error('[telegram/messages] Error:', e);
 
-      if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
-        return res.status(401).json({
-          ok: false,
-          error: 'SESSION_NOT_FOUND',
-          message: 'Session not found or not authorized',
-          details: msg,
-        });
-      }
-
-      return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
+    if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
+      return res.status(401).json({
+        ok: false,
+        error: 'SESSION_NOT_FOUND',
+        message: 'Session not found or not authorized',
+        details: msg,
+      });
     }
+
+    return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
+  }
 });
 
 export default router;
