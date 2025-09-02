@@ -1,7 +1,8 @@
 // File: frontend/src/components/ChatWindow.tsx
-// Purpose: Chat view with scrollable list + composer. No duplicates:
+// Purpose: Chat view with scrollable list + composer + infinite scroll up.
 // - Optimistic local message gets replaced by real one (WS or POST response).
 // - Robust fetch (array or {messages: []}), WS append, auto-scroll.
+// - Infinite scroll: load older messages on reaching top (beforeId pagination).
 // - Enter to send, Shift+Enter for newline.
 
 import React from 'react';
@@ -73,6 +74,11 @@ const ChatWindow: React.FC = () => {
   const [loading, setLoading] = React.useState<boolean>(true);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Infinite scroll state
+  const [loadingOlder, setLoadingOlder] = React.useState<boolean>(false);
+  const loadingOlderRef = React.useRef<boolean>(false); // English: guard against concurrent fetches
+  const [hasMore, setHasMore] = React.useState<boolean>(true);
+
   // Composer
   const [text, setText] = React.useState<string>('');
   const [sending, setSending] = React.useState<boolean>(false);
@@ -104,14 +110,6 @@ const ChatWindow: React.FC = () => {
     if (atBottom && !userPinnedScrollTopRef.current) scrollToBottom();
   }, [scrollToBottom]);
 
-  const onListScroll = React.useCallback(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const threshold = 200;
-    userPinnedScrollTopRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight > threshold;
-  }, []);
-
   // ---- Load initial messages ------------------------------------------------
   React.useEffect(() => {
     if (!sessionId || !peerKey) return;
@@ -122,6 +120,7 @@ const ChatWindow: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setHasMore(true); // reset pagination on chat change
 
     (async () => {
       try {
@@ -135,6 +134,8 @@ const ChatWindow: React.FC = () => {
           : [];
 
         setMessages(list);
+        // If returned less than a page, there may be no more history
+        setHasMore(list.length >= PAGE_SIZE);
         setLoading(false);
         setTimeout(scrollToBottom, 0);
       } catch (e: any) {
@@ -256,6 +257,85 @@ const ChatWindow: React.FC = () => {
     return () => off();
   }, [sessionId, peerKey, maybeAutoScroll, replaceOptimisticWithReal]);
 
+  // ---- Infinite scroll: load older on reaching top --------------------------
+  const loadOlder = React.useCallback(async () => {
+    const el = listRef.current;
+    if (!sessionId || !peerKey || !el) return;
+    if (!hasMore) return;
+    if (loadingOlderRef.current) return;
+
+    // English: find the smallest numeric message id to use as beforeId
+    const firstNumericId = (() => {
+      for (const m of messages) {
+        if (typeof m.id === 'number') return m.id;
+        const n = Number(m.id);
+        if (Number.isFinite(n)) return n;
+      }
+      return null;
+    })();
+
+    if (firstNumericId == null) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+
+    const prevHeight = el.scrollHeight;
+    const prevTop = el.scrollTop;
+
+    try {
+      const older = await fetchMessages(sessionId, peerKey, PAGE_SIZE, firstNumericId);
+
+      // If backend returned less than a page, likely no more pages
+      if (!Array.isArray(older) || older.length === 0) {
+        setHasMore(false);
+      }
+
+      // Prepend with de-duplication, preserving ascending order
+      setMessages((prev) => {
+        const combined = [...older, ...prev];
+        const seen = new Set<string>();
+        const result: Msg[] = [];
+        for (const item of combined) {
+          const key = String(item.id);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          result.push(item);
+        }
+        return result;
+      });
+
+      // Restore scroll position so content doesn't jump
+      setTimeout(() => {
+        const afterHeight = el.scrollHeight;
+        const delta = afterHeight - prevHeight;
+        el.scrollTop = prevTop + delta;
+      }, 0);
+    } catch (e) {
+      // Optional: surface error softly
+      // (We don't set global error to not pollute composer; dev can open console)
+      console.warn('[ChatWindow] Failed to load older messages:', e);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [sessionId, peerKey, messages, hasMore]);
+
+  const onListScroll = React.useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    // Track whether user is near bottom (to enable auto-scroll on new messages)
+    const bottomThreshold = 200;
+    userPinnedScrollTopRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight > bottomThreshold;
+
+    // Trigger older load when close to top
+    const topThreshold = 80;
+    if (el.scrollTop <= topThreshold) {
+      void loadOlder();
+    }
+  }, [loadOlder]);
+
   // ---- Send message ---------------------------------------------------------
   const doSend = React.useCallback(
     async (bodyText: string) => {
@@ -356,6 +436,11 @@ const ChatWindow: React.FC = () => {
         className="flex-1 overflow-auto p-4 space-y-2 bg-gray-50"
         onScroll={onListScroll}
       >
+        {/* Top loader for older history */}
+        {loadingOlder && (
+          <div className="text-center text-xs text-gray-500 py-1">Завантаження історії…</div>
+        )}
+
         {loading && messages.length === 0 && (
           <div className="opacity-60 text-sm">Завантаження повідомлень…</div>
         )}
@@ -389,6 +474,9 @@ const ChatWindow: React.FC = () => {
 
         {!loading && messages.length === 0 && !error && (
           <div className="opacity-60 text-sm">Повідомлень немає</div>
+        )}
+        {!hasMore && messages.length > 0 && (
+          <div className="text-center text-[11px] text-gray-400 mt-2">Це початок історії</div>
         )}
       </div>
 

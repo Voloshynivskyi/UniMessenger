@@ -79,7 +79,8 @@ const UnifiedInbox: React.FC = () => {
 
   // Guard: if no accounts added yet
   if (!authorized || !sessionId) {
-    return <div className="p-4 text-gray-600">Please add a Telegram account in Accounts.</div>;
+    return <div className="p-4 text-gray-600">Додайте акаунт Telegram у розділі Accounts.</div>;
+    // UI text in Ukrainian; comments in English.
   }
 
   // --- From this point, sessionId is a non-null string ---
@@ -110,7 +111,7 @@ const UnifiedInbox: React.FC = () => {
       })
       .catch(err => {
         if (!cancelled) {
-          setError(err?.message || 'Failed to load');
+          setError(err?.message || 'Не вдалося завантажити');
         }
       })
       .finally(() => {
@@ -176,7 +177,7 @@ const UnifiedInbox: React.FC = () => {
   }, [chats]);
 
   if (loading && chats.length === 0) {
-    return <div className="p-4">Loading...</div>;
+    return <div className="p-4">Завантаження…</div>;
   }
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>;
@@ -197,7 +198,7 @@ const UnifiedInbox: React.FC = () => {
               </span>
             </div>
             <div className="text-sm text-gray-600 truncate">
-              {chat.lastMessageText || <span className="italic text-gray-400">No messages</span>}
+              {chat.lastMessageText || <span className="italic text-gray-400">Немає повідомлень</span>}
             </div>
           </div>
           {chat.unreadCount > 0 && (

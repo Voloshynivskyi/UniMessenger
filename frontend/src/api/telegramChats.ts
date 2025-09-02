@@ -1,7 +1,10 @@
 // File: frontend/src/api/telegramChats.ts
 // Purpose: API client for fetching Telegram chat previews.
+// Notes:
+// - Uses shared http wrapper so x-session-id header is always set (header-first).
+// - Only "limit" is passed in query; sessionId goes in header.
 
-import { apiUrl } from '../lib/http';
+import http from '../lib/http';
 
 export type PeerType = 'user' | 'chat' | 'channel';
 
@@ -17,18 +20,8 @@ export interface ChatPreview {
 }
 
 export async function fetchChatPreviews(sessionId: string, limit = 30): Promise<ChatPreview[]> {
-  const params = new URLSearchParams({ sessionId, limit: String(limit) });
-  const res = await fetch(apiUrl(`/api/telegram/chats?${params.toString()}`), {
-    headers: { 'x-session-id': sessionId },
+  const params = new URLSearchParams({ limit: String(limit) });
+  return http.get<ChatPreview[]>(`/api/telegram/chats?${params.toString()}`, {
+    sessionId,
   });
-  const ct = res.headers.get('content-type') || '';
-  const text = await res.text();
-  if (!res.ok) {
-    try { const json = JSON.parse(text); throw new Error(json?.error || text); }
-    catch { throw new Error(text || `HTTP ${res.status}`); }
-  }
-  if (!ct.includes('application/json')) {
-    throw new Error(`Non-JSON response from API:\n${text.slice(0, 200)}`);
-  }
-  return JSON.parse(text);
 }
