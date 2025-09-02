@@ -6,9 +6,10 @@
 
 import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import http, { getDefaultSessionId } from '../lib/http';
+import { getDefaultSessionId } from '../lib/http';
 import { ensureSessionSocket, onSessionUpdate } from '../lib/wsHub';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
+import { fetchMessages, sendMessage } from '../api/telegramMessages';
 
 type Params = { peerType: string; peerId: string };
 
@@ -124,17 +125,13 @@ const ChatWindow: React.FC = () => {
 
     (async () => {
       try {
-        const data = await http.get<any>(
-          `/api/telegram/messages?peer=${encodeURIComponent(peerKey)}&limit=${PAGE_SIZE}`,
-          { sessionId }
-        );
+        const raw = await fetchMessages(sessionId, peerKey, PAGE_SIZE);
         if (aborted || lastReqRef.current !== reqId) return;
 
-        const raw = data as any;
         const list: Msg[] = Array.isArray(raw)
           ? raw
-          : Array.isArray(raw?.messages)
-          ? raw.messages
+          : Array.isArray((raw as any)?.messages)
+          ? (raw as any).messages
           : [];
 
         setMessages(list);
@@ -294,23 +291,16 @@ const ChatWindow: React.FC = () => {
       }, 0);
 
       try {
-        // Explicitly type resp as any to satisfy TS (http.post returns generic/unknown)
-        const resp: any = await http.post<any>(
-          '/api/telegram/send',
-          { peerType, peerId, text: t },
-          { sessionId }
-        );
-
-        // If backend returns message payload immediately, replace optimistic now
-        const real: Msg | null = resp?.message
-          ? {
+        const resp = await sendMessage(sessionId, peerKey, t);
+        const real = resp?.message
+          ? ({
               id: resp.message.id ?? now,
               peerKey: resp.message.peerKey || peerKey,
               text: resp.message.text ?? t,
               date: resp.message.date ?? now,
               out: true,
               service: !!resp.message.service,
-            }
+            } as Msg)
           : null;
 
         if (real) {
@@ -336,7 +326,7 @@ const ChatWindow: React.FC = () => {
         setSending(false);
       }
     },
-    [sessionId, peerKey, peerType, peerId, replaceOptimisticWithReal]
+    [sessionId, peerKey, replaceOptimisticWithReal]
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

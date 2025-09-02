@@ -1,7 +1,8 @@
 // File: frontend/src/api/telegramMessages.ts
 // Purpose: API client for fetching and sending Telegram messages.
+// Uses shared http wrapper so x-session-id header is always set (header-first).
 
-import { apiUrl } from '../lib/http';
+import http from '../lib/http';
 
 export interface MessageDTO {
   id: number;
@@ -19,23 +20,15 @@ export async function fetchMessages(
   limit = 50,
   beforeId?: number
 ): Promise<MessageDTO[]> {
-  const params = new URLSearchParams({ sessionId, peerKey, limit: String(limit) });
-  if (beforeId) params.set('beforeId', String(beforeId));
+  // Build query with peerKey (primary) and limit; beforeId as maxId on BE
+  const params = new URLSearchParams({ peerKey, limit: String(limit) });
+  if (beforeId != null) params.set('beforeId', String(beforeId));
 
-  const res = await fetch(apiUrl(`/api/telegram/messages?${params.toString()}`), {
-    headers: { 'x-session-id': sessionId },
-  });
-
-  const ct = res.headers.get('content-type') || '';
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  if (!ct.includes('application/json')) {
-    const text = await res.text();
-    throw new Error(`Non-JSON response from API:\n${text.slice(0, 200)}`);
-  }
-  return res.json();
+  // http.get will attach x-session-id header for us
+  return http.get<MessageDTO[]>(
+    `/api/telegram/messages?${params.toString()}`,
+    { sessionId }
+  );
 }
 
 export async function sendMessage(
@@ -44,23 +37,9 @@ export async function sendMessage(
   text: string,
   replyToId?: number
 ): Promise<{ ok: boolean; message: MessageDTO }> {
-  const res = await fetch(apiUrl('/api/telegram/send'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-session-id': sessionId,
-    },
-    body: JSON.stringify({ sessionId, peerKey, text, ...(replyToId ? { replyToId } : {}) }),
-  });
-
-  const ct = res.headers.get('content-type') || '';
-  if (!res.ok) {
-    const textRes = await res.text();
-    throw new Error(textRes || `HTTP ${res.status}`);
-  }
-  if (!ct.includes('application/json')) {
-    const textRes = await res.text();
-    throw new Error(`Non-JSON response from API:\n${textRes.slice(0, 200)}`);
-  }
-  return res.json();
+  return http.post<{ ok: boolean; message: MessageDTO }>(
+    '/api/telegram/send',
+    { peerKey, text, ...(replyToId ? { replyToId } : {}) },
+    { sessionId }
+  );
 }
