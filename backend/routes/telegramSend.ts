@@ -4,7 +4,7 @@ import { Router, Request, Response } from 'express';
 import { TelegramClient } from 'telegram';
 import { getClient } from '../services/telegramAuthService';
 import { sessionManager } from '../services/sessionManager';
-import { resolveSessionId } from '../utils/sessionResolver';
+import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 import { invalidateDialogsCache } from '../services/dialogsCache';
 
 const router = Router();
@@ -97,7 +97,7 @@ async function resolveEntityByPeerKey(client: TelegramClient, peerKey: string): 
 router.post('/telegram/send', async (req: Request, res: Response) => {
   try {
     // IMPORTANT: no cookie fallback for multi-account safety
-    const sessionId = await resolveSessionId(req, { allowCookieFallback: false });
+    const sessionId = await resolveSessionId(req, { allowCookie: true });
 
     let { peerKey, peerId, peerType, text, replyToId } = req.body ?? {};
     const message = (typeof text === 'string' ? text : '').trim();
@@ -115,7 +115,8 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Message text cannot be empty' });
     }
 
-    const client: TelegramClient = await getClient(sessionId);
+    const sid = await requireSessionId(req, { allowCookie: true });
+    const client = await sessionManager.ensureClient(sid);
     const entity = await resolveEntityByPeerKey(client, String(peerKey));
 
     const sent = await (client as any).sendMessage(entity, {

@@ -26,7 +26,7 @@ import telegramHealthRoutes from './routes/telegramHealth';
 import debugSessionsRoutes from './routes/debugSessions';
 
 import { sessionManager } from './services/sessionManager';
-import { rateLimitBySession } from './middleware/rateLimit';
+import rateLimit from './middleware/rateLimit';
 
 // ----- Load env with fallback -----
 (function loadEnvFallback() {
@@ -80,10 +80,11 @@ app.use('/api', telegramHealthRoutes);        // /telegram/health (DB-only check
 // Optional rate limit per session (safe defaults)
 app.use(
   '/api',
-  rateLimitBySession({
+  rateLimit({
     windowMs: 5000,
-    max: 20,
+    burst: 20,
     excludePaths: ['/api/telegram/health'],
+    refillPerSec: 2,
   })
 );
 

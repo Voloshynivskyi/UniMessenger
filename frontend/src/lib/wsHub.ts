@@ -3,9 +3,10 @@
 //          and stable subscribe/unsubscribe API.
 // Notes:
 // - Server path is /ws and expects ?sessionId=... query.
-// - We derive base from WS_BASE('/ws') to keep config in one place.
+// - We derive base from WS_BASE() and append '/ws' to keep config in one place.
 // - Prevents "closed before established" by never calling .close() during CONNECTING,
-//   and by debouncing reconnects.
+//   and by debouncing reconnects. If manualClose happens while CONNECTING,
+//   we immediately close right after onopen.
 //
 // Public API:
 //   ensureSessionSocket(sessionId): Connection
@@ -51,8 +52,11 @@ type InternalConn = {
 const CONNS = new Map<string, InternalConn>();
 
 function wsUrl(sessionId: string): string {
-  const base = WS_BASE('/ws'); // e.g. ws://localhost:7007/ws
+  // Build ws(s)://host[:port]/ws?sessionId=...
+  const base = WS_BASE(); // e.g. ws://localhost:7007
   const u = new URL(base);
+  const clean = u.pathname.replace(/\/+$/, '');
+  u.pathname = `${clean}/ws`; // always append /ws
   u.searchParams.set('sessionId', sessionId);
   return u.toString();
 }
@@ -88,6 +92,11 @@ function connect(c: InternalConn) {
   c.ws = ws;
 
   ws.onopen = () => {
+    if (c.manualClose) {
+      // If user requested close during CONNECTING, close immediately after open
+      try { ws.close(); } catch { /* no-op */ }
+      return;
+    }
     c.state = 'open';
     c.attempts = 0;
   };
