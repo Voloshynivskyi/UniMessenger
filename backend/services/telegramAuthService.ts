@@ -9,6 +9,7 @@ import createDebug from 'debug';
 import { PrismaClient } from '@prisma/client';
 import { encrypt } from '../utils/crypto';
 import { sessionManager } from './sessionManager';
+import { invalidateDialogsCache } from './dialogsCache'; // ⬅️ for cache invalidation on logout
 
 const debug = createDebug('app:telegramAuth');
 const prisma = new PrismaClient();
@@ -274,6 +275,110 @@ export async function authenticate(
     // Best-effort disconnect; long-lived client is managed by sessionManager
     await (tempClient as any).disconnect?.().catch(() => {});
   }
+}
+
+// -------- P0.1: REAL LOGOUT -------------------------------------------------
+
+function isIgnorableLogoutError(err: any): boolean {
+  // comments in English
+  // Ignore errors that mean the session is already dead/invalid
+  const msg = String(err?.message || err?.errorMessage || '').toUpperCase();
+  return (
+    msg.includes('AUTH_KEY_UNREGISTERED') ||
+    msg.includes('SESSION_REVOKED') ||
+    msg.includes('AUTH_KEY_INVALID') ||
+    msg.includes('ALREADY_LOGGED_OUT')
+  );
+}
+
+/**
+ * Perform real logout:
+ * 1) auth.LogOut() against Telegram (if session is authorized)
+ * 2) Always dispose local client
+ * 3) Remove session row from DB (idempotent)
+ * 4) Invalidate dialogs cache
+ */
+export async function logout(sessionId: string): Promise<void> {
+  const tag = `logout(${sessionId})`;
+  debug('%s: start', tag);
+  console.log('[authService]', tag, 'start');
+
+  if (!sessionId) {
+    const e: any = new Error('Missing sessionId');
+    e.status = 400; e.code = 'MISSING_SESSION_ID';
+    debug('%s: error - missing sessionId', tag);
+    throw e;
+  }
+
+  let row: any = null;
+  try {
+    row = await prisma.session.findUnique({ where: { sessionId } });
+    debug('%s: db row %s', tag, row ? 'found' : 'NOT found');
+    console.log('[authService]', tag, 'dbRowExists=', !!row);
+  } catch (e: any) {
+    console.error('[authService]', tag, 'db read error', e);
+    throw Object.assign(new Error('DB read failed'), { status: 500, code: 'DB_READ_FAILED' });
+  }
+
+  const hasAuthorized = !!row?.sessionString && row.sessionString.length > 0;
+
+  if (hasAuthorized) {
+    debug('%s: authorized session detected → auth.LogOut()', tag);
+    console.log('[authService]', tag, 'will invoke auth.LogOut()');
+
+    try {
+      const client = await sessionManager.ensureClient(sessionId);
+      try { await client.connect(); } catch {/* no-op */}
+      await client.invoke(new Api.auth.LogOut());
+      debug('%s: auth.LogOut OK', tag);
+      console.log('[authService]', tag, 'auth.LogOut OK');
+    } catch (err: any) {
+      console.error('[authService]', tag, 'auth.LogOut error', err?.message || err);
+      if (!isIgnorableLogoutError(err)) {
+        const e: any = new Error(err?.message || 'Telegram logout failed');
+        e.status = 502; e.code = 'TELEGRAM_LOGOUT_FAILED';
+        throw e;
+      }
+      debug('%s: auth.LogOut ignorable error → continue', tag);
+    } finally {
+      try {
+        debug('%s: safeDispose()', tag);
+        await sessionManager.safeDispose(sessionId);
+        console.log('[authService]', tag, 'safeDispose done');
+      } catch (e) {
+        console.error('[authService]', tag, 'safeDispose error', e);
+      }
+    }
+  } else {
+    debug('%s: no authorized session string → only safeDispose', tag);
+    try {
+      await sessionManager.safeDispose(sessionId);
+      console.log('[authService]', tag, 'safeDispose (no-auth) done');
+    } catch (e) {
+      console.error('[authService]', tag, 'safeDispose (no-auth) error', e);
+    }
+  }
+
+  // remove DB row (idempotent)
+  try {
+    await prisma.session.delete({ where: { sessionId } });
+    debug('%s: db row deleted', tag);
+    console.log('[authService]', tag, 'db delete done');
+  } catch (e: any) {
+    if (String(e?.code) === 'P2025') {
+      debug('%s: db row already gone', tag);
+      console.log('[authService]', tag, 'db row not found on delete (ok)');
+    } else {
+      console.error('[authService]', tag, 'db delete error', e);
+      const err: any = new Error(e?.message || 'DB delete failed');
+      err.status = 500; err.code = 'DB_DELETE_SESSION_FAILED';
+      throw err;
+    }
+  }
+
+  invalidateDialogsCache(sessionId);
+  debug('%s: cache invalidated', tag);
+  console.log('[authService]', tag, 'cache invalidated, done');
 }
 
 // Long-lived client accessor

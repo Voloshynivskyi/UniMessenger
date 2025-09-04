@@ -1,5 +1,5 @@
 // File: frontend/src/components/ChatWindow.tsx
-// Purpose: Chat view with scrollable list + composer + infinite scroll up.
+// Purpose: Chat view with scrollable list + composer + infinite scroll.
 // - Optimistic local message gets replaced by real one (WS or POST response).
 // - Robust fetch (array or {messages: []}), WS append, auto-scroll.
 // - Infinite scroll: load older messages on reaching top (beforeId pagination).
@@ -140,7 +140,7 @@ const ChatWindow: React.FC = () => {
         setTimeout(scrollToBottom, 0);
       } catch (e: any) {
         if (aborted || lastReqRef.current !== reqId) return;
-        setError(e?.message || 'Не вдалося завантажити повідомлення');
+        setError(e?.message || 'Failed to load messages');
         setLoading(false);
       }
     })();
@@ -401,7 +401,7 @@ const ChatWindow: React.FC = () => {
           outboxMapRef.current.delete(key);
         }
 
-        setError(e?.message || 'Не вдалося надіслати повідомлення');
+        setError(e?.message || 'Failed to send message');
       } finally {
         setSending(false);
       }
@@ -423,7 +423,7 @@ const ChatWindow: React.FC = () => {
   if (!sessionId) {
     return (
       <div className="p-4 text-sm text-red-600">
-        Не знайдено sessionId. Відкрийте чат через Unified Inbox або додайте ?s=&lt;sessionId&gt; в URL.
+        SessionId not found. Open chat via Unified Inbox or add ?s=&lt;sessionId&gt; to the URL.
       </div>
     );
   }
@@ -436,13 +436,20 @@ const ChatWindow: React.FC = () => {
         className="flex-1 overflow-auto p-4 space-y-2 bg-gray-50"
         onScroll={onListScroll}
       >
+        {/* Top marker for the very start of the chat history */}
+        {!loadingOlder && !hasMore && messages.length > 0 && (
+          <div className="text-center text-[11px] text-gray-400 mb-2">
+            This is the beginning of history
+          </div>
+        )}
+
         {/* Top loader for older history */}
         {loadingOlder && (
-          <div className="text-center text-xs text-gray-500 py-1">Завантаження історії…</div>
+          <div className="text-center text-xs text-gray-500 py-1">Loading history…</div>
         )}
 
         {loading && messages.length === 0 && (
-          <div className="opacity-60 text-sm">Завантаження повідомлень…</div>
+          <div className="opacity-60 text-sm">Loading messages…</div>
         )}
         {error && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
@@ -473,10 +480,7 @@ const ChatWindow: React.FC = () => {
         })}
 
         {!loading && messages.length === 0 && !error && (
-          <div className="opacity-60 text-sm">Повідомлень немає</div>
-        )}
-        {!hasMore && messages.length > 0 && (
-          <div className="text-center text-[11px] text-gray-400 mt-2">Це початок історії</div>
+          <div className="opacity-60 text-sm">No messages</div>
         )}
       </div>
 
@@ -487,7 +491,7 @@ const ChatWindow: React.FC = () => {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Напишіть повідомлення…"
+            placeholder="Type a message…"
             className="flex-1 resize-none rounded-lg border px-3 py-2 outline-none focus:ring focus:ring-blue-200"
             rows={1}
           />
@@ -504,10 +508,10 @@ const ChatWindow: React.FC = () => {
                 : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
           >
-            Надіслати
+            Send
           </button>
         </div>
-        <div className="text-xs text-gray-500 mt-1">Enter — надіслати, Shift+Enter — новий рядок</div>
+        <div className="text-xs text-gray-500 mt-1">Enter — send, Shift+Enter — new line</div>
       </div>
     </div>
   );

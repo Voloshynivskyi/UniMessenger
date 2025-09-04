@@ -4,7 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
-import { sendCode, resendCode, authenticate, AuthResult } from '../services/telegramAuthService';
+import { sendCode, resendCode, authenticate, AuthResult, logout as tgLogout } from '../services/telegramAuthService';
 import resolveSessionId from '../utils/sessionResolver';
 
 const router = Router();
@@ -23,7 +23,6 @@ function sendErr(res: Response, code: string, message: string, status = 400) {
 
 /** Resolve sessionId with header-first policy; do not require it to exist in DB yet. */
 async function pickSessionIdHeaderFirst(req: Request): Promise<string | null> {
-  // English comment:
   // For auth start/resend/confirm we cannot require session presence in DB,
   // because the session may not be created yet. We only resolve its value.
   return resolveSessionId(req, { allowCookie: true, requireInDb: false });
@@ -43,11 +42,9 @@ router.post('/start', async (req: Request<{}, {}, StartBody>, res: Response) => 
     if (!phoneNumber) return sendErr(res, 'MISSING_PHONE_NUMBER', 'phoneNumber is required');
 
     await sendCode(phoneNumber, sessionId);
-    // We intentionally do NOT set cookies here to avoid cross-account confusion.
     return res.json({ ok: true });
   } catch (e: any) {
     const msg = String(e?.message || 'Failed to start auth');
-    // Map a few common cases to clearer codes
     if (/FLOOD|FLOOD_WAIT/i.test(msg)) return sendErr(res, 'FLOOD_WAIT', msg, 429);
     if (/PHONE_MIGRATED/i.test(msg))   return sendErr(res, 'PHONE_MIGRATED', msg, 400);
     return sendErr(res, 'BAD_REQUEST', msg, 400);
@@ -87,11 +84,9 @@ router.post('/confirm', async (req: Request<{}, {}, AuthBody>, res: Response) =>
     }
 
     const result: AuthResult = await authenticate(phoneNumber, sessionId, code, password);
-    // AuthResult already contains structured info (e.g., ok, requires2FA, user, etc.)
     return res.json(result);
   } catch (e: any) {
     const msg = String(e?.message || 'Failed to confirm auth');
-    // Common mappings: 2FA requirement, flood control
     if (/2FA|PASSWORD/i.test(msg))     return sendErr(res, '2FA_REQUIRED', msg, 401);
     if (/FLOOD|FLOOD_WAIT/i.test(msg)) return sendErr(res, 'FLOOD_WAIT', msg, 429);
     if (/CODE_INVALID/i.test(msg))     return sendErr(res, 'CODE_INVALID', msg, 400);
@@ -100,11 +95,40 @@ router.post('/confirm', async (req: Request<{}, {}, AuthBody>, res: Response) =>
   }
 });
 
-/** POST /api/telegram/logout — front-only logout (clear cookie if you used it) */
-router.post('/logout', (_req: Request, res: Response) => {
-  // We avoid cookies now, but clear it just in case legacy UI set it before.
-  res.clearCookie('sessionId');
-  return res.json({ ok: true });
+/**
+ * POST /api/telegram/logout — REAL logout:
+ * - auth.LogOut() at Telegram if authorized
+ * - dispose local client
+ * - delete DB row
+ * - invalidate caches
+ */
+router.post('/logout', async (req: Request, res: Response) => {
+  const rid = `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  console.log('[route/logout]', rid, 'headers.x-session-id=', req.headers['x-session-id'], 'query=', req.query);
+
+  try {
+    const sessionId = await resolveSessionId(req, { allowCookie: true, requireInDb: false });
+    console.log('[route/logout]', rid, 'resolved sessionId=', sessionId);
+
+    if (!sessionId) {
+      console.warn('[route/logout]', rid, 'NO sessionId resolved');
+      return sendErr(res, 'MISSING_SESSION_ID',
+        'Provide session id via header "x-session-id" or query (?s|?session|?sessionId).');
+    }
+
+    await tgLogout(sessionId);
+
+    // Clear legacy cookie just in case older UI used it
+    res.clearCookie('sessionId');
+    console.log('[route/logout]', rid, 'OK');
+    return res.json({ ok: true });
+  } catch (err: any) {
+    const status = err?.status ?? 500;
+    const code = err?.code ?? 'LOGOUT_FAILED';
+    const message = String(err?.message || 'Logout failed');
+    console.error('[route/logout]', rid, 'ERROR', status, code, message);
+    return res.status(status).json({ ok: false, error: code, message });
+  }
 });
 
 export default router;

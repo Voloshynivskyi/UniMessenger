@@ -1,3 +1,4 @@
+// File: backend/services/sessionManager.ts
 // Purpose: Manages long-lived TelegramClient instances and emits real-time updates.
 
 import { EventEmitter } from 'events';
@@ -18,6 +19,8 @@ export interface UpdatePayload {
   data: any;
 }
 
+type HandlerReg = { fn: (u: any) => any; filter: any };
+
 function fingerprint(sessionString: string): string {
   // Lightweight fingerprint without crypto dependency
   // (it's fine to use the first 48 chars; they are stable and sufficient)
@@ -31,6 +34,8 @@ class SessionManager extends EventEmitter {
   private connecting = new Set<SessionId>();
   // sessionId -> fingerprint of sessionString used by live client
   private fp = new Map<SessionId, string>();
+  // sessionId -> handler registrations to allow clean removal
+  private handlers = new Map<SessionId, HandlerReg[]>();
 
   /**
    * Ensure there is a long-lived TelegramClient for the given sessionId.
@@ -59,7 +64,7 @@ class SessionManager extends EventEmitter {
         const activeFp = fingerprint(activeSaved);
         if (activeFp !== dbFp) {
           debug('sessionString changed; recreating client', { sessionId });
-          await this.safeDispose(sessionId, existing);
+          await this.safeDispose(sessionId);
         } else {
           // Keep the client; reconnect if needed
           // @ts-ignore gramJS runtime flag
@@ -71,7 +76,7 @@ class SessionManager extends EventEmitter {
       } catch {
         // If anything goes wrong reading active session -> recreate
         console.log('[sessionManager] sessionString changed — recreating client for', sessionId);
-        await this.safeDispose(sessionId, existing);
+        await this.safeDispose(sessionId);
       }
     }
 
@@ -90,7 +95,7 @@ class SessionManager extends EventEmitter {
       if (!apiId || !apiHash) throw new Error('Missing API_ID/API_HASH');
 
       const client = new TelegramClient(
-        new StringSession(decrypted),
+        new StringSession(decrypt(row.sessionString)),
         apiId,
         apiHash,
         {
@@ -101,6 +106,7 @@ class SessionManager extends EventEmitter {
       );
 
       await client.connect();
+      console.log('[sessionManager] ensureClient', sessionId, 'connected');
       this.attachHandlers(sessionId, client);
 
       this.clients.set(sessionId, client);
@@ -113,13 +119,44 @@ class SessionManager extends EventEmitter {
     }
   }
 
-  /** Dispose existing client for a sessionId safely. */
-  private async safeDispose(sessionId: SessionId, client: TelegramClient) {
-    try { await client.disconnect(); } catch {}
-    try { await client.destroy?.(); } catch {}
-    this.clients.delete(sessionId);
-    this.fp.delete(sessionId);
+  /**
+   * Public, idempotent disposal by sessionId:
+   * - remove all attached handlers
+   * - disconnect and destroy client
+   * - cleanup maps
+   */
+  public async safeDispose(sessionId: SessionId): Promise<void> {
+  const tag = `safeDispose(${sessionId})`;
+  const client = this.clients.get(sessionId);
+  const regs = this.handlers.get(sessionId) ?? [];
+  debug('%s: start; client=%s, handlers=%d', tag, !!client, regs.length);
+  console.log('[sessionManager]', tag, 'start clientExists=', !!client, 'handlers=', regs.length);
+
+  // 1) Remove all event handlers to avoid leaks
+  if (client && regs.length) {
+    for (const { fn, filter } of regs) {
+      try {
+        (client as any).removeEventHandler(fn, filter);
+      } catch (e) {
+        console.error('[sessionManager]', tag, 'removeEventHandler error', e);
+      }
+    }
   }
+  this.handlers.delete(sessionId);
+
+  // 2) Disconnect client
+  if (client) {
+    try { await client.disconnect(); debug('%s: disconnect OK', tag); } catch (e) { console.error('[sessionManager]', tag, 'disconnect error', e); }
+    try { await (client as any).destroy?.(); debug('%s: destroy OK', tag); } catch (e) { console.error('[sessionManager]', tag, 'destroy error', e); }
+  }
+
+  // 3) Drop from maps
+  this.clients.delete(sessionId);
+  this.fp.delete(sessionId);
+
+  debug('%s: done', tag);
+  console.log('[sessionManager]', tag, 'done');
+}
 
   /**
    * Attach gramJS event handlers once per client.
@@ -127,7 +164,12 @@ class SessionManager extends EventEmitter {
    * - Raw: pass-through raw updates (read states, pins, edits, deletes, dialog changes, etc.).
    */
   private attachHandlers(sessionId: SessionId, client: TelegramClient) {
-    (client as any).addEventHandler(async (event: any) => {
+    // Keep filter instances to be able to remove handlers later
+    const filterNew = new NewMessage({});
+    const filterRaw = new Raw({});
+
+    // New message handler
+    const onNewMessage = async (event: any) => {
       try {
         const msg = event?.message ?? event;
         if (!msg) return;
@@ -140,14 +182,26 @@ class SessionManager extends EventEmitter {
       } catch (e) {
         debug('new_message handler error', e);
       }
-    }, new NewMessage({}));
+    };
 
-    (client as any).addEventHandler((update: any) => {
+    // Raw update handler
+    const onRaw = (update: any) => {
       const payload: UpdatePayload = { type: 'raw', data: update };
       this.emitUpdate(sessionId, payload);
-    }, new Raw({}));
-    const updates = (client as any)._updates;
+    };
 
+    (client as any).addEventHandler(onNewMessage, filterNew);
+    (client as any).addEventHandler(onRaw,        filterRaw);
+    console.log('[sessionManager] attachHandlers', sessionId, 'registered');
+
+    // Register handlers for future removal
+    this.handlers.set(sessionId, [
+      { fn: onNewMessage, filter: filterNew },
+      { fn: onRaw,        filter: filterRaw },
+    ]);
+
+    // Optional: basic updates stream error logging
+    const updates = (client as any)._updates;
     if (updates?.on) {
       updates.on('error', (err: any) => {
         const msg = String(err?.message || err || '');
