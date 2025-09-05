@@ -10,6 +10,14 @@ import type { TelegramClient } from 'telegram';
 import { sessionManager } from '../services/sessionManager';
 import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 
+function safeErrorMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return String((e as any).message);
+  }
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
+
 const router = Router();
 
 interface MessageDTO {
@@ -28,7 +36,10 @@ interface MessageDTO {
 function extractDateISO(msg: any): string | null {
   const d = msg?.date;
   if (!d) return null;
-  if (d instanceof Date) return d.toISOString();
+  // Safer than `instanceof` when `d` may be a union type
+  if (d && typeof d === 'object' && typeof (d as any).toISOString === 'function') {
+    return (d as Date).toISOString();
+  }
   if (typeof d === 'number') return new Date(d * 1000).toISOString();
   return null;
 }
@@ -161,21 +172,17 @@ router.get('/telegram/messages', async (req: Request, res: Response) => {
 
     // Return as plain array to preserve FE compatibility
     res.json(out);
-  } catch (e: any) {
-    const msg = String(e?.message || 'Failed to fetch messages');
-    console.error('[telegram/messages] Error:', e);
-
-    if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
-      return res.status(401).json({
-        ok: false,
-        error: 'SESSION_NOT_FOUND',
-        message: 'Session not found or not authorized',
-        details: msg,
-      });
-    }
-
-    return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
+  } catch (e: unknown) {
+    // English: narrow unknown safely and map to proper status
+    const msg = safeErrorMessage(e);
+    const isAuth = /SESSION|AUTH|UNAUTHORIZED|401|not authorized/i.test(msg);
+    return res.status(isAuth ? 401 : 400).json({
+      ok: false,
+      error: 'MESSAGES_FAILED',
+      message: msg,
+    });
   }
+
 });
 
 export default router;

@@ -11,6 +11,7 @@ import { getDefaultSessionId } from '../lib/http';
 import { ensureSessionSocket, onSessionUpdate } from '../lib/wsHub';
 import { useTelegramAuth } from '../context/TelegramAuthContext';
 import { fetchMessages, sendMessage } from '../api/telegramMessages';
+import { sendMediaFile } from '../api/telegramMedia';
 
 type Params = { peerType: string; peerId: string };
 
@@ -56,6 +57,19 @@ function toEpoch(v: number | string | null | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+// English: choose a short placeholder text for optimistic media bubbles
+function labelForFile(file: File | Blob): string {
+  const name = (file as any).name ? String((file as any).name) : '';
+  const mt = (file as any).type ? String((file as any).type) : '';
+  if (mt.startsWith('image/')) return '[photo]';
+  if (mt.startsWith('video/')) return '[video]';
+  if (mt.startsWith('audio/')) return '[audio]';
+  if (mt === 'application/pdf') return '[document]';
+  if (name) return `[${name}]`;
+  return '[document]';
+}
+
+
 const PAGE_SIZE = 50;
 
 // Time window to treat WS echo == recently sent optimistic (ms)
@@ -83,6 +97,11 @@ const ChatWindow: React.FC = () => {
   const [text, setText] = React.useState<string>('');
   const [sending, setSending] = React.useState<boolean>(false);
 
+  // File upload state
+  const [uploading, setUploading] = React.useState<boolean>(false);
+  // Hidden file input ref
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
   // Scroll helpers
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const userPinnedScrollTopRef = React.useRef<boolean>(false);
@@ -105,7 +124,7 @@ const ChatWindow: React.FC = () => {
   const maybeAutoScroll = React.useCallback(() => {
     const el = listRef.current;
     if (!el) return;
-    const threshold = 120;
+    const threshold = 200;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     if (atBottom && !userPinnedScrollTopRef.current) scrollToBottom();
   }, [scrollToBottom]);
@@ -138,6 +157,7 @@ const ChatWindow: React.FC = () => {
         setHasMore(list.length >= PAGE_SIZE);
         setLoading(false);
         setTimeout(scrollToBottom, 0);
+        setTimeout(scrollToBottom, 16); // ensure after layout on next frame
       } catch (e: any) {
         if (aborted || lastReqRef.current !== reqId) return;
         setError(e?.message || 'Failed to load messages');
@@ -228,6 +248,7 @@ const ChatWindow: React.FC = () => {
       const replaced = replaceOptimisticWithReal(m);
       if (replaced) {
         setTimeout(maybeAutoScroll, 0);
+        setTimeout(maybeAutoScroll, 16); // ensure after layout on next frame
         return;
       }
 
@@ -252,6 +273,7 @@ const ChatWindow: React.FC = () => {
       });
 
       setTimeout(maybeAutoScroll, 0);
+      setTimeout(maybeAutoScroll, 16); // next frame
     });
 
     return () => off();
@@ -369,19 +391,27 @@ const ChatWindow: React.FC = () => {
         const el = listRef.current;
         if (el) el.scrollTop = el.scrollHeight;
       }, 0);
+      setTimeout(() => {
+        const el = listRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 16);
 
       try {
         const resp = await sendMessage(sessionId, peerKey, t);
-        const real = resp?.message
-          ? ({
-              id: resp.message.id ?? now,
-              peerKey: resp.message.peerKey || peerKey,
-              text: resp.message.text ?? t,
-              date: resp.message.date ?? now,
-              out: true,
-              service: !!resp.message.service,
-            } as Msg)
-          : null;
+        // English: unwrap backend DTO safely to satisfy TS and avoid {} type issues
+        const payload: any =
+          resp && typeof resp === 'object' && 'message' in (resp as any)
+            ? (resp as any).message
+            : resp;
+
+        const real: Msg = {
+          id: Number(payload?.id ?? now),
+          peerKey: String(payload?.peerKey || peerKey),
+          text: String(payload?.text ?? t),
+          date: payload?.date ?? now,
+          out: true,
+          service: !!payload?.service,
+        };
 
         if (real) {
           // Replace optimistic immediately (in case WS lags)
@@ -408,6 +438,93 @@ const ChatWindow: React.FC = () => {
     },
     [sessionId, peerKey, replaceOptimisticWithReal]
   );
+
+
+  const onAttachClick = React.useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }, []);
+
+  const onFileSelected = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files && e.target.files[0];
+    // Allow selecting the same file twice in a row
+    e.target.value = '';
+    if (!f || !sessionId || !peerKey) return;
+
+    // Optional: use current text as caption (then clear it after send)
+    const cap = text.trim() ? text.trim() : undefined;
+
+    setUploading(true);
+
+    // Optimistic bubble
+    const localId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    const optimisticText = cap ?? labelForFile(f);
+    const optimistic: Msg = {
+      id: localId,
+      peerKey,
+      text: optimisticText,
+      date: now,
+      out: true,
+      service: false,
+    };
+
+    // Register in outbox by text to enable replacement (same logic as for text messages)
+    if (optimisticText.trim()) {
+      const key = `${peerKey}|${optimisticText.trim()}`;
+      const queue = outboxMapRef.current.get(key) || [];
+      queue.push({ localId, stamp: now });
+      outboxMapRef.current.set(key, queue);
+    }
+
+    setMessages((prev) => [...prev, optimistic]);
+    setTimeout(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, 0);
+    setTimeout(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, 16);
+
+    try {
+      const resp = await sendMediaFile(sessionId, peerKey, f, {
+        caption: cap,
+        // forceDocument: true, // uncomment if you want always send as document
+      });
+
+      // English: unwrap to be safe
+      const payload: any =
+        resp && typeof resp === 'object' && 'message' in (resp as any)
+          ? (resp as any).message
+          : resp;
+
+      const real: Msg = {
+        id: Number(payload?.id ?? now),
+        peerKey: String(payload?.peerKey || peerKey),
+        text: String(payload?.text ?? (cap ?? labelForFile(f))),
+        date: payload?.date ?? now,
+        out: true,
+        service: !!payload?.service,
+      };
+
+      // Replace optimistic once backend responds (WS may also come)
+      replaceOptimisticWithReal(real);
+      // If ми використовували текст як caption — можна очистити поле вводу
+      if (cap) setText('');
+    } catch (err: any) {
+      // Remove optimistic on failure
+      setMessages((prev) => prev.filter((m) => String(m.id) !== localId));
+      // Cleanup dedup map
+      const key = `${peerKey}|${optimisticText.trim()}`;
+      const arr = outboxMapRef.current.get(key) || [];
+      outboxMapRef.current.set(
+        key,
+        arr.filter((x) => x.localId !== localId)
+      );
+      if ((outboxMapRef.current.get(key) || []).length === 0) {
+        outboxMapRef.current.delete(key);
+      }
+      setError(err?.message || 'Failed to send file');
+    } finally {
+      setUploading(false);
+    }
+  }, [sessionId, peerKey, text, replaceOptimisticWithReal]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -487,6 +604,24 @@ const ChatWindow: React.FC = () => {
       {/* Composer */}
       <div className="border-t bg-white p-3">
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={onFileSelected}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={onAttachClick}
+            disabled={uploading}
+            title={uploading ? 'Uploading…' : 'Attach file'}
+            className={`px-3 py-2 rounded-lg border ${
+              uploading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'
+            }`}
+          >
+            📎
+          </button>
+
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -496,7 +631,7 @@ const ChatWindow: React.FC = () => {
             rows={1}
           />
           <button
-            disabled={sending || !text.trim()}
+            disabled={sending || uploading || !text.trim()}
             onClick={() => {
               const v = text;
               setText('');

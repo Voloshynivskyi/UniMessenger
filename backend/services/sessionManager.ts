@@ -275,13 +275,18 @@ class SessionManager extends EventEmitter {
   }
 
   /** Convert message date to ISO string. */
-  private extractDateISO(msg: any): string | null {
-    const d = msg?.date;
+  private extractDateISO(d: unknown): string | null {
     if (!d) return null;
-    if (d instanceof Date) return d.toISOString();
-    if (typeof d === 'number') return new Date(d * 1000).toISOString();
-    return null;
-  }
+      // Works for native Date and gramJS date-like objects that expose toISOString
+      if (d && typeof d === 'object' && typeof (d as any).toISOString === 'function') {
+        return (d as Date).toISOString();
+      }
+      if (typeof d === 'number') {
+        // Many gramJS timestamps are in seconds
+        return new Date(d * 1000).toISOString();
+      }
+      return null;
+    }
 
   /** Extract readable text; short placeholders for media/service. */
   private extractText(msg: any): string {

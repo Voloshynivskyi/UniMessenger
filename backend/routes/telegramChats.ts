@@ -11,6 +11,13 @@ import { sessionManager } from '../services/sessionManager';
 import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 import { withDialogsCache } from '../services/dialogsCache';
 
+function safeErrorMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return String((e as any).message);
+  }
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
 const router = Router();
 
 type PeerType = 'user' | 'chat' | 'channel';
@@ -53,9 +60,13 @@ function extractMessageText(msg: any): string {
   return '';
 }
 
-function toIsoDate(d: any): string | null {
+function toIsoDate(msg: any): string | null {
+  const d = msg?.date;
   if (!d) return null;
-  if (d instanceof Date) return d.toISOString();
+  // Safer than `instanceof` when `d` may be a union type
+  if (d && typeof d === 'object' && typeof (d as any).toISOString === 'function') {
+    return (d as Date).toISOString();
+  }
   if (typeof d === 'number') return new Date(d * 1000).toISOString();
   return null;
 }
@@ -115,27 +126,17 @@ router.get('/telegram/chats', async (req: Request, res: Response) => {
 
     console.log(`[telegram/chats] Returned ${previews.length} chats`);
     return res.json(previews);
-  } catch (e: any) {
-    const msg = String(e?.message || e || 'Failed to fetch chats');
-
-    // Return 401 when session is missing/invalid/unauthorized, else 500
-    if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
-      return res.status(401).json({
-        ok: false,
-        error: 'SESSION_NOT_FOUND',
-        message: 'Session not found or not authorized',
-        details: msg,
-      });
-    }
-
-    console.error('[telegram/chats] Error:', e);
-    return res.status(500).json({
+  } catch (e: unknown) {
+    // English: narrow unknown safely and map to proper status
+    const msg = safeErrorMessage(e);
+    const isAuth = /SESSION|AUTH|UNAUTHORIZED|401|not authorized/i.test(msg);
+    return res.status(isAuth ? 401 : 400).json({
       ok: false,
-      error: 'INTERNAL',
-      message: 'Failed to fetch chats',
-      details: msg,
+      error: 'CHATS_FAILED',
+      message: msg,
     });
   }
+
 });
 
 export default router;

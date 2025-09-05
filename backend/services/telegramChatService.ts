@@ -44,10 +44,17 @@ function extractMessageText(msg: any): string {
   return '';
 }
 
-function toIsoDate(d: any): string | null {
+function toIsoDate(msg: any): string | null {
+  const d = msg?.date ?? msg?.message?.date;
   if (!d) return null;
-  if (d instanceof Date) return d.toISOString();
-  if (typeof d === 'number') return new Date(d * 1000).toISOString();
+  // Safer than `instanceof` when `d` may be a union type
+  if (d && typeof d === 'object' && typeof (d as any).toISOString === 'function') {
+    return (d as Date).toISOString();
+  }
+  if (typeof d === 'number') {
+    // gramJS often uses seconds
+    return new Date(d * 1000).toISOString();
+  }
   return null;
 }
 

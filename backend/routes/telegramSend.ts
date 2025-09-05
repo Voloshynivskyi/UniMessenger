@@ -11,6 +11,13 @@ import { sessionManager } from '../services/sessionManager';
 import resolveSessionId, { requireSessionId } from '../utils/sessionResolver';
 import { invalidateDialogsCache } from '../services/dialogsCache';
 
+function safeErrorMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return String((e as any).message);
+  }
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
 const router = Router();
 
 interface MessageDTO {
@@ -29,7 +36,10 @@ interface MessageDTO {
 function extractDateISO(msg: any): string | null {
   const d = msg?.date;
   if (!d) return null;
-  if (d instanceof Date) return d.toISOString();
+  // Safer than `instanceof` when `d` may be a union type
+  if (d && typeof d === 'object' && typeof (d as any).toISOString === 'function') {
+    return (d as Date).toISOString();
+  }
   if (typeof d === 'number') return new Date(d * 1000).toISOString();
   return null;
 }
@@ -145,18 +155,9 @@ router.post('/telegram/send', async (req: Request, res: Response) => {
     return res.json({ ok: true, message: dto });
   } catch (e: any) {
     console.error('[telegram/send] Error:', e);
-    const msg = String(e?.message || 'Failed to send message');
-
-    if (/not\s*found|no\s*session|invalid\s*session|unauthorized/i.test(msg)) {
-      return res.status(401).json({
-        ok: false,
-        error: 'SESSION_NOT_FOUND',
-        message: 'Session not found or not authorized',
-        details: msg,
-      });
-    }
-
-    return res.status(400).json({ ok: false, error: 'BAD_REQUEST', message: msg });
+    const msg = safeErrorMessage(e);
+    const isAuth = /SESSION|AUTH|UNAUTHORIZED|401|not authorized/i.test(msg);
+    return res.status(isAuth ? 401 : 400).json({ ok: false, error: 'SEND_FAILED', message: msg });
   }
 });
 

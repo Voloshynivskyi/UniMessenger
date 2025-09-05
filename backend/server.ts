@@ -17,6 +17,7 @@ import http from 'http';
 import cookieParser from 'cookie-parser';
 import { WebSocketServer, WebSocket } from 'ws';
 
+import telegramMediaRoutes from './routes/telegramMedia';
 import telegramAuthRoutes from './routes/telegramAuth';
 import telegramSessionRoutes from './routes/telegramSession';
 import telegramChatsRoutes from './routes/telegramChats';
@@ -76,6 +77,7 @@ app.use(cookieParser());
 app.use('/api/telegram', telegramAuthRoutes); // /start, /confirm, /resend, /logout
 app.use('/api', telegramSessionRoutes);       // /me (MTProto-based check)
 app.use('/api', telegramHealthRoutes);        // /telegram/health (DB-only check)
+app.use('/api', telegramMediaRoutes);        // /telegram/sendMedia (URL-based)
 
 // Optional rate limit per session (safe defaults)
 app.use(
