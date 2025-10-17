@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String             @id @default(cuid())
+  email       String             @unique
+  passwordHash String
+  displayName String?
+  createdAt   DateTime           @default(now())
+  telegramAccounts TelegramAccount[]
+}
+
+model TelegramAccount {
+  id          String        @id @default(cuid())
+  sessionId   String        @unique
+  phoneNumber String?
+  username    String?
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  sessions    TelegramSession[]
+  createdAt   DateTime      @default(now())
+}
+
+model TelegramSession {
+  id            String             @id @default(cuid())
+  accountId     String
+  account       TelegramAccount    @relation(fields: [accountId], references: [id])
+  sessionString String
+  createdAt     DateTime           @default(now())
+}
