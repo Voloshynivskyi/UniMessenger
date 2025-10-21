@@ -1,30 +1,33 @@
+/**
+ * frontend/src/components/Layout/Layout.tsx
+ * Main layout component providing header, sidebar, and content area structure
+ */
+
 import React from "react";
 import { Outlet } from "react-router-dom";
 import Box from "@mui/material/Box";
 import Header from "./header/Header";
 import Sidebar from "./sidebar/Sidebar";
-import Toolbar from "@mui/material/Toolbar";
+import { useAuth } from "../../context/AuthContext";
 
 const drawerWidth = 240;
 
 const Layout: React.FC = () => {
+  const { isAuthenticated } = useAuth();
   return (
-    <Box sx={{ display: "flex", contentAlign: "left" }}>
+    <Box sx={{ display: "flex", alignItems: "flex-start" }}>
       <Header />
-      <Sidebar drawerWidth={drawerWidth} />
+      {isAuthenticated && <Sidebar drawerWidth={drawerWidth} />}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           bgcolor: "background.default",
-          p: 0,
-          ml: "64px",
+          p: "16px",
           mt: "64px",
-          mr: "64px",
           minHeight: "100vh",
         }}
       >
-        <Toolbar />
         <Outlet />
       </Box>
     </Box>

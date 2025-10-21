@@ -1,3 +1,8 @@
+/**
+ * backend/utils/hash.ts
+ * Password hashing utilities using bcrypt for secure password storage
+ */
+
 import dotenv from "dotenv";
 dotenv.config();
 import bcrypt from "bcrypt";

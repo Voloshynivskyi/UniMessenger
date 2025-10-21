@@ -1,3 +1,8 @@
+/**
+ * frontend/src/components/Layout/sidebar/Sidebar.tsx
+ * Navigation sidebar with menu items for different app sections
+ */
+
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import Drawer from "@mui/material/Drawer";
@@ -17,6 +22,7 @@ const Sidebar: React.FC<SidebarProps> = ({ drawerWidth }) => {
     { text: "Inbox", path: "/inbox" },
     { text: "Accounts", path: "/accounts" },
     { text: "Settings", path: "/settings" },
+    { text: "Profile", path: "/profile" },
   ];
 
   return (

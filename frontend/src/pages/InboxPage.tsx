@@ -1,3 +1,8 @@
+/**
+ * frontend/src/pages/InboxPage.tsx
+ * Unified inbox page displaying messages from all connected accounts
+ */
+
 import React from "react";
 import { Box, Typography } from "@mui/material";
 

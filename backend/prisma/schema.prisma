@@ -1,3 +1,6 @@
+// backend/prisma/schema.prisma
+// Database schema defining User, TelegramAccount, and TelegramSession models
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -18,13 +21,14 @@ model User {
 
 model TelegramAccount {
   id          String        @id @default(cuid())
-  sessionId   String        @unique
   phoneNumber String?
   username    String?
   userId      String
   user        User          @relation(fields: [userId], references: [id])
+  telegramId  String
   sessions    TelegramSession[]
   createdAt   DateTime      @default(now())
+  @@unique([userId, telegramId])
 }
 
 model TelegramSession {

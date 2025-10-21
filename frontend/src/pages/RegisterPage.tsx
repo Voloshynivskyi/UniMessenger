@@ -1,18 +1,10 @@
 /**
- * frontend/src/pages/LoginPage.tsx
- * Login page with email and password input fields
+ * frontend/src/pages/RegisterPage.tsx
+ * Register page with email and password input fields
  */
 
 import React from "react";
-import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  Divider,
-  Alert,
-} from "@mui/material";
+import { Box, Paper, Typography, TextField, Button } from "@mui/material";
 import apiClient from "../api/apiClient";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -20,7 +12,8 @@ import { useAuth } from "../context/AuthContext";
 import LoginIcon from "@mui/icons-material/Login";
 import { isValidPassword, isValidEmail } from "../utils/validation";
 import PasswordField from "../ui/login/PasswordField";
-const LoginPage: React.FC = () => {
+import PasswordConfirmationField from "../ui/login/PasswordConfirmationField";
+const RegisterPage: React.FC = () => {
   const { user, token, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   useEffect(() => {
@@ -28,29 +21,29 @@ const LoginPage: React.FC = () => {
       navigate("/inbox", { replace: true });
     }
   }, [isAuthenticated]);
-
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string>("");
-  async function handleLogin() {
+  const [passwordConfirmation, setPasswordConfirmation] = useState<string>("");
+
+  async function handleRegister() {
     const requestBody = { email, password };
     try {
-      const response = await apiClient.post("/api/auth/login", requestBody);
+      const response = await apiClient.post("/api/auth/register", requestBody);
       login(response.data.token, response.data.user);
       navigate("/inbox");
-    } catch (error: any) {
-      console.error("Login failed:", error);
-      setErrorMessage(error.response?.data?.message || "Login failed");
+    } catch (error) {
+      console.error("Register failed:", error);
     }
   }
 
   return (
-    <Box sx={{ p: 0 }}>
+    <Box>
       <Paper sx={{ p: "4vh", minWidth: 400, width: "100%", borderRadius: 5 }}>
         <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
-          UniMessenger Login
+          UniMessenger Register
         </Typography>
         <TextField
+          error={!isValidEmail(email) && email.length > 0}
           onChange={(e) => setEmail(e.target.value)}
           label="Email"
           sx={{ width: "100%", mb: "4vh" }}
@@ -59,38 +52,41 @@ const LoginPage: React.FC = () => {
         <PasswordField
           password={password}
           setPassword={setPassword}
-          validation={false}
+          validation={true}
         />
-        {errorMessage && (
-          <Alert severity="error" sx={{ mb: "2vh" }}>
-            {errorMessage}
-          </Alert>
-        )}
+        <PasswordConfirmationField
+          password={password}
+          passwordConfirmation={passwordConfirmation}
+          setPasswordConfirmation={setPasswordConfirmation}
+        />
         <Button
           color="primary"
           variant="contained"
           sx={{ mb: "2vh", width: "100%" }}
-          onClick={handleLogin}
+          onClick={handleRegister}
+          disabled={
+            !isValidEmail(email) ||
+            !isValidPassword(password).isValid ||
+            password !== passwordConfirmation
+          }
         >
-          Sign in
+          Sign up
           <LoginIcon sx={{ ml: 1 }} />
         </Button>
-        <Divider sx={{ m: 2 }} />
         <Typography sx={{ mb: "2vh", color: "text.secondary" }}>
-          Don't have an account? Sign up
+          Already have an account? Sign in
         </Typography>
-
         <Button
           color="secondary"
           variant="contained"
           sx={{ mb: "2vh", width: "100%" }}
-          onClick={() => navigate("/register")}
+          onClick={() => navigate("/login")}
         >
-          Sign up
+          Sign in
         </Button>
       </Paper>
     </Box>
   );
 };
 
-export default LoginPage;
+export default RegisterPage;

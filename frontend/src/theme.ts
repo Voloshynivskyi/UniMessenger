@@ -1,3 +1,8 @@
+/**
+ * frontend/src/theme.ts
+ * Material-UI theme configuration for consistent styling across the app
+ */
+
 import { createTheme } from "@mui/material/styles";
 
 const theme = createTheme({

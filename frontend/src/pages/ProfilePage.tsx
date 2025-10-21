@@ -6,7 +6,7 @@
 import React from "react";
 import { Box, Paper, Typography } from "@mui/material";
 
-const InfoPage: React.FC = () => {
+const ProfilePage: React.FC = () => {
   return (
     <Box>
       <Paper sx={{ p: 3, width: "100%" }}>
@@ -22,4 +22,4 @@ const InfoPage: React.FC = () => {
   );
 };
 
-export default InfoPage;
+export default ProfilePage;
