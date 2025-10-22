@@ -18,10 +18,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import LoginIcon from "@mui/icons-material/Login";
-import { isValidPassword, isValidEmail } from "../utils/validation";
 import PasswordField from "../ui/login/PasswordField";
 const LoginPage: React.FC = () => {
-  const { user, token, isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   useEffect(() => {
     if (isAuthenticated) {

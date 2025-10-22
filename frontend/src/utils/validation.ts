@@ -6,14 +6,14 @@
 export function isValidPassword(password: string): {
   hasMinLength: boolean;
   hasLetter: boolean;
-  hasNumber: boolean;
+  hasDigit: boolean;
   hasSpecial: boolean;
   isValid: boolean;
 } {
   return {
     hasMinLength: password.length >= 8,
     hasLetter: /[a-zA-Z]/.test(password),
-    hasNumber: /\d/.test(password),
+    hasDigit: /\d/.test(password),
     hasSpecial: /[!@#$%^&*(),.?":{}|<>+-]/.test(password),
     isValid:
       password.length >= 8 &&
@@ -38,8 +38,8 @@ export function isValidPasswordMessage(password: string): string {
     message = "Password must be at least 8 characters long.";
   } else if (!validation.hasLetter) {
     message = "Password must include at least one letter.";
-  } else if (!validation.hasNumber) {
-    message = "Password must include at least one number.";
+  } else if (!validation.hasDigit) {
+    message = "Password must include at least one digit.";
   } else if (!validation.hasSpecial) {
     message = "Password must include at least one special character.";
   } else {

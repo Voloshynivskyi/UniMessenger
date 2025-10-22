@@ -9,11 +9,13 @@ import {
   signIn,
   logout,
   verifyTwoFA,
+  getTelegramAccounts,
 } from "../controllers/telegramController";
+import { requireAuth } from "../middleware/requireAuth";
 const router = Router();
-router.post("/sendCode", sendCode);
-router.post("/signIn", signIn);
-router.post("/2fa", verifyTwoFA);
-router.post("/logout", logout);
-
+router.post("/sendCode", requireAuth, sendCode);
+router.post("/signIn", requireAuth, signIn);
+router.post("/2fa", requireAuth, verifyTwoFA);
+router.post("/logout", requireAuth, logout);
+router.post("/accounts", requireAuth, getTelegramAccounts);
 export default router;

@@ -6,14 +6,14 @@
 export function isValidPassword(password: string): {
   hasMinLength: boolean;
   hasLetter: boolean;
-  hasNumber: boolean;
+  hasDigit: boolean;
   hasSpecial: boolean;
   isValid: boolean;
 } {
   return {
     hasMinLength: password.length >= 8,
     hasLetter: /[a-zA-Z]/.test(password),
-    hasNumber: /\d/.test(password),
+    hasDigit: /\d/.test(password),
     hasSpecial: /[!@#$%^&*(),.?":{}|<>]+-/.test(password),
     isValid:
       password.length >= 8 &&

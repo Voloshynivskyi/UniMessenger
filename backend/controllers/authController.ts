@@ -28,8 +28,8 @@ export async function registerUser(req: Request, res: Response) {
         errors.push("Password must be at least 8 characters");
       if (!passwordCheck.hasLetter)
         errors.push("Password must contain at least one letter");
-      if (!passwordCheck.hasNumber)
-        errors.push("Password must contain at least one number");
+      if (!passwordCheck.hasDigit)
+        errors.push("Password must contain at least one digit");
       if (!passwordCheck.hasSpecial)
         errors.push("Password must contain at least one special character");
       return res

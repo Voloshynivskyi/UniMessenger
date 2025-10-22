@@ -1,3 +1,8 @@
+/**
+ * backend/controllers/userController.ts
+ * Handles user profile operations including getting current user information
+ */
+
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 

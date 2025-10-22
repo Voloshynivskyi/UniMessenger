@@ -6,105 +6,39 @@ import { Api, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { computeCheck } from "telegram/Password";
 import { prisma } from "../lib/prisma";
-import { encryptSession } from "../utils/telegramSession";
-const API_ID_RAW = process.env.TELEGRAM_API_ID;
-const API_HASH = process.env.TELEGRAM_API_HASH;
+import { encryptSession, decryptSession } from "../utils/telegramSession";
 
-if (!API_ID_RAW || !API_HASH) {
+const API_ID = Number(process.env.TELEGRAM_API_ID);
+const API_HASH = process.env.TELEGRAM_API_HASH!;
+if (!API_ID || !API_HASH) {
   throw new Error(
-    "[TelegramService] TELEGRAM_API_ID or TELEGRAM_API_HASH is missing in .env"
+    "[TelegramService] TELEGRAM_API_ID or TELEGRAM_API_HASH missing"
   );
 }
 
-const API_ID = Number(API_ID_RAW);
-if (!Number.isFinite(API_ID)) {
-  throw new Error("[TelegramService] TELEGRAM_API_ID must be a number");
-}
-
-const CLIENT_OPTIONS = {
-  connectionRetries: 5,
-};
+const CLIENT_OPTIONS = { connectionRetries: 5 };
 
 export class TelegramService {
   initClient(sessionString?: string) {
-    const session = new StringSession(sessionString ?? "");
-    const client = new TelegramClient(
-      session,
+    return new TelegramClient(
+      new StringSession(sessionString ?? ""),
       API_ID,
-      API_HASH!,
+      API_HASH,
       CLIENT_OPTIONS
     );
-    return client;
-  }
-
-  async saveSession(
-    userId: string,
-    sessionString: string,
-    telegramUser: Api.User
-  ) {
-    const encryptedSession = encryptSession(sessionString);
-
-    const telegramId = telegramUser.id.toString();
-
-    const existingAccount = await prisma.telegramAccount.findFirst({
-      where: {
-        userId: userId,
-        telegramId: telegramId,
-      },
-    });
-
-    if (existingAccount) {
-      await prisma.telegramSession.create({
-        data: {
-          accountId: existingAccount.id,
-          sessionString: encryptedSession,
-        },
-      });
-
-      return {
-        status: "session_updated",
-        accountId: existingAccount.id,
-      };
-    } else {
-      const newAccount = await prisma.telegramAccount.create({
-        data: {
-          userId: userId,
-          telegramId: telegramId,
-          phoneNumber: telegramUser.phone || null,
-          username: telegramUser.username || null,
-          sessions: {
-            create: {
-              sessionString: encryptedSession,
-            },
-          },
-        },
-        include: {
-          sessions: true,
-        },
-      });
-
-      return {
-        status: "account_created",
-        accountId: newAccount.id,
-      };
-    }
   }
 
   async sendCode(phoneNumber: string) {
-    const client = this.initClient("");
-
+    const client = this.initClient();
     await client.connect();
     const res = await client.sendCode(
-      {
-        apiId: API_ID,
-        apiHash: API_HASH!,
-      },
+      { apiId: API_ID, apiHash: API_HASH },
       phoneNumber
     );
-
     return {
       status: "code_sent",
-      phone_code_hash: res.phoneCodeHash,
+      phoneCodeHash: res.phoneCodeHash,
+      tempSession: client.session.save(),
     };
   }
 
@@ -112,89 +46,139 @@ export class TelegramService {
     phoneNumber: string;
     phoneCode: string;
     phoneCodeHash: string;
+    tempSession: string;
   }) {
-    const client = this.initClient("");
+    const client = this.initClient(params.tempSession);
     await client.connect();
-
     try {
-      const result = await client.invoke(
+      await client.invoke(
         new Api.auth.SignIn({
           phoneNumber: params.phoneNumber,
           phoneCodeHash: params.phoneCodeHash,
           phoneCode: params.phoneCode,
         })
       );
-
-      const sessionString = client.session.save();
-      const me = await client.getMe();
-
       return {
         status: "ok",
-        sessionString,
-        user: me,
+        sessionString: client.session.save(),
+        user: await client.getMe(),
       };
     } catch (err: any) {
-      const msg = String(err?.message || err).toUpperCase();
-
-      if (msg.includes("SESSION_PASSWORD_NEEDED")) {
-        return { status: "need_password" };
+      if (
+        String(err.message || err)
+          .toUpperCase()
+          .includes("SESSION_PASSWORD_NEEDED")
+      ) {
+        return { status: "need_password", tempSession: client.session.save() };
       }
-      if (msg.includes("PHONE_CODE_INVALID"))
-        throw new Error("PHONE_CODE_INVALID");
-      if (msg.includes("PHONE_CODE_EXPIRED"))
-        throw new Error("PHONE_CODE_EXPIRED");
-
       throw err;
     }
   }
 
-  async signInWithPassword(params: { password: string }) {
-    const client = this.initClient("");
-
+  async signInWithPassword(params: { password: string; tempSession: string }) {
+    const client = this.initClient(params.tempSession);
     await client.connect();
 
-    try {
-      const passwordInfo = await client.invoke(new Api.account.GetPassword());
+    const passwordInfo = await client.invoke(new Api.account.GetPassword());
+    const { srpId, A, M1 } = await computeCheck(passwordInfo, params.password);
 
-      if (!passwordInfo || !passwordInfo.currentAlgo) {
-        throw new Error("PASSWORD_NOT_SET");
-      }
+    await client.invoke(
+      new Api.auth.CheckPassword({
+        password: new Api.InputCheckPasswordSRP({ srpId, A, M1 }),
+      })
+    );
 
-      const { srpId, A, M1 } = await computeCheck(
-        passwordInfo,
-        params.password
-      );
+    return {
+      status: "ok",
+      sessionString: client.session.save(),
+      user: await client.getMe(),
+    };
+  }
 
-      const result = await client.invoke(
-        new Api.auth.CheckPassword({
-          password: new Api.InputCheckPasswordSRP({
-            srpId,
-            A,
-            M1,
-          }),
-        })
-      );
+  async saveSession(
+    userId: string,
+    sessionString: string,
+    telegramUser: Api.User
+  ) {
+    const encrypted = encryptSession(sessionString);
+    const telegramId = telegramUser.id.toString();
 
-      const sessionString = client.session.save();
-      const me = await client.getMe();
+    let account = await prisma.telegramAccount.findUnique({
+      where: { telegramId },
+    });
 
-      return {
-        status: "ok",
-        sessionString,
-        user: me,
-      };
-    } catch (err: any) {
-      const msg = String(err?.message || err).toUpperCase();
-
-      if (msg.includes("PASSWORD_HASH_INVALID")) {
-        throw new Error("[TelegramService] PASSWORD_INVALID");
-      }
-
-      throw err;
+    if (!account) {
+      account = await prisma.telegramAccount.create({
+        data: {
+          userId,
+          telegramId,
+          phoneNumber: telegramUser.phone ?? null,
+          username: telegramUser.username ?? null,
+          firstName: telegramUser.firstName ?? null,
+          lastName: telegramUser.lastName ?? null,
+          isActive: true,
+        },
+      });
+      await prisma.telegramSession.upsert({
+        where: { accountId: account.id },
+        create: { accountId: account.id, sessionString: encrypted },
+        update: { sessionString: encrypted },
+      });
+      return { status: "account_created", accountId: account.id };
+    } else {
+      await prisma.telegramAccount.update({
+        where: { id: account.id },
+        data: {
+          phoneNumber: telegramUser.phone ?? null,
+          username: telegramUser.username ?? null,
+          firstName: telegramUser.firstName ?? null,
+          lastName: telegramUser.lastName ?? null,
+          isActive: true,
+        },
+      });
+      await prisma.telegramSession.upsert({
+        where: { accountId: account.id },
+        create: { accountId: account.id, sessionString: encrypted },
+        update: { sessionString: encrypted },
+      });
+      return { status: "session_replaced", accountId: account.id };
     }
   }
 
-  async logout(_accountId: string) {
-    throw new Error("Not implemented yet");
+  async logout(accountId: string) {
+    const session = await prisma.telegramSession.findUnique({
+      where: { accountId },
+    });
+    if (!session) return { status: "ok" };
+
+    const client = this.initClient(decryptSession(session.sessionString));
+    try {
+      await client.connect();
+      await client.invoke(new Api.auth.LogOut());
+    } catch {}
+
+    await prisma.telegramSession.delete({ where: { accountId } });
+    await prisma.telegramAccount.update({
+      where: { id: accountId },
+      data: { isActive: false },
+    });
+
+    return { status: "ok" };
+  }
+
+  async getAccounts(userId: string) {
+    const accounts = await prisma.telegramAccount.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        telegramId: true,
+        username: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        isActive: true,
+      },
+    });
+    return accounts;
   }
 }

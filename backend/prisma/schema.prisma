@@ -11,30 +11,32 @@ datasource db {
 }
 
 model User {
-  id          String             @id @default(cuid())
-  email       String             @unique
-  passwordHash String
-  displayName String?
-  createdAt   DateTime           @default(now())
+  id             String            @id @default(cuid())
+  email          String            @unique
+  passwordHash   String
+  displayName    String?
+  createdAt      DateTime          @default(now())
   telegramAccounts TelegramAccount[]
 }
 
 model TelegramAccount {
-  id          String        @id @default(cuid())
+  id          String   @id @default(cuid())
+  userId      String
+  telegramId  String   @unique       
   phoneNumber String?
   username    String?
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-  telegramId  String
-  sessions    TelegramSession[]
-  createdAt   DateTime      @default(now())
-  @@unique([userId, telegramId])
+  firstName   String?
+  lastName    String?
+  isActive    Boolean  @default(false) 
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+  session     TelegramSession?
 }
 
 model TelegramSession {
-  id            String             @id @default(cuid())
-  accountId     String
-  account       TelegramAccount    @relation(fields: [accountId], references: [id])
-  sessionString String
-  createdAt     DateTime           @default(now())
+  id            String   @id @default(cuid())
+  accountId     String   @unique
+  sessionString String  
+  createdAt     DateTime @default(now())
+  account       TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
