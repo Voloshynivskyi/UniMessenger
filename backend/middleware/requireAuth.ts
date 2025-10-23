@@ -1,64 +1,92 @@
-// backend/middleware/requireAuth.ts
+/**
+ * backend/middleware/requireAuth.ts
+ * Ensures that the request contains a valid JWT token and extracts userId.
+ */
+
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 import { verifyToken } from "../utils/jwt";
-dotenv.config();
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+/**
+ * Shape of decoded JWT payload as expected in our app.
+ */
+interface DecodedToken {
+  user_id: string; // encoded user ID in the token
+}
+
+/**
+ * Unified error response for unauthorized access.
+ */
+function unauthorized(
+  res: Response,
+  code: "UNAUTHORIZED" | "TOKEN_EXPIRED" | "INVALID_TOKEN",
+  message: string
+) {
+  return res.status(401).json({
+    status: "error",
+    code,
+    message,
+  });
+}
+
+/**
+ * Middleware that verifies JWT from "Authorization: Bearer <token>"
+ * and attaches `userId` to req for downstream usage.
+ *
+ * Expected behavior:
+ * - On success: calls next()
+ * - On error: returns standardized JSON with status:"error"
+ */
+export function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Response | void {
   try {
-    console.log(
-      "[requireAuth] Authentication attempt for:",
-      req.method,
-      req.path
-    );
     const authHeader = req.header("Authorization");
-    if (!authHeader) {
-      console.log("[requireAuth] Failed: No authorization header provided");
-      return res
-        .status(401)
-        .json({ error: "[requireAuth] Unauthorized request" });
-    }
-    if (!authHeader.startsWith("Bearer ")) {
-      console.log(
-        "[requireAuth] Failed: Invalid authorization format, header:",
-        authHeader
-      );
-      return res
-        .status(401)
-        .json({ error: "[requireAuth] Invalid authorization format" });
-    }
-    const token = authHeader.replace("Bearer ", "").trim();
-    if (!token.trim()) {
-      console.log("[requireAuth] Failed: Empty token provided");
-      return res.status(401).json({ error: "[requireAuth] Empty token" });
-    }
-    const decoded = verifyToken(token);
-    if (!decoded.user_id) {
-      console.log(
-        "[requireAuth] Failed: Invalid token payload, decoded:",
-        decoded
-      );
-      return res
-        .status(401)
-        .json({ error: "[requireAuth] Invalid token payload" });
-    }
-    req.userId = decoded.user_id;
-    console.log(
-      "[requireAuth] Success: User authenticated with ID:",
-      decoded.user_id
-    );
 
-    next();
+    if (!authHeader) {
+      return unauthorized(
+        res,
+        "UNAUTHORIZED",
+        "Authorization header is missing."
+      );
+    }
+
+    if (!authHeader.startsWith("Bearer ")) {
+      return unauthorized(
+        res,
+        "INVALID_TOKEN",
+        "Invalid authorization format."
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) {
+      return unauthorized(res, "INVALID_TOKEN", "Token is empty or invalid.");
+    }
+
+    const decoded = verifyToken(token) as DecodedToken;
+    if (!decoded || !decoded.user_id) {
+      return unauthorized(res, "INVALID_TOKEN", "Token payload is invalid.");
+    }
+
+    // Attach user ID to request for further use
+    req.userId = decoded.user_id;
+
+    return next();
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
-      return res.status(401).json({ error: "[requireAuth] Token expired" });
+      return unauthorized(res, "TOKEN_EXPIRED", "Token has expired.");
     }
     if (err instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({ error: "[requireAuth] Invalid token" });
+      return unauthorized(res, "INVALID_TOKEN", "Token validation failed.");
     }
-    return res
-      .status(500)
-      .json({ error: "[requireAuth] Authentication failed" });
+
+    return unauthorized(
+      res,
+      "UNAUTHORIZED",
+      "Authentication failed due to unexpected error."
+    );
   }
 }

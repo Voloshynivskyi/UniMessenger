@@ -1,38 +1,51 @@
 /**
- * frontend/src/pages/RegisterPage.tsx
- * Register page with email and password input fields
+ * RegisterPage.tsx
+ * ✨ Handles new user registration flow using centralized authApi and AuthContext.
  */
 
-import React from "react";
-import { Box, Paper, Typography, TextField, Button } from "@mui/material";
-import apiClient from "../api/apiClient";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Alert,
+} from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import LoginIcon from "@mui/icons-material/Login";
-import { isValidPassword, isValidEmail } from "../utils/validation";
+import { isValidEmail, isValidPassword } from "../utils/validation";
 import PasswordField from "../ui/login/PasswordField";
 import PasswordConfirmationField from "../ui/login/PasswordConfirmationField";
+import { ApiError } from "../api/ApiError";
+
 const RegisterPage: React.FC = () => {
-  const { user, token, isAuthenticated, login } = useAuth();
+  const { isAuthenticated, register } = useAuth();
   const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Redirect if already logged in
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/inbox", { replace: true });
     }
-  }, [isAuthenticated]);
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [passwordConfirmation, setPasswordConfirmation] = useState<string>("");
+  }, [isAuthenticated, navigate]);
 
   async function handleRegister() {
-    const requestBody = { email, password };
+    setErrorMessage("");
     try {
-      const response = await apiClient.post("/api/auth/register", requestBody);
-      login(response.data.token, response.data.user);
+      await register(email, password);
       navigate("/inbox");
-    } catch (error) {
-      console.error("Register failed:", error);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage("Registration failed due to unexpected error.");
+      }
     }
   }
 
@@ -42,10 +55,12 @@ const RegisterPage: React.FC = () => {
         <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
           UniMessenger Register
         </Typography>
+
         <TextField
           error={!isValidEmail(email) && email.length > 0}
-          onChange={(e) => setEmail(e.target.value)}
           label="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           sx={{ width: "100%", mb: "4vh" }}
         />
 
@@ -54,11 +69,19 @@ const RegisterPage: React.FC = () => {
           setPassword={setPassword}
           validation={true}
         />
+
         <PasswordConfirmationField
           password={password}
           passwordConfirmation={passwordConfirmation}
           setPasswordConfirmation={setPasswordConfirmation}
         />
+
+        {errorMessage && (
+          <Alert severity="error" sx={{ mb: "2vh" }}>
+            {errorMessage}
+          </Alert>
+        )}
+
         <Button
           color="primary"
           variant="contained"
@@ -71,15 +94,16 @@ const RegisterPage: React.FC = () => {
           }
         >
           Sign up
-          <LoginIcon sx={{ ml: 1 }} />
         </Button>
+
         <Typography sx={{ mb: "2vh", color: "text.secondary" }}>
           Already have an account? Sign in
         </Typography>
+
         <Button
           color="secondary"
           variant="contained"
-          sx={{ mb: "2vh", width: "100%" }}
+          sx={{ width: "100%" }}
           onClick={() => navigate("/login")}
         >
           Sign in

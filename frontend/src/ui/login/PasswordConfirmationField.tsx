@@ -1,7 +1,3 @@
-import {
-  isValidPassword,
-  isValidPasswordMessage,
-} from "../../utils/validation";
 import React from "react";
 import { TextField, IconButton, InputAdornment } from "@mui/material";
 import Visibility from "@mui/icons-material/Visibility";

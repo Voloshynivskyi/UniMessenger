@@ -1,43 +1,50 @@
 /**
- * frontend/src/components/accounts/telegram/steps/PhoneStep.tsx
- * First step of Telegram authentication - phone number input and code sending
+ * PhoneStep.tsx
+ * 🔹 Step 1 of Telegram authentication
+ * 🔹 Responsible only for:
+ *    - collecting phone number
+ *    - initiating authentication request via telegramAuthApi.sendCode()
+ * 🔹 Does NOT handle backend details – only UI control flow.
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert } from "@mui/material";
+import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
 import SendToMobileIcon from "@mui/icons-material/SendToMobile";
-import apiClient from "../../../../api/apiClient";
+import { telegramAuthApi } from "../../../../api/telegramAuth";
+import { ApiError } from "../../../../api/ApiError";
 
 interface PhoneStepProps {
-  phoneCodeHash: string;
-  onNext: (phoneNumber: string) => void;
-  setTempSession: (session: string) => void;
-  setPhoneCodeHash: (hash: string) => void;
+  onNext: (
+    phoneNumber: string,
+    phoneCodeHash: string,
+    tempSession: string
+  ) => void;
 }
 
-const PhoneStep: React.FC<PhoneStepProps> = ({
-  onNext,
-  setPhoneCodeHash,
-  setTempSession,
-}) => {
+const PhoneStep: React.FC<PhoneStepProps> = ({ onNext }) => {
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [error, setError] = useState("");
-
+  /**
+   * Trigger sending a login code to the user's phone number via backend Telegram API
+   */
   const handleSendCode = async () => {
+    setLoading(true);
+    setError(null);
+
     try {
-      const response = await apiClient.post("/api/telegram/sendCode", {
-        phoneNumber,
-      });
-      if (response.data.status === "code_sent") {
-        setPhoneCodeHash(response.data.phoneCodeHash);
-        setTempSession(response.data.tempSession);
-        onNext(phoneNumber);
-      } else {
-        setError(response.data.message || "Unknown response");
-      }
+      const result = await telegramAuthApi.sendCode(phoneNumber);
+      // Pass data to parent component (TelegramAuthModal)
+      onNext(phoneNumber, result.phoneCodeHash, result.tempSession);
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to send code");
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Unexpected error occurred");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -49,6 +56,7 @@ const PhoneStep: React.FC<PhoneStepProps> = ({
         sx={{ mb: 3 }}
         value={phoneNumber}
         onChange={(e) => setPhoneNumber(e.target.value)}
+        placeholder="+380931234567"
       />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -56,8 +64,19 @@ const PhoneStep: React.FC<PhoneStepProps> = ({
         </Alert>
       )}
 
-      <Button variant="contained" fullWidth onClick={handleSendCode}>
-        Send Code <SendToMobileIcon sx={{ ml: 1 }} />
+      <Button
+        variant="contained"
+        fullWidth
+        onClick={handleSendCode}
+        disabled={loading || !phoneNumber}
+      >
+        {loading ? (
+          <CircularProgress size={24} />
+        ) : (
+          <>
+            Send Code <SendToMobileIcon sx={{ ml: 1 }} />
+          </>
+        )}
       </Button>
     </Box>
   );

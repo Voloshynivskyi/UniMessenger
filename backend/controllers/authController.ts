@@ -1,93 +1,235 @@
 /**
  * backend/controllers/authController.ts
- * Handles user authentication operations including registration and login
+ * Handles user authentication (registration & login) with unified API structure and structured logging.
  */
-import { prisma } from "../lib/prisma";
+
 import type { Request, Response } from "express";
+import { prisma } from "../lib/prisma";
 import { hashPassword, comparePassword } from "../utils/hash";
 import { generateToken } from "../utils/jwt";
 import {
-  isValidPassword,
-  isValidName,
   isValidEmail,
+  isValidName,
+  isValidPassword,
 } from "../utils/validation";
+import { logger } from "../utils/logger";
 
-export async function registerUser(req: Request, res: Response) {
+/**
+ * Standard shape for error responses
+ */
+interface ApiErrorResponse {
+  status: "error";
+  code:
+    | "VALIDATION_ERROR"
+    | "USER_EXISTS"
+    | "USER_NOT_FOUND"
+    | "BAD_CREDENTIALS"
+    | "UNEXPECTED";
+  message: string;
+  details?: string[];
+}
+
+/**
+ * Standard success response for authentication
+ */
+interface AuthSuccessResponse {
+  status: "ok";
+  data: {
+    token: string;
+    user: {
+      id: string;
+      email: string;
+      displayName?: string | null;
+    };
+  };
+}
+
+/** Helper to extract metadata for logging */
+function extractRequestMeta(req: Request) {
+  return {
+    ip: req.ip,
+    userAgent: req.headers["user-agent"] || "unknown",
+  };
+}
+
+/** Helper to send a validation error */
+function respondValidationError(
+  req: Request,
+  res: Response,
+  message = "Validation error",
+  details?: string[]
+) {
+  logger.warn("Validation error", { ...extractRequestMeta(req), details });
+  return res.status(400).json({
+    status: "error",
+    code: "VALIDATION_ERROR",
+    message,
+    ...(details ? { details } : {}),
+  });
+}
+
+/** Helper for unexpected errors */
+function respondUnexpected(req: Request, res: Response, err?: unknown) {
+  logger.error("Unexpected error", {
+    ...extractRequestMeta(req),
+    error: String(err),
+  });
+  return res.status(500).json({
+    status: "error",
+    code: "UNEXPECTED",
+    message: "Internal server error",
+  });
+}
+
+/**
+ * Register new user
+ */
+export async function registerUser(
+  req: Request,
+  res: Response
+): Promise<Response<AuthSuccessResponse | ApiErrorResponse>> {
   try {
-    const { email, password, name } = req.body;
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res
-        .status(400)
-        .json({ error: "[Auth controller] User already exists" });
+    const { email, password, name } = req.body ?? {};
+    const meta = extractRequestMeta(req);
+
+    if (!email || !password) {
+      return respondValidationError(
+        req,
+        res,
+        "Email and password are required."
+      );
     }
-    const passwordCheck = isValidPassword(password);
-    if (!passwordCheck.isValid) {
-      const errors = [];
-      if (!passwordCheck.hasMinLength)
-        errors.push("Password must be at least 8 characters");
-      if (!passwordCheck.hasLetter)
-        errors.push("Password must contain at least one letter");
-      if (!passwordCheck.hasDigit)
-        errors.push("Password must contain at least one digit");
-      if (!passwordCheck.hasSpecial)
-        errors.push("Password must contain at least one special character");
-      return res
-        .status(400)
-        .json({ error: "[Auth controller] Invalid password:", errors });
+    if (!isValidEmail(email)) {
+      return respondValidationError(req, res, "Invalid email format.");
     }
 
-    if (!isValidEmail(email)) {
-      return res
-        .status(400)
-        .json({ error: "[Auth controller] Invalid email:" });
+    const pwdCheck = isValidPassword(password);
+    if (!pwdCheck.isValid) {
+      const details: string[] = [];
+      if (!pwdCheck.hasMinLength)
+        details.push("Password must be at least 8 characters.");
+      if (!pwdCheck.hasLetter)
+        details.push("Password must contain at least one letter.");
+      if (!pwdCheck.hasDigit)
+        details.push("Password must contain at least one digit.");
+      return respondValidationError(
+        req,
+        res,
+        "Password does not meet policy.",
+        details
+      );
     }
+
     if (name && !isValidName(name)) {
+      return respondValidationError(req, res, "Invalid display name.");
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      logger.warn("Register failed: user already exists", { ...meta, email });
       return res.status(400).json({
-        error:
-          "[Auth controller] Invalid name format(special signs are not allowed)",
+        status: "error",
+        code: "USER_EXISTS",
+        message: "User with this email already exists.",
       });
     }
-    const hashedPassword = await hashPassword(password);
-    const newUser = await prisma.user.create({
+
+    const passwordHash = await hashPassword(password);
+    const created = await prisma.user.create({
       data: {
         email,
-        passwordHash: hashedPassword,
-        displayName: name || null,
+        passwordHash,
+        displayName: name ?? null,
+      },
+      select: { id: true, email: true, displayName: true },
+    });
+
+    const token = generateToken(created.id);
+    logger.info("User registered successfully", {
+      ...meta,
+      userId: created.id,
+    });
+
+    return res.status(201).json({
+      status: "ok",
+      data: {
+        token,
+        user: {
+          id: created.id,
+          email: created.email,
+          displayName: created.displayName,
+        },
       },
     });
-    const token = generateToken(newUser.id);
-    return res
-      .status(201)
-      .json({ token, user: { id: newUser.id, email: newUser.email } });
   } catch (err) {
-    console.log("[Auth controller] Register error: ", err);
-    return res.status(500).json({ error: "[Auth controller] Server error" });
+    return respondUnexpected(req, res, err);
   }
 }
 
-export async function loginUser(req: Request, res: Response) {
+/**
+ * Login existing user
+ */
+export async function loginUser(
+  req: Request,
+  res: Response
+): Promise<Response<AuthSuccessResponse | ApiErrorResponse>> {
   try {
-    const { email, password } = req.body;
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (!existingUser) {
-      return res
-        .status(404)
-        .json({ error: "[Auth controller] User not found" });
+    const { email, password } = req.body ?? {};
+    const meta = extractRequestMeta(req);
+
+    if (!email || !password) {
+      return respondValidationError(
+        req,
+        res,
+        "Email and password are required."
+      );
     }
-    const isValid = await comparePassword(password, existingUser.passwordHash);
-    if (!isValid) {
-      return res
-        .status(401)
-        .json({ error: "[Auth controller] Password is not valid" });
+    if (!isValidEmail(email)) {
+      return respondValidationError(req, res, "Invalid email format.");
     }
-    const token = generateToken(existingUser.id);
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true, passwordHash: true, displayName: true },
+    });
+
+    if (!user) {
+      logger.warn("Login failed: user not found", { ...meta, email });
+      return res.status(404).json({
+        status: "error",
+        code: "USER_NOT_FOUND",
+        message: "User not found.",
+      });
+    }
+
+    const ok = await comparePassword(password, user.passwordHash);
+    if (!ok) {
+      logger.warn("Login failed: bad credentials", {
+        ...meta,
+        userId: user.id,
+      });
+      return res.status(401).json({
+        status: "error",
+        code: "BAD_CREDENTIALS",
+        message: "Invalid email or password.",
+      });
+    }
+
+    const token = generateToken(user.id);
+    logger.info("User logged in successfully", { ...meta, userId: user.id });
+
     return res.status(200).json({
-      token,
-      user: { id: existingUser.id, email: existingUser.email },
+      status: "ok",
+      data: {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+        },
+      },
     });
   } catch (err) {
-    console.log("[Auth controller] Login error: ", err);
-    return res.status(500).json({ error: "[Auth controller] Server error" });
+    return respondUnexpected(req, res, err);
   }
 }

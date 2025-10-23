@@ -1,9 +1,13 @@
 /**
- * frontend/src/pages/LoginPage.tsx
- * Login page with email and password input fields
+ * LoginPage.tsx
+ * 🔐 Page component responsible for user authentication via email and password.
+ *
+ * ✅ Uses authApi + AuthContext for centralized logic
+ * ✅ Shows validation errors from ApiError
+ * ✅ Redirects upon successful login
  */
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Paper,
@@ -13,33 +17,38 @@ import {
   Divider,
   Alert,
 } from "@mui/material";
-import apiClient from "../api/apiClient";
-import { useState, useEffect } from "react";
+import LoginIcon from "@mui/icons-material/Login";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import LoginIcon from "@mui/icons-material/Login";
 import PasswordField from "../ui/login/PasswordField";
+import { ApiError } from "../api/ApiError";
+
 const LoginPage: React.FC = () => {
   const { isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Redirect if already logged in
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/inbox", { replace: true });
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, navigate]);
 
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string>("");
   async function handleLogin() {
-    const requestBody = { email, password };
+    setErrorMessage("");
     try {
-      const response = await apiClient.post("/api/auth/login", requestBody);
-      login(response.data.token, response.data.user);
+      await login(email, password); // виклик контексту, а не API напряму
       navigate("/inbox");
-    } catch (error: any) {
-      console.error("Login failed:", error);
-      setErrorMessage(error.response?.data?.message || "Login failed");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage("Unexpected error occurred");
+      }
     }
   }
 
@@ -49,10 +58,12 @@ const LoginPage: React.FC = () => {
         <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
           UniMessenger Login
         </Typography>
+
         <TextField
-          onChange={(e) => setEmail(e.target.value)}
           label="Email"
           sx={{ width: "100%", mb: "4vh" }}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
         />
 
         <PasswordField
@@ -60,21 +71,26 @@ const LoginPage: React.FC = () => {
           setPassword={setPassword}
           validation={false}
         />
+
         {errorMessage && (
           <Alert severity="error" sx={{ mb: "2vh" }}>
             {errorMessage}
           </Alert>
         )}
+
         <Button
           color="primary"
           variant="contained"
           sx={{ mb: "2vh", width: "100%" }}
           onClick={handleLogin}
+          disabled={!email || !password}
         >
           Sign in
           <LoginIcon sx={{ ml: 1 }} />
         </Button>
+
         <Divider sx={{ m: 2 }} />
+
         <Typography sx={{ mb: "2vh", color: "text.secondary" }}>
           Don't have an account? Sign up
         </Typography>
@@ -82,7 +98,7 @@ const LoginPage: React.FC = () => {
         <Button
           color="secondary"
           variant="contained"
-          sx={{ mb: "2vh", width: "100%" }}
+          sx={{ width: "100%" }}
           onClick={() => navigate("/register")}
         >
           Sign up

@@ -1,25 +1,38 @@
 /**
- * frontend/src/components/accounts/telegram/steps/CodeStep.tsx
- * Second step of Telegram authentication - verification code input
+ * CodeStep.tsx
+ * 🔹 Step 2 of Telegram authentication flow.
+ * 🔹 Handles verification code submission after user receives it from Telegram.
+ *
+ * 🧠 Key responsibilities:
+ *  - Accept code input
+ *  - Call telegramAuthApi.signIn() with proper arguments
+ *  - Determine whether user proceeds to:
+ *      ✅ success (account connected)
+ *      🔐 or password step (2FA required)
+ *  - Handle and display ApiError feedback
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert } from "@mui/material";
+import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
 import LoginIcon from "@mui/icons-material/Login";
-import apiClient from "../../../../api/apiClient";
+import { telegramAuthApi } from "../../../../api/telegramAuth";
+import { ApiError } from "../../../../api/ApiError";
 
 interface CodeStepProps {
   phoneNumber: string;
   phoneCodeHash: string;
   tempSession: string;
-  onPasswordRequired: (code: string) => void;
+  /** Called when Telegram requires password (2FA) */
+  onPasswordRequired: (verificationCode: string) => void;
+  /** Called when authentication is complete */
   onSuccess: (data: {
     telegramId: string;
     accountId: string;
     username: string | null;
-    phone: string | null;
+    phoneNumber: string | null;
     firstName: string | null;
     lastName: string | null;
+    isActive: boolean;
   }) => void;
 }
 
@@ -31,28 +44,39 @@ const CodeStep: React.FC<CodeStepProps> = ({
   onSuccess,
 }) => {
   const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const handleSignIn = async () => {
-    try {
-      const response = await apiClient.post("/api/telegram/signIn", {
-        phoneNumber,
-        phoneCode: code,
-        phoneCodeHash: phoneCodeHash,
-        tempSession,
-      });
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-      if (
-        response.data.status === "account_created" ||
-        response.data.status === "session_replaced"
-      ) {
-        onSuccess(response.data);
-      } else if (response.data.status === "need_password") {
+  /**
+   * Handles user confirmation of the SMS code.
+   * Triggers Telegram sign-in and decides next step based on API response.
+   */
+  const handleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await telegramAuthApi.signIn(
+        phoneNumber,
+        code,
+        phoneCodeHash,
+        tempSession
+      );
+
+      if ("needsPassword" in result) {
         onPasswordRequired(code);
       } else {
-        setError("Unexpected server response");
+        // TS тепер знає, що result — це SignInSuccessResult
+        onSuccess(result);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to sign in");
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Unexpected error occurred");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -64,10 +88,28 @@ const CodeStep: React.FC<CodeStepProps> = ({
         sx={{ mb: 3 }}
         value={code}
         onChange={(e) => setCode(e.target.value)}
+        placeholder="Enter the code from Telegram"
       />
-      {error && <Alert severity="error">{error}</Alert>}
-      <Button variant="contained" fullWidth onClick={handleSignIn}>
-        Confirm <LoginIcon sx={{ ml: 1 }} />
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Button
+        variant="contained"
+        fullWidth
+        onClick={handleSignIn}
+        disabled={loading || !code}
+      >
+        {loading ? (
+          <CircularProgress size={24} />
+        ) : (
+          <>
+            Confirm <LoginIcon sx={{ ml: 1 }} />
+          </>
+        )}
       </Button>
     </Box>
   );

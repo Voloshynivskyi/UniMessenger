@@ -1,37 +1,85 @@
 /**
  * backend/server.ts
- * Main Express server setup with middleware, routes, and database connection
+ * Initializes the Express server with global middleware, routes, and unified error handling.
  */
+import healthRoutes from "./routes/health";
 
-import express from "express";
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { prisma } from "./lib/prisma";
+
 import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
+
 dotenv.config();
 
 const app = express();
+
+/** Global middleware */
 app.use(cors());
 app.use(express.json());
-app.get("/", (_, res) => {
-  res.send("🚀 UniMessenger API running");
+
+/**
+ * @route GET /
+ * @desc Root endpoint confirming API is running
+ * @access Public
+ */
+app.get("/", (_: Request, res: Response) => {
+  res.json({ status: "ok", message: "🚀 UniMessenger API running" });
 });
+
+/**
+ * @route GET /api/health
+ * @desc Health check endpoint for monitoring systems (K8s, load balancers)
+ * @access Public
+ */
+app.use("/api/health", healthRoutes);
+
+/** API Routes */
 app.use("/api/auth", authRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/telegram", telegramRoutes);
-app.get("/api/test-db", async (_, res) => {
-  const count = await prisma.user.count();
-  res.json({ message: "Database connected", users: count });
+
+/**
+ * Unified fallback route
+ */
+app.use((req, res) => {
+  res.status(404).json({ status: "error", message: "Route not found" });
 });
 
-const PORT = process.env.PORT || 7007;
-app.listen(PORT, () =>
-  console.log(`✅ Server running on http://localhost:${PORT}`)
-);
+/**
+ * Global error handler
+ */
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[GlobalErrorHandler]:", err);
+  res.status(err.status || 500).json({
+    status: "error",
+    code: err.code || "UNEXPECTED",
+    message: err.message || "Internal server error",
+  });
+});
 
+/** Start server */
+const PORT = process.env.PORT || 7007;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on http://localhost:${PORT}`);
+});
+
+/** Graceful shutdown */
 process.on("SIGINT", async () => {
+  console.log("SIGINT received. Closing database connection.");
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM received. Closing database connection.");
   await prisma.$disconnect();
   process.exit(0);
 });

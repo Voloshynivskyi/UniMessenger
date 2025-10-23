@@ -1,6 +1,6 @@
 /**
  * backend/routes/telegram.ts
- * Authentication routes for user registration and login endpoints
+ * Routes for Telegram MTProto authentication and account management
  */
 
 import { Router } from "express";
@@ -12,10 +12,42 @@ import {
   getTelegramAccounts,
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
+
 const router = Router();
+
+/**
+ * @route POST /telegram/sendCode
+ * @desc Send Telegram authentication code via MTProto
+ * @access Private
+ */
 router.post("/sendCode", requireAuth, sendCode);
+
+/**
+ * @route POST /telegram/signIn
+ * @desc Complete MTProto sign-in (code-based)
+ * @access Private
+ */
 router.post("/signIn", requireAuth, signIn);
+
+/**
+ * @route POST /telegram/2fa
+ * @desc Complete MTProto 2FA password step
+ * @access Private
+ */
 router.post("/2fa", requireAuth, verifyTwoFA);
+
+/**
+ * @route POST /telegram/logout
+ * @desc Logout Telegram account (invalidate session)
+ * @access Private
+ */
 router.post("/logout", requireAuth, logout);
-router.post("/accounts", requireAuth, getTelegramAccounts);
+
+/**
+ * @route GET /telegram/accounts
+ * @desc Get all Telegram accounts attached to current user
+ * @access Private
+ */
+router.get("/accounts", requireAuth, getTelegramAccounts);
+
 export default router;

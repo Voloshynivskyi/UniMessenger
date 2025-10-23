@@ -1,92 +1,130 @@
-import apiClient from "./apiClient";
-
 /**
- * Response returned from Telegram sendCode API.
+ * Telegram Authentication API Client for UniMessenger
+ *
+ * 🚀 Purpose:
+ *   Provides strongly-typed wrappers around all Telegram authentication endpoints.
+ *   Encapsulates axios calls and error handling for a clean and scalable frontend architecture.
+ *
+ * 🧠 Design goals:
+ *   - Fully aligned with backend API contract (`status:ok/error`)
+ *   - Strict TypeScript typing
+ *   - Documentation that explains WHY, not just WHAT
+ *   - Ready for extension (more providers: Discord, Slack)
  */
-export interface SendCodeResponse {
-  status: "code_sent";
+
+import apiClient from "./apiClient";
+import { handleApiResponse } from "./handleApiResponse";
+
+/** Data returned after /sendCode */
+export interface SendCodeResult {
   phoneCodeHash: string;
   tempSession: string;
 }
 
-/**
- * Custom error used for Telegram authentication flow.
- * Provides clear error codes and optional retry timeout for rate limits.
- */
-export class TelegramAuthError extends Error {
-  code: string;
-  retryAfter?: number;
-
-  constructor(message: string, code: string, retryAfter?: number) {
-    super(message);
-    this.code = code;
-    this.retryAfter = retryAfter;
-  }
+/** Data returned when user is successfully authenticated */
+export interface SignInSuccessResult {
+  operationStatus: "account_created" | "session_replaced";
+  telegramId: string;
+  accountId: string;
+  username: string | null;
+  phoneNumber: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  isActive: boolean;
 }
 
+/** Data returned when Telegram requires a 2FA password */
+export interface SignInNeedPasswordResult {
+  needsPassword: true;
+  tempSession: string;
+}
+
+/** Union of possible outcomes of signIn */
+export type SignInResult = SignInSuccessResult | SignInNeedPasswordResult;
+
 /**
- * Sends a Telegram verification code to the provided phone number.
- *
- * This is the first step in the MTProto authentication flow.
- * On success, the API returns a temporary session and phoneCodeHash
- * required for the next step (signIn).
- *
- * @param phoneNumber - Full phone number in international format (e.g. +380931234567)
- * @returns Object containing phoneCodeHash and tempSession on success
- *
- * @throws TelegramAuthError when:
- *  - Telegram rate limits the user (FLOOD_WAIT)
- *  - The phone number is invalid
- *  - An unexpected server error occurs
+ * Wrapper object for all Telegram-related API operations.
+ * Every function returns either specific typed data or throws ApiError.
  */
-export const sendCode = async (
-  phoneNumber: string
-): Promise<SendCodeResponse> => {
-  try {
+export const telegramAuthApi = {
+  /**
+   * Step 1: Request Telegram to send a verification code.
+   *
+   * @param phoneNumber - Must be in full international format (e.g. +380931234567)
+   * @returns {SendCodeResult} The phoneCodeHash and tempSession, required for next step.
+   * @throws {ApiError} If phone is invalid or service is rate-limited (FLOOD_WAIT).
+   */
+  async sendCode(phoneNumber: string): Promise<SendCodeResult> {
     const response = await apiClient.post("/api/telegram/sendCode", {
       phoneNumber,
     });
+    return handleApiResponse(response);
+  },
 
-    if (response.data.status === "code_sent") {
-      return {
-        status: "code_sent",
-        phoneCodeHash: response.data.phoneCodeHash,
-        tempSession: response.data.tempSession,
-      };
-    }
+  /**
+   * Step 2: Verify the code sent to phone.
+   *
+   * @param phoneNumber - User's phone
+   * @param phoneCode - SMS code from Telegram
+   * @param phoneCodeHash - Hash returned from sendCode
+   * @param tempSession - Temporary session string returned from sendCode
+   *
+   * @returns {SignInResult}
+   *   - If 2FA is not required → SignInSuccessResult
+   *   - If 2FA is required → SignInNeedPasswordResult
+   */
+  async signIn(
+    phoneNumber: string,
+    phoneCode: string,
+    phoneCodeHash: string,
+    tempSession: string
+  ): Promise<SignInResult> {
+    const response = await apiClient.post("/api/telegram/signIn", {
+      phoneNumber,
+      phoneCode,
+      phoneCodeHash,
+      tempSession,
+    });
+    return handleApiResponse(response);
+  },
 
-    // If response does not match expected schema, treat as unexpected
-    throw new TelegramAuthError(
-      "Unexpected response from sendCode endpoint.",
-      "UNEXPECTED_RESPONSE"
-    );
-  } catch (error: any) {
-    const errData = error?.response?.data;
+  /**
+   * Step 3: Complete authentication using Telegram password (2FA)
+   *
+   * @param tempSession - Session obtained after code confirmation
+   * @param password - User's Telegram 2FA password
+   *
+   * @returns {SignInSuccessResult} Always successful if credentials correct.
+   * @throws {ApiError} If password is incorrect or session expired.
+   */
+  async verifyTwoFA(
+    tempSession: string,
+    password: string
+  ): Promise<SignInSuccessResult> {
+    const response = await apiClient.post("/api/telegram/2fa", {
+      tempSession,
+      password,
+    });
+    return handleApiResponse(response);
+  },
 
-    // Telegram rate limit
-    if (errData?.code === "FLOOD_WAIT") {
-      throw new TelegramAuthError(
-        "Telegram rate limit exceeded. Please wait before retrying.",
-        "FLOOD_WAIT",
-        errData.retry_after
-      );
-    }
+  /**
+   * Get all connected Telegram accounts for the authenticated user.
+   *
+   * @returns Array of account objects with status and user details.
+   */
+  async getAccounts() {
+    const response = await apiClient.get("/api/telegram/accounts");
+    return handleApiResponse(response);
+  },
 
-    // Invalid phone number error
-    if (
-      errData?.code === "PHONE_NUMBER_INVALID" ||
-      errData?.code === "BAD_PHONE_NUMBER"
-    ) {
-      throw new TelegramAuthError(
-        "Invalid phone number format.",
-        "PHONE_NUMBER_INVALID"
-      );
-    }
-
-    // Default error fallback
-    throw new TelegramAuthError(
-      errData?.message || "Failed to send verification code.",
-      errData?.code || "UNEXPECTED_ERROR"
-    );
-  }
+  /**
+   * Disconnect (log out) a Telegram account from the current user.
+   */
+  async logout(accountId: string) {
+    const response = await apiClient.post("/api/telegram/logout", {
+      accountId,
+    });
+    return handleApiResponse(response);
+  },
 };

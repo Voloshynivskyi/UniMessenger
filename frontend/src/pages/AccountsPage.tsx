@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, Typography, IconButton, Paper } from "@mui/material";
+import { Box, Typography, IconButton, Paper, Divider } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import TelegramAuthModal from "../components/accounts/telegram/TelegramAuthModal";
 
@@ -19,7 +19,7 @@ const AccountsPage: React.FC = () => {
         >
           <AddIcon />
         </IconButton>
-
+        <Divider />
         <TelegramAuthModal
           open={isModalOpen}
           onClose={() => setIsModalOpen(false)}

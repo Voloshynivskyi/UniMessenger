@@ -1,56 +1,62 @@
 /**
- * frontend/src/components/accounts/telegram/steps/PasswordStep.tsx
- * Third step of Telegram authentication - two-factor authentication password input
+ * PasswordStep.tsx
+ * 🔐 Step 3 of Telegram authentication flow (Two-Factor Authentication).
+ *
+ * 🧠 Purpose:
+ *  - Prompt user to enter Telegram password (if 2FA is enabled)
+ *  - Submit password together with tempSession to complete authentication
+ *  - On success → finalize session
+ *
+ * ✅ This component is responsible ONLY for UI and flow control.
+ * ✅ All HTTP logic and validation are encapsulated in the telegramAuthApi layer.
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert } from "@mui/material";
-import apiClient from "../../../../api/apiClient";
+import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
+import { telegramAuthApi } from "../../../../api/telegramAuth";
+import { ApiError } from "../../../../api/ApiError";
 
 interface PasswordStepProps {
-  phoneNumber: string;
-  phoneCodeHash: string;
-  code: string;
   tempSession: string;
+  /** Called when user successfully completes login with password */
   onSuccess: (data: {
     telegramId: string;
     accountId: string;
     username: string | null;
-    phone: string | null;
+    phoneNumber: string | null;
     firstName: string | null;
     lastName: string | null;
+    isActive: boolean;
   }) => void;
 }
 
 const PasswordStep: React.FC<PasswordStepProps> = ({
-  phoneNumber,
-  phoneCodeHash,
-  code,
   tempSession,
   onSuccess,
 }) => {
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
+  /**
+   * Handles final step of Telegram authentication.
+   * Calls verifyTwoFA() via API and passes result to parent.
+   */
   const handleSubmit = async () => {
+    setError(null);
+    setLoading(true);
+
     try {
-      const response = await apiClient.post("/api/telegram/2fa", {
-        phoneNumber,
-        phoneCode: code,
-        phoneCodeHash: phoneCodeHash,
-        password,
-        tempSession,
-      });
-      if (
-        response.data.status === "account_created" ||
-        response.data.status === "session_replaced"
-      ) {
-        onSuccess(response.data);
-      } else {
-        setError("Unexpected response");
-      }
+      const result = await telegramAuthApi.verifyTwoFA(tempSession, password);
+      onSuccess(result);
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to submit password");
+      if (err instanceof ApiError) {
+        setError(err.message); // Display server-provided error message
+      } else {
+        setError("Unexpected error occurred");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -63,10 +69,22 @@ const PasswordStep: React.FC<PasswordStepProps> = ({
         sx={{ mb: 3 }}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
+        placeholder="Enter your Telegram 2FA password"
       />
-      {error && <Alert severity="error">{error}</Alert>}
-      <Button variant="contained" fullWidth onClick={handleSubmit}>
-        Sign In
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Button
+        variant="contained"
+        fullWidth
+        onClick={handleSubmit}
+        disabled={loading || !password}
+      >
+        {loading ? <CircularProgress size={24} /> : "Sign In"}
       </Button>
     </Box>
   );
