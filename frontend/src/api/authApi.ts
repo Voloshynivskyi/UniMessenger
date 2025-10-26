@@ -7,7 +7,7 @@
 import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
 
-export interface AuthUser {
+export interface UniAuthUser {
   id: string;
   email: string;
   displayName?: string | null;
@@ -16,7 +16,7 @@ export interface AuthUser {
 
 export interface AuthSuccessResponse {
   token: string;
-  user: AuthUser;
+  user: UniAuthUser;
 }
 
 export const authApi = {
@@ -50,7 +50,7 @@ export const authApi = {
   /**
    * Get current authenticated user data using token from headers
    */
-  async getCurrentUser(): Promise<AuthUser> {
+  async getCurrentUser(): Promise<UniAuthUser> {
     const response = await apiClient.get("/api/me");
     const data = handleApiResponse(response);
     return data.user;

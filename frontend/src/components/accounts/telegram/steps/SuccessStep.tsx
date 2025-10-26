@@ -6,7 +6,7 @@
 import React from "react";
 import { Box, Typography, Button } from "@mui/material";
 import DoneIcon from "@mui/icons-material/Done";
-import type { SignInSuccessResult } from "../../../../api/telegramAuth";
+import type { SignInSuccessResult } from "../../../../api/telegramApi";
 
 interface SuccessStepProps {
   accountInfo: SignInSuccessResult | null;
@@ -22,7 +22,7 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ accountInfo, onClose }) => {
         {accountInfo?.username ||
           `${accountInfo?.firstName ?? ""} ${accountInfo?.lastName ?? ""}` ||
           accountInfo?.phoneNumber}{" "}
-        Added Successfully!
+        added Successfully!
       </Typography>
 
       <Button sx={{ mt: 3 }} variant="contained" onClick={onClose} fullWidth>

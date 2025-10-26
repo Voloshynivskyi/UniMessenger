@@ -18,7 +18,7 @@ import { useAuth, type AuthContextType } from "../context/AuthContext";
 const ProfilePage: React.FC = () => {
   const context = useAuth() as AuthContextType;
   return (
-    <Card sx={{ p: 4, maxWidth: 500, mx: "auto", borderRadius: 4 }}>
+    <Card sx={{ p: 4, maxWidth: "100%", mx: "auto", borderRadius: 4 }}>
       <Box
         sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}
       >
@@ -36,14 +36,6 @@ const ProfilePage: React.FC = () => {
       <List>
         <ListItem>
           <ListItemText primary="Email" secondary={context.user?.email} />
-        </ListItem>
-        <ListItem>
-          <ListItemText
-            primary="Display Name"
-            secondary={
-              context.user?.displayName || `@${context.user?.email.split("@")[0]}`
-            }
-          />
         </ListItem>
       </List>
 

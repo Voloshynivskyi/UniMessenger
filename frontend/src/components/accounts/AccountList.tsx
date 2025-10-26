@@ -1,12 +1,39 @@
+import List from "@mui/material/List";
+import React from "react";
+import { AccountListItem } from "./AccountListItem";
+import type { TelegramAuthAccount } from "../../api/telegramApi";
+import NoAccountsPlaceholder from "./NoAccountsPlaceholder";
+import AccountAddListItem from "./AccountAddListItem";
+import { useTelegram } from "../../context/TelegramContext";
 /**
- * frontend/src/components/accounts/AccountList.tsx
- * Component for displaying a list of connected messaging accounts
+ * Props for AccountList component.
  */
 
-import React from "react";
+interface AccountListProps {
+  accounts: TelegramAuthAccount[];
+  OnAddButtonClick(): void;
+}
 
-const AccountList: React.FC = () => {
-  return <div>Account List Component</div>;
+/**
+ * Component for displaying a list of connected messaging accounts
+ */
+const AccountList: React.FC<AccountListProps> = ({
+  accounts,
+  OnAddButtonClick,
+}) => {
+  if (!accounts || accounts.length === 0) {
+    return <NoAccountsPlaceholder onAddClick={OnAddButtonClick} />;
+  }
+  const { logoutAccount } = useTelegram();
+  const accs = accounts.map((account) => (
+    <AccountListItem
+      key={account.accountId}
+      account={account}
+      onLogoutClick={logoutAccount}
+    />
+  ));
+  accs.push(<AccountAddListItem onClick={OnAddButtonClick} />);
+  return <List>{accs}</List>;
 };
 
 export default AccountList;

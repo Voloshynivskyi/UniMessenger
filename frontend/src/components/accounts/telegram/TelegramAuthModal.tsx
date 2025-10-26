@@ -17,7 +17,7 @@ import PhoneStep from "./steps/PhoneStep";
 import CodeStep from "./steps/CodeStep";
 import PasswordStep from "./steps/PasswordStep";
 import SuccessStep from "./steps/SuccessStep";
-
+import CancelButton from "../../../ui/login/common/CancelButton";
 interface TelegramAuthModalProps {
   open: boolean;
   onClose: () => void;
@@ -69,6 +69,15 @@ const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({
     if (onComplete) onComplete();
   };
 
+  const handleEndOperation = () => {
+    setStep("phone");
+    setPhoneNumber("");
+    setPhoneCodeHash("");
+    setTempSession("");
+    setAccountInfo(null);
+    onClose();
+  };
+
   return (
     <Modal open={open} onClose={onClose}>
       <Paper
@@ -79,7 +88,12 @@ const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({
           borderRadius: 5,
         }}
       >
-        {step === "phone" && <PhoneStep onNext={handlePhoneSuccess} />}
+        {step === "phone" && (
+          <PhoneStep
+            onNext={handlePhoneSuccess}
+            onCancel={handleEndOperation}
+          />
+        )}
 
         {step === "code" && (
           <CodeStep
@@ -88,15 +102,20 @@ const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({
             tempSession={tempSession}
             onPasswordRequired={handlePasswordRequired}
             onSuccess={handleSuccess}
+            onCancel={handleEndOperation}
           />
         )}
 
         {step === "password" && (
-          <PasswordStep tempSession={tempSession} onSuccess={handleSuccess} />
+          <PasswordStep
+            tempSession={tempSession}
+            onSuccess={handleSuccess}
+            onCancel={handleEndOperation}
+          />
         )}
 
         {step === "success" && (
-          <SuccessStep accountInfo={accountInfo} onClose={onClose} />
+          <SuccessStep accountInfo={accountInfo} onClose={handleEndOperation} />
         )}
       </Paper>
     </Modal>

@@ -13,11 +13,18 @@
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
+import {
+  TextField,
+  Button,
+  Box,
+  Alert,
+  CircularProgress,
+  Typography,
+} from "@mui/material";
 import LoginIcon from "@mui/icons-material/Login";
-import { telegramAuthApi } from "../../../../api/telegramAuth";
+import { telegramApi } from "../../../../api/telegramApi";
 import { ApiError } from "../../../../api/ApiError";
-
+import CancelButton from "../../../../ui/login/common/CancelButton";
 interface CodeStepProps {
   phoneNumber: string;
   phoneCodeHash: string;
@@ -34,6 +41,7 @@ interface CodeStepProps {
     lastName: string | null;
     isActive: boolean;
   }) => void;
+  onCancel: () => void;
 }
 
 const CodeStep: React.FC<CodeStepProps> = ({
@@ -42,6 +50,7 @@ const CodeStep: React.FC<CodeStepProps> = ({
   tempSession,
   onPasswordRequired,
   onSuccess,
+  onCancel,
 }) => {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +65,7 @@ const CodeStep: React.FC<CodeStepProps> = ({
     setLoading(true);
 
     try {
-      const result = await telegramAuthApi.signIn(
+      const result = await telegramApi.signIn(
         phoneNumber,
         code,
         phoneCodeHash,
@@ -82,6 +91,9 @@ const CodeStep: React.FC<CodeStepProps> = ({
 
   return (
     <Box>
+      <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+        Enter the verification code sent to your phone
+      </Typography>
       <TextField
         label="Verification Code"
         fullWidth
@@ -111,6 +123,9 @@ const CodeStep: React.FC<CodeStepProps> = ({
           </>
         )}
       </Button>
+      <CancelButton onClick={onCancel} sx={{ mt: 2 }}>
+        Cancel
+      </CancelButton>
     </Box>
   );
 };

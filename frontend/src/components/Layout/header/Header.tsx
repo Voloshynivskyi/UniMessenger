@@ -21,6 +21,8 @@ const Header: React.FC = () => {
       sx={{
         zIndex: (theme) => theme.zIndex.drawer + 1,
         background: "linear-gradient(to right, #1976d2, #2196f3)",
+        justifyContent: "space-between",
+        alignItems: "left",
       }}
     >
       <Toolbar>
@@ -29,7 +31,7 @@ const Header: React.FC = () => {
           noWrap
           component="div"
           onClick={() => navigate("/")}
-          sx={{ cursor: "pointer", mr: "80%" }}
+          sx={{ cursor: "pointer", mr: 'auto', minWidth: '200px' }}
         >
           UniMessenger
         </Typography>
@@ -38,7 +40,7 @@ const Header: React.FC = () => {
           <Button
             variant="contained"
             color="error"
-            sx={{ width: buttonWidth, boxShadow: "none" }}
+            sx={{ minWidth: buttonWidth, boxShadow: "none" }}
             onClick={() => {
               logout();
             }}

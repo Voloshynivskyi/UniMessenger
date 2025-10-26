@@ -12,10 +12,17 @@
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
-import { telegramAuthApi } from "../../../../api/telegramAuth";
+import {
+  TextField,
+  Button,
+  Box,
+  Alert,
+  CircularProgress,
+  Typography,
+} from "@mui/material";
+import { telegramApi } from "../../../../api/telegramApi";
 import { ApiError } from "../../../../api/ApiError";
-
+import CancelButton from "../../../../ui/login/common/CancelButton";
 interface PasswordStepProps {
   tempSession: string;
   /** Called when user successfully completes login with password */
@@ -28,11 +35,13 @@ interface PasswordStepProps {
     lastName: string | null;
     isActive: boolean;
   }) => void;
+  onCancel: () => void;
 }
 
 const PasswordStep: React.FC<PasswordStepProps> = ({
   tempSession,
   onSuccess,
+  onCancel,
 }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +56,7 @@ const PasswordStep: React.FC<PasswordStepProps> = ({
     setLoading(true);
 
     try {
-      const result = await telegramAuthApi.verifyTwoFA(tempSession, password);
+      const result = await telegramApi.verifyTwoFA(tempSession, password);
       onSuccess(result);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -62,6 +71,9 @@ const PasswordStep: React.FC<PasswordStepProps> = ({
 
   return (
     <Box>
+      <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+        Enter your Telegram 2FA password
+      </Typography>
       <TextField
         type="password"
         label="Telegram Password"
@@ -86,6 +98,9 @@ const PasswordStep: React.FC<PasswordStepProps> = ({
       >
         {loading ? <CircularProgress size={24} /> : "Sign In"}
       </Button>
+      <CancelButton onClick={onCancel} sx={{ mt: 2 }}>
+        Cancel
+      </CancelButton>
     </Box>
   );
 };

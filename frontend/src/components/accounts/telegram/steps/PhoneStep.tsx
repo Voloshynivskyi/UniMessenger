@@ -8,20 +8,28 @@
  */
 
 import React, { useState } from "react";
-import { TextField, Button, Box, Alert, CircularProgress } from "@mui/material";
+import {
+  TextField,
+  Button,
+  Box,
+  Alert,
+  CircularProgress,
+  Typography,
+} from "@mui/material";
 import SendToMobileIcon from "@mui/icons-material/SendToMobile";
-import { telegramAuthApi } from "../../../../api/telegramAuth";
+import { telegramApi } from "../../../../api/telegramApi";
 import { ApiError } from "../../../../api/ApiError";
-
+import CancelButton from "../../../../ui/login/common/CancelButton";
 interface PhoneStepProps {
   onNext: (
     phoneNumber: string,
     phoneCodeHash: string,
     tempSession: string
   ) => void;
+  onCancel: () => void;
 }
 
-const PhoneStep: React.FC<PhoneStepProps> = ({ onNext }) => {
+const PhoneStep: React.FC<PhoneStepProps> = ({ onNext, onCancel }) => {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,7 +42,7 @@ const PhoneStep: React.FC<PhoneStepProps> = ({ onNext }) => {
     setError(null);
 
     try {
-      const result = await telegramAuthApi.sendCode(phoneNumber);
+      const result = await telegramApi.sendCode(phoneNumber);
       // Pass data to parent component (TelegramAuthModal)
       onNext(phoneNumber, result.phoneCodeHash, result.tempSession);
     } catch (err: any) {
@@ -50,6 +58,9 @@ const PhoneStep: React.FC<PhoneStepProps> = ({ onNext }) => {
 
   return (
     <Box>
+      <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+        Enter your phone number
+      </Typography>
       <TextField
         label="Phone Number"
         fullWidth
@@ -78,6 +89,9 @@ const PhoneStep: React.FC<PhoneStepProps> = ({ onNext }) => {
           </>
         )}
       </Button>
+      <CancelButton onClick={onCancel} sx={{ mt: 2 }}>
+        Cancel
+      </CancelButton>
     </Box>
   );
 };

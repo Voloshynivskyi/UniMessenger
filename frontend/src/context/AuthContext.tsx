@@ -15,12 +15,12 @@
 
 import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import type { AuthUser} from "../api/authApi";
+import type { UniAuthUser} from "../api/authApi";
 import { authApi } from "../api/authApi";
 import { ApiError } from "../api/ApiError";
 
 export interface AuthContextType {
-  user: AuthUser | null;
+  user: UniAuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -32,7 +32,7 @@ export interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<UniAuthUser | null>(null);
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("authToken")
   );
@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   async function refreshUser() {
     try {
-      const user = (await authApi.getCurrentUser()) as AuthUser;
+      const user = (await authApi.getCurrentUser()) as UniAuthUser;
 
       setUser(user);
     } catch (err) {

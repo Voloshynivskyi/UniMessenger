@@ -401,6 +401,9 @@ export async function logout(req: Request, res: Response) {
   try {
     const { accountId } = req.body ?? {};
     await telegramService.logout(accountId);
+    await prisma.telegramAccount.delete({
+      where: { id: accountId },
+    });
     return sendOk(res, {});
   } catch (err: any) {
     return sendError(

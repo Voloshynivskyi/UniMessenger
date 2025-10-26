@@ -42,11 +42,21 @@ export interface SignInNeedPasswordResult {
 /** Union of possible outcomes of signIn */
 export type SignInResult = SignInSuccessResult | SignInNeedPasswordResult;
 
+export interface TelegramAuthAccount {
+  accountId: string;
+  telegramId: string;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phoneNumber: string | null;
+  isActive: boolean;
+}
+
 /**
  * Wrapper object for all Telegram-related API operations.
  * Every function returns either specific typed data or throws ApiError.
  */
-export const telegramAuthApi = {
+export const telegramApi = {
   /**
    * Step 1: Request Telegram to send a verification code.
    *
@@ -113,9 +123,12 @@ export const telegramAuthApi = {
    *
    * @returns Array of account objects with status and user details.
    */
-  async getAccounts() {
+  async getAccounts(): Promise<TelegramAuthAccount[]> {
     const response = await apiClient.get("/api/telegram/accounts");
-    return handleApiResponse(response);
+    const data = handleApiResponse<{ accounts: TelegramAuthAccount[] }>(
+      response
+    );
+    return data.accounts;
   },
 
   /**

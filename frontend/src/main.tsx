@@ -9,6 +9,7 @@ import App from "./App";
 import { BrowserRouter } from "react-router-dom";
 import { ThemeProvider, CssBaseline } from "@mui/material";
 import { AuthProvider } from "./context/AuthContext";
+import { TelegramProvider } from "./context/TelegramContext";
 import theme from "./theme";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <CssBaseline />
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <TelegramProvider>
+            <App />
+          </TelegramProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
