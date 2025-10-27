@@ -56,7 +56,6 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
     try {
       const accounts =
         (await telegramApi.getAccounts()) as TelegramAuthAccount[];
-
       setAccounts(accounts);
     } catch (err) {
       if (err instanceof ApiError) {

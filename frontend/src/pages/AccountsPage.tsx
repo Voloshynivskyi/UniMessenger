@@ -4,7 +4,7 @@ import AccountMenu from "../components/accounts/AccountsMenu";
 
 const AccountsPage: React.FC = () => {
   return (
-    <Box sx={{ p: 4 }}>
+    <Box>
       <AccountMenu />
     </Box>
   );

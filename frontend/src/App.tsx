@@ -5,7 +5,7 @@
 
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import Layout from "./components/Layout/Layout";
+import Layout from "./components/layout/Layout";
 
 import InfoPage from "./pages/InfoPage";
 import InboxPage from "./pages/InboxPage";

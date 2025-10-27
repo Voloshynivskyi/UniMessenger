@@ -29,7 +29,7 @@ const AccountMenu: React.FC<AccountMenuProps> = () => {
   console.log("Accounts from context:", accounts);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = React.useState(false);
   return (
-    <Card sx={{ p: '4vh', minWidth: 400, width: "100%", borderRadius: 5 }}>
+    <Card sx={{ p: 4, maxWidth: "100%", mx: "auto", borderRadius: 4 }}>
       <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
         Accounts Page
       </Typography>

@@ -6,7 +6,7 @@
 
 import type { Request, Response } from "express";
 import type { Api } from "telegram";
-import { TelegramService } from "../services/telegramService";
+import { TelegramService } from "../services/telegram/telegramService";
 import { prisma } from "../lib/prisma";
 import { isValidPhone } from "../utils/validation";
 
@@ -23,7 +23,8 @@ interface ApiErrorResponse {
     | "FLOOD_WAIT"
     | "BAD_CODE"
     | "MISSING_FIELDS"
-    | "UNEXPECTED";
+    | "UNEXPECTED"
+    | "BAD_REQUEST";
   message: string;
   retryAfter?: number | null; // used for FLOOD_WAIT (seconds)
 }
@@ -410,6 +411,74 @@ export async function logout(req: Request, res: Response) {
       res,
       "UNEXPECTED",
       err?.message || "Failed to logout",
+      500
+    );
+  }
+}
+
+/** * Retrieves dialogs for a given Telegram account.
+ * Request body:
+ * - accountId: string
+ * - limit?: number
+ * - offsetDate?: string (ISO timestamp)
+ * - offsetId?: string
+ * - offsetPeer?: { id: string; accessHash?: string; type: "user" | "chat" | "channel" }
+ *
+ * Success: 200
+ * {
+ *   "status": "ok",
+ *   "data": {
+ *     "dialogs": UnifiedTelegramChat[]
+ *   }
+ * }
+ *
+ * Errors: 500 UNEXPECTED
+ */
+
+export async function getDialogs(req: Request, res: Response) {
+  try {
+    const accountId = req.query.accountId as string;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+
+    const offsetDate = req.query.offsetDate
+      ? Number(req.query.offsetDate)
+      : undefined;
+    const offsetId = req.query.offsetId
+      ? Number(req.query.offsetId)
+      : undefined;
+
+    // peer.id, peer.type, peer.accessHash — передаємо через query
+    const offsetPeer = req.query.offsetPeerId
+      ? {
+          id: Number(req.query.offsetPeerId),
+          type: req.query.offsetPeerType as "user" | "chat" | "channel",
+          accessHash: req.query.offsetPeerAccessHash
+            ? String(req.query.offsetPeerAccessHash)
+            : undefined,
+        }
+      : undefined;
+
+    if (!accountId) {
+      return sendError(res, "BAD_REQUEST", "accountId is required", 400);
+    }
+
+    const response = await telegramService.getDialogs({
+      accountId,
+      limit,
+      offsetDate,
+      offsetId,
+      offsetPeer,
+    });
+
+    return sendOk(res, {
+      dialogs: response.dialogs,
+      nextOffset: response.nextOffset,
+    });
+  } catch (err: any) {
+    return sendError(
+      res,
+      "UNEXPECTED",
+      err?.message || "Failed to get dialogs",
       500
     );
   }

@@ -5,11 +5,13 @@
 
 import React from "react";
 import { Box, Typography } from "@mui/material";
-
+import { useTelegram } from "../context/TelegramContext";
+import UnifiedInbox from "../components/inbox/UnifiedInbox";
 const InboxPage: React.FC = () => {
+  const { accounts } = useTelegram();
   return (
     <Box>
-      <Typography>Inbox Page</Typography>
+      <UnifiedInbox accounts={accounts || []} />
     </Box>
   );
 };

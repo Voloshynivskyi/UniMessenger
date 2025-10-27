@@ -14,7 +14,7 @@
 
 import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
-
+import type { NextOffset, UnifiedTelegramChat } from "../types/telegram.types";
 /** Data returned after /sendCode */
 export interface SendCodeResult {
   phoneCodeHash: string;
@@ -138,6 +138,35 @@ export const telegramApi = {
     const response = await apiClient.post("/api/telegram/logout", {
       accountId,
     });
+    return handleApiResponse(response);
+  },
+
+  async getLatestDialogs(accountId: string) {
+    const response = await apiClient.get("/api/telegram/dialogs", {
+      params: {
+        accountId,
+        limit: 50,
+      },
+    });
+    return handleApiResponse(response);
+  },
+
+  async getDialogs(accountId: string, nextOffset?: NextOffset | null) {
+    const params: any = { accountId, limit: 50 };
+
+    if (nextOffset) {
+      params.offsetDate = nextOffset.offsetDate;
+      params.offsetId = nextOffset.offsetId;
+      if (nextOffset.offsetPeer) {
+        params.offsetPeerId = nextOffset.offsetPeer.id;
+        params.offsetPeerType = nextOffset.offsetPeer.type;
+        if (nextOffset.offsetPeer.accessHash) {
+          params.offsetPeerAccessHash = nextOffset.offsetPeer.accessHash;
+        }
+      }
+    }
+
+    const response = await apiClient.get("/api/telegram/dialogs", { params });
     return handleApiResponse(response);
   },
 };

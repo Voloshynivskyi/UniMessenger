@@ -10,6 +10,7 @@ import {
   logout,
   verifyTwoFA,
   getTelegramAccounts,
+  getDialogs,
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
 
@@ -49,5 +50,12 @@ router.post("/logout", requireAuth, logout);
  * @access Private
  */
 router.get("/accounts", requireAuth, getTelegramAccounts);
+
+/**
+ * @route GET /telegram/dialogs
+ * @desc Get dialogs for a specific Telegram account
+ * @access Private
+ */
+router.get("/dialogs", requireAuth, getDialogs);
 
 export default router;
