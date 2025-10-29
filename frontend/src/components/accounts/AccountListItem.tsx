@@ -22,6 +22,7 @@ import type { TelegramAuthAccount } from "../../api/telegramApi";
 
 interface AccountListItemProps {
   account: TelegramAuthAccount;
+  refresh: () => void;
   onClick?: () => void;
   onInfoClick?: () => void;
   onLogoutClick: (accountId: string) => void;
@@ -29,6 +30,7 @@ interface AccountListItemProps {
 
 export const AccountListItem: React.FC<AccountListItemProps> = ({
   account,
+  refresh,
   onClick,
   onInfoClick,
   onLogoutClick,
@@ -70,7 +72,10 @@ export const AccountListItem: React.FC<AccountListItemProps> = ({
             <IconButton
               edge="end"
               aria-label="logout"
-              onClick={() => onLogoutClick(account.accountId)}
+              onClick={() => {
+                onLogoutClick(account.accountId);
+                refresh();
+              }}
             >
               <LogoutIcon sx={{ fontSize: 25 }} />
             </IconButton>

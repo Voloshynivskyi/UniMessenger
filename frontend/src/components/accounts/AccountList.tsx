@@ -24,15 +24,18 @@ const AccountList: React.FC<AccountListProps> = ({
   if (!accounts || accounts.length === 0) {
     return <NoAccountsPlaceholder onAddClick={OnAddButtonClick} />;
   }
-  const { logoutAccount } = useTelegram();
+  const { logoutAccount, refreshAccounts } = useTelegram();
   const accs = accounts.map((account) => (
     <AccountListItem
-      key={account.accountId}
+      key={account.telegramId.toString()}
       account={account}
       onLogoutClick={logoutAccount}
+      refresh={refreshAccounts}
     />
   ));
-  accs.push(<AccountAddListItem onClick={OnAddButtonClick} />);
+  accs.push(
+    <AccountAddListItem key={"add-account"} onClick={OnAddButtonClick} />
+  );
   return <List>{accs}</List>;
 };
 

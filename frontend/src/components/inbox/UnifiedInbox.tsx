@@ -10,11 +10,11 @@ interface UnifiedInboxProps {
 
 const UnifiedInbox: React.FC<UnifiedInboxProps> = ({ accounts }) => {
   const { data, loadMore } = useTelegramDialogs(accounts);
-  const userChatLists = data
-    .map((user) => <UserChatList key={user.accountId} data={user} />)
-    .flat();
+  const userChatLists = data.map((user) => (
+    <UserChatList key={user.accountId} data={user} />
+  ));
   return (
-    <Card sx={{ p: 4, maxWidth: "100%", mx: "auto", borderRadius: 4 }} >
+    <Card sx={{ p: 4, maxWidth: "100%", mx: "auto", borderRadius: 4 }}>
       <Box sx={{ p: 2, borderBottom: "1px solid #e0e0e0" }}>
         <Typography variant="h6">Unified Inbox</Typography>
       </Box>

@@ -19,13 +19,13 @@ const UserChatList: React.FC<UserChatListProps> = ({ data }) => {
 
   return (
     <List sx={{ width: "100%", bgcolor: "background.paper" }}>
-      {/* кнопка з ім’ям користувача */}
+     
       <ListItemButton onClick={handleToggle}>
         <ListItemText primary={data.username || "Unknown name"} />
         {open ? <ExpandLess /> : <ExpandMore />}
       </ListItemButton>
 
-      {/* розкривна частина з чатами */}
+      
       <Collapse in={open} timeout="auto" unmountOnExit>
         <ChatList chats={toUnifiedChat(data.dialogs) as UnifiedChat[]} />
       </Collapse>

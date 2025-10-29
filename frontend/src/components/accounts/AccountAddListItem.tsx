@@ -16,6 +16,7 @@ import AddIcon from "@mui/icons-material/Add";
 
 interface AddAccountListItemProps {
   onClick: () => void;
+  refresh?: () => void;
   label?: string;
 }
 

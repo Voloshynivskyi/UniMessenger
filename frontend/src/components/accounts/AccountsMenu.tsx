@@ -25,8 +25,10 @@ const AccountMenu: React.FC<AccountMenuProps> = () => {
     useTelegram();
   useEffect(() => {
     refreshAccounts();
-  }, [logoutAccount]);
-  console.log("Accounts from context:", accounts);
+    //console.log("Refreshing accounts...");
+    // //console.log("Accounts from context:", accounts);
+  }, []);
+
   const [isTelegramModalOpen, setIsTelegramModalOpen] = React.useState(false);
   return (
     <Card sx={{ p: 4, maxWidth: "100%", mx: "auto", borderRadius: 4 }}>
@@ -41,6 +43,7 @@ const AccountMenu: React.FC<AccountMenuProps> = () => {
       <TelegramAuthModal
         open={isTelegramModalOpen}
         onClose={() => setIsTelegramModalOpen(false)}
+        onComplete={refreshAccounts}
       />
     </Card>
   );

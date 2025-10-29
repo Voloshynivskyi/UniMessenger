@@ -29,7 +29,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, onClick }) => {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-      setMaxChars(Math.round(width / 20));
+      setMaxChars(Math.round(width / 30));
     };
 
     handleResize(); // запустити одразу при завантаженні
@@ -82,7 +82,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, onClick }) => {
                 sx={{ fontWeight: 500, fontSize: "1rem", display: "flex" }}
                 noWrap
               >
-                {chat.title || "Без назви"}
+                {chat.title || "Unknown Chat"}
               </Typography>
             }
             secondary={
@@ -112,6 +112,9 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, onClick }) => {
                 </Typography>
               </Box>
             }
+            slotProps={{
+              secondary: { component: "div" },
+            }}
           />
         </ListItemButton>
       </ListItem>
