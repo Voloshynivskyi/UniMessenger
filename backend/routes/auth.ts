@@ -4,7 +4,12 @@
  */
 
 import { Router } from "express";
-import { registerUser, loginUser } from "../controllers/authController";
+import {
+  registerUser,
+  loginUser,
+  logoutUser,
+} from "../controllers/authController";
+import { requireAuth } from "../middleware/requireAuth";
 
 const router = Router();
 
@@ -21,5 +26,12 @@ router.post("/register", registerUser);
  * @access Public
  */
 router.post("/login", loginUser);
+
+/**
+ * @route POST /auth/logout
+ * @desc Logout user
+ * @access Private
+ */
+router.post("/logout", requireAuth, logoutUser);
 
 export default router;

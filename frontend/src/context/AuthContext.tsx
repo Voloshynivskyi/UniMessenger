@@ -15,7 +15,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import type { UniAuthUser} from "../api/authApi";
+import type { UniAuthUser } from "../api/authApi";
 import { authApi } from "../api/authApi";
 import { ApiError } from "../api/ApiError";
 
@@ -99,7 +99,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Clear user data and remove token.
    */
-  function logout() {
+  async function logout() {
+    try {
+      await authApi.logout();
+    } catch (err) {
+      console.error("Failed to notify backend about logout:", err);
+    }
     localStorage.removeItem("authToken");
     setToken(null);
     setUser(null);

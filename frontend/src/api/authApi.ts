@@ -46,7 +46,13 @@ export const authApi = {
     });
     return handleApiResponse(response);
   },
-
+  /**
+   * Logout the current user
+   */
+  async logout(): Promise<void> {
+    const response = await apiClient.post("/api/auth/logout");
+    return handleApiResponse(response);
+  },
   /**
    * Get current authenticated user data using token from headers
    */

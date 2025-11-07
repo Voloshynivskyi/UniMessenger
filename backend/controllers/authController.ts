@@ -13,6 +13,7 @@ import {
   isValidPassword,
 } from "../utils/validation";
 import { logger } from "../utils/logger";
+import telegramClientManager from "../services/telegram/telegramClientManager";
 
 /**
  * Standard shape for error responses
@@ -217,7 +218,15 @@ export async function loginUser(
 
     const token = generateToken(user.id);
     logger.info("User logged in successfully", { ...meta, userId: user.id });
-
+    try {
+      await telegramClientManager.attachAllForUser(user.id);
+      logger.info("Telegram clients initialized", { userId: user.id });
+    } catch (err) {
+      logger.error("Failed to initialize Telegram clients", {
+        userId: user.id,
+        error: String(err),
+      });
+    }
     return res.status(200).json({
       status: "ok",
       data: {
@@ -229,6 +238,46 @@ export async function loginUser(
         },
       },
     });
+  } catch (err) {
+    return respondUnexpected(req, res, err);
+  }
+}
+
+export async function logoutUser(
+  req: Request,
+  res: Response
+): Promise<Response> {
+  try {
+    const userId = req.userId;
+    const meta = extractRequestMeta(req);
+
+    if (!userId) {
+      logger.warn("[authController] Logout failed: unauthorized", { ...meta });
+      return res.status(401).json({
+        status: "error",
+        code: "UNAUTHORIZED",
+        message: "Unauthorized request.",
+      });
+    }
+
+    // Here you can handle token invalidation if you store tokens server-side
+
+    try {
+      await telegramClientManager.detachAllForUser(userId);
+    } catch (err) {
+      logger.error(
+        "[authController] Failed to detach Telegram clients on logout",
+        {
+          userId,
+          error: String(err),
+        }
+      );
+    }
+    logger.info("[authController] User logged out successfully", {
+      ...meta,
+      userId,
+    });
+    return res.status(200).json({ status: "ok" });
   } catch (err) {
     return respondUnexpected(req, res, err);
   }
