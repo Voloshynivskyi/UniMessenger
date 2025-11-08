@@ -12,14 +12,13 @@ import express, {
 import cors from "cors";
 import dotenv from "dotenv";
 import { prisma } from "./lib/prisma";
-
 import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
-
+import { createSocketServer } from "./realtime/socketServer";
 dotenv.config();
 
-const app = express();
+export const app = express();
 
 /** Global middleware */
 app.use(cors());
@@ -65,11 +64,25 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-/** Start server */
+/** Start server and Socket.IO */
+import telegramClientManager from "./services/telegram/telegramClientManager";
+const { server } = createSocketServer(app);
+
 const PORT = process.env.PORT || 7007;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-});
+(async () => {
+  try {
+    console.log("Restoring active Telegram clients...");
+    await telegramClientManager.restoreActiveClients();
+    console.log("Telegram clients restored successfully.");
+  } catch (err) {
+    console.error("Failed to restore Telegram clients:", err);
+  }
+
+  // 🚀 Запускаємо сервер
+  server.listen(PORT, () => {
+    console.log(`🚀 Express + Socket.IO running on http://localhost:${PORT}`);
+  });
+})();
 
 /** Graceful shutdown */
 process.on("SIGINT", async () => {

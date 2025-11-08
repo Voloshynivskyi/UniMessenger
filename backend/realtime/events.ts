@@ -2,7 +2,7 @@
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
-  platform: "telegram";
+  platform: "telegram" | "discord" | "slack";
   accountId: string; // TELEGRAM_ACCOUNT_ID
   /** ISO8601 timestamp of the event */
   timestamp: string; // ISO-String
@@ -38,26 +38,29 @@ export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
 
 export interface TelegramMessageDeletedPayload extends BaseRealtimePayload {
   chatId: string;
-  messageId: string[] | string;
+  messageIds: string[];
 }
 
 export interface TelegramReadUpdatesPayload extends BaseRealtimePayload {
   chatId: string;
   lastReadMessageId: string;
+  direction?: "inbox" | "outbox";
 }
 
 export interface TelegramAccountStatusPayload extends BaseRealtimePayload {
-  status: "online" | "offline" | "away";
+  status: "online" | "offline" | "away" | "recently" | "hidden";
 }
 
 export interface TelegramErrorPayload extends BaseRealtimePayload {
   code: number;
   message: string;
   context?: string; // Additional context about where the error occurred
+  severity?: "info" | "warning" | "critical";
 }
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
+  "system:pong": () => void;
   "telegram:new_message": (data: TelegramNewMessagePayload) => void;
   "telegram:typing": (data: TelegramTypingPayload) => void;
   "telegram:message_edited": (data: TelegramMessageEditedPayload) => void;
@@ -92,6 +95,7 @@ export interface TelegramMarkAsReadPayload {
 }
 
 export interface ClientToServerEvents {
+  "system:ping": () => void;
   "telegram:send_message": (data: TelegramSendMessagePayload) => void;
   "telegram:typing_start": (data: TelegramTypingStartPayload) => void;
   "telegram:typing_stop": (data: TelegramTypingStopPayload) => void;

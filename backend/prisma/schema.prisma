@@ -16,6 +16,7 @@ model User {
   passwordHash   String
   displayName    String?
   createdAt      DateTime          @default(now())
+  isLoggedIn     Boolean  @default(false) 
   telegramAccounts TelegramAccount[]
 }
 

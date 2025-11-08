@@ -150,7 +150,17 @@ export async function registerUser(
       ...meta,
       userId: created.id,
     });
-
+    try {
+      await prisma.user.update({
+        where: { id: created.id },
+        data: { isLoggedIn: true },
+      });
+    } catch (err) {
+      logger.error("[authController] Failed to update user status on login", {
+        userId: created.id,
+        error: String(err),
+      });
+    }
     return res.status(201).json({
       status: "ok",
       data: {
@@ -219,6 +229,17 @@ export async function loginUser(
     const token = generateToken(user.id);
     logger.info("User logged in successfully", { ...meta, userId: user.id });
     try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { isLoggedIn: true },
+      });
+    } catch (err) {
+      logger.error("[authController] Failed to update user status on login", {
+        userId: user.id,
+        error: String(err),
+      });
+    }
+    try {
       await telegramClientManager.attachAllForUser(user.id);
       logger.info("Telegram clients initialized", { userId: user.id });
     } catch (err) {
@@ -273,10 +294,24 @@ export async function logoutUser(
         }
       );
     }
+
     logger.info("[authController] User logged out successfully", {
       ...meta,
       userId,
     });
+
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isLoggedIn: false },
+      });
+    } catch (err) {
+      logger.error("[authController] Failed to update user status on logout", {
+        userId,
+        error: String(err),
+      });
+    }
+
     return res.status(200).json({ status: "ok" });
   } catch (err) {
     return respondUnexpected(req, res, err);

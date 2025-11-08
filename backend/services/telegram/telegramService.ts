@@ -19,6 +19,7 @@ import type {
   TelegramGetDialogsResult,
 } from "./telegram.types";
 import bigInt from "big-integer";
+import telegramClientManager from "./telegramClientManager";
 
 const API_ID = Number(process.env.TELEGRAM_API_ID);
 const API_HASH = process.env.TELEGRAM_API_HASH!;
@@ -61,16 +62,27 @@ export class TelegramService {
         { apiId: API_ID, apiHash: API_HASH },
         phoneNumber
       );
+      console.log("[DEBUG] sendCode result:", res);
       return {
         status: "code_sent",
         phoneCodeHash: res.phoneCodeHash,
         tempSession: client.session.save()!,
       };
     } catch (error) {
+      console.error("[DEBUG] sendCode error:", error);
       this.logError("sendCode", error);
       throw error; // 👈 MTProto errors go up
     } finally {
-      await client.disconnect();
+      try {
+        if (typeof (client as any).destroy === "function") {
+          await (client as any).destroy();
+        } else {
+          (client as any)._destroyed = true;
+          await client.disconnect();
+        }
+      } catch (e) {
+        console.warn("[TelegramService] destroy/disconnect failed", e);
+      }
     }
   }
 
@@ -105,7 +117,16 @@ export class TelegramService {
       this.logError("signIn", error);
       throw error;
     } finally {
-      await client.disconnect();
+      try {
+        if (typeof (client as any).destroy === "function") {
+          await (client as any).destroy();
+        } else {
+          (client as any)._destroyed = true;
+          await client.disconnect();
+        }
+      } catch (e) {
+        console.warn("[TelegramService] destroy/disconnect failed", e);
+      }
     }
   }
 
@@ -138,7 +159,16 @@ export class TelegramService {
       this.logError("signInWithPassword", error);
       throw error;
     } finally {
-      await client.disconnect();
+      try {
+        if (typeof (client as any).destroy === "function") {
+          await (client as any).destroy();
+        } else {
+          (client as any)._destroyed = true;
+          await client.disconnect();
+        }
+      } catch (e) {
+        console.warn("[TelegramService] destroy/disconnect failed", e);
+      }
     }
   }
 
@@ -186,30 +216,8 @@ export class TelegramService {
   }
 
   async logout(accountId: string): Promise<TelegramLogoutResult> {
-    try {
-      const sessionString = await this.getSession(accountId);
-      const client = this.initClient(sessionString);
-      await client.connect();
-      try {
-        await client.invoke(new Api.auth.LogOut());
-      } catch (mtErr) {
-        // MTProto errors are just logged and passed
-        this.logError("logout-invoke", mtErr);
-      } finally {
-        await client.disconnect();
-      }
-
-      await prisma.telegramSession.deleteMany({ where: { accountId } });
-      await prisma.telegramAccount.update({
-        where: { id: accountId },
-        data: { isActive: false },
-      });
-
-      return { status: "ok" };
-    } catch (error) {
-      this.logError("logout", error);
-      throw error;
-    }
+    await telegramClientManager.logoutAccount(accountId);
+    return { status: "ok" };
   }
 
   /** ────────────── DATA ────────────── */
@@ -236,60 +244,16 @@ export class TelegramService {
   async getDialogs(params: {
     accountId: string;
     limit?: number;
-    offsetDate?: number | undefined;
-    offsetId?: number | undefined;
+    offsetDate?: number;
+    offsetId?: number;
     offsetPeer?:
       | {
           id: number;
           type: "user" | "chat" | "channel";
-          accessHash?: string | undefined;
+          accessHash?: string;
         }
       | undefined;
   }): Promise<TelegramGetDialogsResult> {
-    const sessionString = await this.getSession(params.accountId);
-    if (!sessionString)
-      throw new Error("Telegram session not found for account");
-
-    const client = this.initClient(sessionString);
-    await client.connect();
-
-    try {
-      let peer: Api.TypeInputPeer;
-      if (!params.offsetPeer) {
-        peer = new Api.InputPeerEmpty();
-      } else if (params.offsetPeer.type === "user") {
-        peer = new Api.InputPeerUser({
-          userId: bigInt(params.offsetPeer.id),
-          accessHash: bigInt(Number(params.offsetPeer.accessHash ?? 0)),
-        });
-      } else if (params.offsetPeer.type === "chat") {
-        peer = new Api.InputPeerChat({
-          chatId: bigInt(params.offsetPeer.id),
-        });
-      } else {
-        peer = new Api.InputPeerChannel({
-          channelId: bigInt(params.offsetPeer.id),
-          accessHash: bigInt(Number(params.offsetPeer.accessHash ?? 0)),
-        });
-      }
-
-      const dialogsRes = await client.invoke(
-        new Api.messages.GetDialogs({
-          offsetDate: params.offsetDate ?? 0,
-          offsetId: params.offsetId ?? 0,
-          offsetPeer: peer,
-          limit: 10, //params.limit ?? 50,
-        })
-      );
-
-      const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes);
-      return {
-        status: "ok",
-        dialogs,
-        nextOffset,
-      };
-    } finally {
-      await client.disconnect();
-    }
+    return telegramClientManager.fetchDialogs(params);
   }
 }

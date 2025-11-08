@@ -5,6 +5,16 @@ import { StringSession } from "telegram/sessions";
 import { prisma } from "../../lib/prisma";
 import { decryptSession } from "../../utils/telegramSession";
 import { logger } from "../../utils/logger";
+import { Api } from "telegram";
+import bigInt from "big-integer";
+import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
+import type { TelegramGetDialogsResult } from "./telegram.types";
+import socketGateway, { getSocketGateway } from "../../realtime/socketGateway";
+import type { TelegramNewMessagePayload } from "../../realtime/events";
+import {
+  isTelegramUpdateType,
+  telegramUpdateHandlers,
+} from "../../realtime/telegramUpdateHandlers";
 
 const API_ID = process.env.TELEGRAM_API_ID
   ? Number(process.env.TELEGRAM_API_ID)
@@ -42,6 +52,26 @@ export class TelegramClientManager {
     return this.clients.has(accountId);
   }
 
+  // Keep the Telegram client online by periodically sending updates
+  public async keepOnline(client: TelegramClient) {
+    try {
+      // Initial online status
+      await client.invoke(new Api.account.UpdateStatus({ offline: false }));
+      console.log("[Telegram] Client is now ONLINE");
+
+      // Ping Telegram every minute to avoid "sleeping"
+      setInterval(async () => {
+        try {
+          await client.invoke(new Api.updates.GetState());
+          await client.invoke(new Api.account.UpdateStatus({ offline: false }));
+        } catch (err) {
+          console.warn("[Telegram] Keep-alive ping failed:", { message: err });
+        }
+      }, 60_000);
+    } catch (err) {
+      console.error("[Telegram] Failed to go online:", { message: err });
+    }
+  }
   // Attach and initialize a Telegram client for a specific Telegram account
   public async attachAccount(
     accountId: string,
@@ -102,7 +132,10 @@ export class TelegramClientManager {
       // 4. Subscribe to updates (currently just a logger stub)
       this.subscribeToUpdates(accountId, resolvedUserId, client);
 
-      // 5. Store in maps
+      // 5. Keep the client online
+      await this.keepOnline(client);
+
+      // 6. Store in maps
       this.clients.set(accountId, client);
       this.accountToUser.set(accountId, resolvedUserId);
       this.reconnectAttempts.set(accountId, 0);
@@ -115,12 +148,13 @@ export class TelegramClientManager {
         `[TelegramClientManager] Failed to connect Telegram client for account ${accountId}`,
         error!
       );
-      // 6. Schedule automatic reconnect
+      // 7. Schedule automatic reconnect
       this.scheduleReconnect(accountId);
     }
   }
 
   // Attach and init clients for all active Telegram accounts of a given unimessenger user
+
   public async attachAllForUser(userId: string): Promise<void> {
     if (!API_ID || !API_HASH) return;
     logger.info(`[TelegramClientManager] attachAllForUser(${userId}) called`);
@@ -160,16 +194,22 @@ export class TelegramClientManager {
   }
 
   // Detach a Telegram client for a specific Telegram account
+
   public async detachAccount(accountId: string): Promise<void> {
     const client = this.clients.get(accountId);
     if (!client) return;
 
     try {
-      await client.disconnect();
-    } catch (error) {
+      if (typeof (client as any).destroy === "function") {
+        await (client as any).destroy();
+      } else {
+        (client as any)._destroyed = true;
+        await client.disconnect();
+      }
+    } catch (err) {
       logger.warn(
-        `[TelegramClientManager] Error while disconnecting account ${accountId}`,
-        error!
+        `[TelegramClientManager] Error while detaching account ${accountId}`,
+        { err }
       );
     }
 
@@ -183,6 +223,7 @@ export class TelegramClientManager {
   }
 
   // Detach all Telegram clients for a specific unimessenger user
+
   public async detachAllForUser(userId: string): Promise<void> {
     for (const [accountId, ownerId] of this.accountToUser.entries()) {
       if (ownerId === userId) {
@@ -196,7 +237,9 @@ export class TelegramClientManager {
       `[TelegramClientManager] Detached all Telegram clients for user ${userId}`
     );
   }
+
   // Schedule a reconnect attempt for a specific Telegram account
+
   private scheduleReconnect(accountId: string): void {
     const attempts = (this.reconnectAttempts.get(accountId) || 0) + 1;
 
@@ -221,31 +264,188 @@ export class TelegramClientManager {
   }
 
   // Subscribe to Telegram updates for a specific account
+
   private subscribeToUpdates(
     accountId: string,
     userId: string,
     client: TelegramClient
   ): void {
-    // TODO: later here:
-    // - parse updates
-    // - call realtimeHub.* to go to Socket.IO
+    client.addEventHandler(async (event: any) => {
+      const raw = event?.update ?? event;
+      const className = raw?.className ?? raw?.constructor?.name;
 
-    // Example stub, for now just watching what comes in:
-    // @ts-ignore - depends on specific telegram API
-    client.addEventHandler((update: any) => {
-      const type = update?.constructor?.name ?? "UnknownUpdate";
-      logger.info(
-        `[TelegramClientManager] Update for account ${accountId} (user ${userId}): ${type}`
-      );
+      if (!className || className === "VirtualClass") return;
 
-      // Log some details for common update types
-      if (update?.message?.message) {
-        logger.info(`↳ Text: ${update.message.message}`);
-      }
-      if (update?.user?.firstName) {
-        logger.info(`↳ User: ${update.user.firstName}`);
+      if (isTelegramUpdateType(className)) {
+        telegramUpdateHandlers[className]({ update: raw, accountId, userId });
+      } else {
+        logger.info(`[Unhandled Telegram update] ${className}`);
       }
     });
+  }
+
+  // Ensure a Telegram client exists for a specific Telegram account
+
+  private async ensureClient(accountId: string): Promise<TelegramClient> {
+    const existing = this.clients.get(accountId);
+    if (existing) {
+      return existing;
+    }
+
+    // if not existing - try to attach
+    await this.attachAccount(accountId);
+
+    const created = this.clients.get(accountId);
+    if (!created) {
+      throw new Error(
+        `[TelegramClientManager] Failed to initialize client for account ${accountId}`
+      );
+    }
+    return created;
+  }
+
+  // Fetch dialogs for a specific Telegram account
+
+  public async fetchDialogs(params: {
+    accountId: string;
+    limit?: number;
+    offsetDate?: number;
+    offsetId?: number;
+    offsetPeer?:
+      | { id: number; type: "user" | "chat" | "channel"; accessHash?: string }
+      | undefined;
+  }): Promise<TelegramGetDialogsResult> {
+    const {
+      accountId,
+      limit = 50,
+      offsetDate = 0,
+      offsetId = 0,
+      offsetPeer,
+    } = params;
+
+    const client = await this.ensureClient(accountId);
+
+    // Prepare offsetPeer
+    let peer: Api.TypeInputPeer;
+    if (!offsetPeer) {
+      peer = new Api.InputPeerEmpty();
+    } else if (offsetPeer.type === "user") {
+      peer = new Api.InputPeerUser({
+        userId: bigInt(offsetPeer.id),
+        accessHash: bigInt(Number(offsetPeer.accessHash ?? 0)),
+      });
+    } else if (offsetPeer.type === "chat") {
+      peer = new Api.InputPeerChat({
+        chatId: bigInt(offsetPeer.id),
+      });
+    } else {
+      peer = new Api.InputPeerChannel({
+        channelId: bigInt(offsetPeer.id),
+        accessHash: bigInt(Number(offsetPeer.accessHash ?? 0)),
+      });
+    }
+
+    const dialogsRes = await client.invoke(
+      new Api.messages.GetDialogs({
+        offsetDate,
+        offsetId,
+        offsetPeer: peer,
+        limit,
+      })
+    );
+
+    const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes);
+
+    return {
+      status: "ok",
+      dialogs,
+      nextOffset,
+    };
+  }
+
+  // Fully logout and clean up a Telegram account
+
+  public async logoutAccount(accountId: string): Promise<void> {
+    const client = this.clients.get(accountId);
+    if (client) {
+      try {
+        await client.invoke(new Api.auth.LogOut());
+      } catch (err) {
+        logger.warn(
+          `[TelegramClientManager] MTProto logout failed for ${accountId}`,
+          { error: String(err) }
+        );
+      }
+
+      try {
+        if (typeof (client as any).destroy === "function") {
+          await (client as any).destroy();
+        } else {
+          (client as any)._destroyed = true;
+          await client.disconnect();
+        }
+      } catch (err) {
+        logger.warn(
+          `[TelegramClientManager] destroy/disconnect error for ${accountId}`,
+          { error: String(err) }
+        );
+      }
+    }
+
+    this.clients.delete(accountId);
+    this.accountToUser.delete(accountId);
+    this.reconnectAttempts.delete(accountId);
+
+    await prisma.telegramSession.deleteMany({ where: { accountId } });
+    await prisma.telegramAccount.updateMany({
+      where: { id: accountId },
+      data: { isActive: false },
+    });
+
+    logger.info(
+      `[TelegramClientManager] Fully logged out and cleaned account ${accountId}`
+    );
+  }
+
+  // Restore all active Telegram clients on server startup
+
+  public async restoreActiveClients(): Promise<void> {
+    try {
+      const activeAccounts = await prisma.telegramAccount.findMany({
+        where: { isActive: true },
+        include: { session: true, user: true },
+      });
+
+      if (!activeAccounts.length) {
+        logger.info(
+          "[TelegramClientManager] No active Telegram accounts found at startup."
+        );
+        return;
+      }
+
+      logger.info(
+        `[TelegramClientManager] Restoring ${activeAccounts.length} Telegram clients...`
+      );
+
+      for (const acc of activeAccounts) {
+        if (!acc.session?.sessionString) {
+          logger.warn(
+            `[TelegramClientManager] Account ${acc.id} has no session string, skipping.`
+          );
+          continue;
+        }
+
+        await this.attachAccount(acc.id, acc.userId, acc.session.sessionString);
+      }
+
+      logger.info(
+        "[TelegramClientManager] All active Telegram clients restored"
+      );
+    } catch (err) {
+      logger.error("[TelegramClientManager] Failed to restore clients:", {
+        err,
+      });
+    }
   }
 }
 

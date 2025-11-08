@@ -447,14 +447,14 @@ export async function getDialogs(req: Request, res: Response) {
       ? Number(req.query.offsetId)
       : undefined;
 
-    // peer.id, peer.type, peer.accessHash — передаємо через query
+    // peer.id, peer.type, peer.accessHash — all optional
     const offsetPeer = req.query.offsetPeerId
       ? {
           id: Number(req.query.offsetPeerId),
           type: req.query.offsetPeerType as "user" | "chat" | "channel",
-          accessHash: req.query.offsetPeerAccessHash
-            ? String(req.query.offsetPeerAccessHash)
-            : undefined,
+          ...(req.query.offsetPeerAccessHash
+            ? { accessHash: String(req.query.offsetPeerAccessHash) }
+            : {}),
         }
       : undefined;
 
@@ -465,9 +465,9 @@ export async function getDialogs(req: Request, res: Response) {
     const response = await telegramService.getDialogs({
       accountId,
       limit,
-      offsetDate,
-      offsetId,
-      offsetPeer,
+      ...(offsetDate !== undefined ? { offsetDate } : {}),
+      ...(offsetId !== undefined ? { offsetId } : {}),
+      ...(offsetPeer ? { offsetPeer } : {}),
     });
 
     return sendOk(res, {
