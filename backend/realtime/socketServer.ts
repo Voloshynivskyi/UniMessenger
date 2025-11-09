@@ -11,7 +11,10 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
 } from "./events";
-
+import telegramClientManager from "../services/telegram/telegramClientManager";
+import { Api } from "telegram";
+import bigInt from "big-integer";
+import { telegramSocketHandlers } from "./telegramSocketHandlers";
 let io: Server | null = null;
 let server: http.Server | null = null;
 
@@ -49,14 +52,35 @@ export function createSocketServer(app: any) {
         socket.emit("system:pong");
       });
 
-      socket.on("telegram:send_message", async (data) => {
-        // data: TelegramSendMessagePayload (TS вже знає!)
-        // const { accountId, chatId, text } = data;
-        // Тут ПОВИНЕН бути виклик TelegramClientManager:
-        // await telegramClientManager.sendMessage(accountId, chatId, text);
-        // Але ми це зробимо на окремому етапі, щоб не мішати шари.
-      });
-      
+      /**
+       * Telegram event handlers (Client → Server)
+       * Each handler calls the corresponding function in telegramSocketHandlers
+       */
+      // Send Message
+      socket.on("telegram:send_message", (data) =>
+        telegramSocketHandlers.sendMessage(socket, data)
+      );
+      // Edit Message
+      socket.on("telegram:edit_message", (data) =>
+        telegramSocketHandlers.editMessage(socket, data)
+      );
+      // Delete Message
+      socket.on("telegram:delete_message", (data) =>
+        telegramSocketHandlers.deleteMessage(socket, data)
+      );
+      // Typing Start
+      socket.on("telegram:typing_start", (data) =>
+        telegramSocketHandlers.typingStart(socket, data)
+      );
+      // Typing Stop
+      socket.on("telegram:typing_stop", (data) =>
+        telegramSocketHandlers.typingStop(socket, data)
+      );
+      // Mark as Read
+      socket.on("telegram:mark_as_read", (data) =>
+        telegramSocketHandlers.markAsRead(socket, data)
+      );
+
       // Handle disconnection
       socket.on("disconnect", () => {
         console.log(`❎ User ${userId} disconnected`);

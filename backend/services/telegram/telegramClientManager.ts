@@ -447,6 +447,75 @@ export class TelegramClientManager {
       });
     }
   }
+
+  //--------------------------------------------------------------
+  // Client actions: send/edit/delete messages, typing, mark as read
+  //--------------------------------------------------------------
+  // Send message
+  async sendMessage(accountId: string, chatId: string, text: string) {
+    const client = await this.ensureClient(accountId);
+    await client.sendMessage(chatId, { message: text });
+  }
+  // Edit message
+  async editMessage(
+    accountId: string,
+    chatId: string,
+    messageId: string,
+    newText: string
+  ) {
+    const client = await this.ensureClient(accountId);
+    await client.invoke(
+      new Api.messages.EditMessage({
+        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        id: parseInt(messageId, 10),
+        message: newText,
+      })
+    );
+  }
+  // Delete messages
+  async deleteMessages(accountId: string, messageIds: string[]) {
+    const client = await this.ensureClient(accountId);
+    await client.invoke(
+      new Api.messages.DeleteMessages({
+        id: messageIds.map((id) => parseInt(id, 10)),
+        revoke: true,
+      })
+    );
+  }
+  // Start typing indicator
+  async startTyping(accountId: string, chatId: string) {
+    const client = await this.ensureClient(accountId);
+    await client.invoke(
+      new Api.messages.SetTyping({
+        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        action: new Api.SendMessageTypingAction(),
+      })
+    );
+  }
+  // Stop typing indicator
+  async stopTyping(accountId: string, chatId: string) {
+    const client = await this.ensureClient(accountId);
+    await client.invoke(
+      new Api.messages.SetTyping({
+        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        action: new Api.SendMessageCancelAction(),
+      })
+    );
+  }
+  // Mark messages as read up to a specific message ID
+  async markAsRead(
+    accountId: string,
+    chatId: string,
+    lastReadMessageId: string
+  ) {
+    const client = await this.ensureClient(accountId);
+    await client.invoke(
+      new Api.messages.ReadHistory({
+        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        maxId: parseInt(lastReadMessageId, 10),
+      })
+    );
+  }
 }
 
 const telegramClientManager = new TelegramClientManager();
