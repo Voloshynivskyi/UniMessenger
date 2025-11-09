@@ -8,9 +8,19 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { BrowserRouter } from "react-router-dom";
 import { ThemeProvider, CssBaseline } from "@mui/material";
-import { AuthProvider } from "./context/AuthContext";
+import { useAuth, AuthProvider } from "./context/AuthContext";
 import { TelegramProvider } from "./context/TelegramContext";
 import theme from "./theme";
+import { RealtimeProvider } from "./context/RealtimeContext";
+
+function RootApp() {
+  const { token } = useAuth();
+  return (
+    <RealtimeProvider token={token || ""}>
+      <App />
+    </RealtimeProvider>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -19,7 +29,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <AuthProvider>
           <TelegramProvider>
-            <App />
+            <RootApp />
           </TelegramProvider>
         </AuthProvider>
       </BrowserRouter>

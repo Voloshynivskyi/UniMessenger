@@ -1,21 +1,21 @@
 // frontend/src/realtime/events.ts
+export interface InterServerEvents {}
 
-/** Base payload for all realtime events */
 export interface BaseRealtimePayload {
   platform: "telegram" | "discord" | "slack";
-  accountId: string; // ID TelegramAccount from which the event originates
+  accountId: string; // TELEGRAM_ACCOUNT_ID
   /** ISO8601 timestamp of the event */
-  timestamp: string; // ISO date string
+  timestamp: string; // ISO-String
 }
 
-/** ------ Server → Client ------ **/
+// Server-To-Client Events
 
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
   chatId: string;
   message: {
     id: string;
     text: string;
-    date: string; // ISO date string
+    date: string;
     from: {
       id: string;
       name: string;
@@ -54,25 +54,23 @@ export interface TelegramAccountStatusPayload extends BaseRealtimePayload {
 export interface TelegramErrorPayload extends BaseRealtimePayload {
   code: number;
   message: string;
-  context?: string;
+  context?: string; // Additional context about where the error occurred
   severity?: "info" | "warning" | "critical";
 }
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
   "system:pong": () => void;
-
   "telegram:new_message": (data: TelegramNewMessagePayload) => void;
   "telegram:typing": (data: TelegramTypingPayload) => void;
   "telegram:message_edited": (data: TelegramMessageEditedPayload) => void;
   "telegram:message_deleted": (data: TelegramMessageDeletedPayload) => void;
   "telegram:read_updates": (data: TelegramReadUpdatesPayload) => void;
   "telegram:account_status": (data: TelegramAccountStatusPayload) => void;
-
   "system:error": (data: TelegramErrorPayload) => void;
 }
 
-/** ------ Client → Server ------ **/
+// Client-To-Server Events
 
 export interface TelegramSendMessagePayload {
   accountId: string;
@@ -96,11 +94,25 @@ export interface TelegramMarkAsReadPayload {
   lastReadMessageId: string;
 }
 
+export interface TelegramEditMessagePayload {
+  accountId: string;
+  chatId: string;
+  messageId: string;
+  newText: string;
+}
+
+export interface TelegramDeleteMessagePayload {
+  accountId: string;
+  chatId: string;
+  messageIds: string[];
+}
+
 export interface ClientToServerEvents {
   "system:ping": () => void;
   "telegram:send_message": (data: TelegramSendMessagePayload) => void;
   "telegram:typing_start": (data: TelegramTypingStartPayload) => void;
   "telegram:typing_stop": (data: TelegramTypingStopPayload) => void;
   "telegram:mark_as_read": (data: TelegramMarkAsReadPayload) => void;
-  
+  "telegram:edit_message": (data: TelegramEditMessagePayload) => void;
+  "telegram:delete_message": (data: TelegramDeleteMessagePayload) => void;
 }

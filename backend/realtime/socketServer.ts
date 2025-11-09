@@ -11,9 +11,6 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
 } from "./events";
-import telegramClientManager from "../services/telegram/telegramClientManager";
-import { Api } from "telegram";
-import bigInt from "big-integer";
 import { telegramSocketHandlers } from "./telegramSocketHandlers";
 let io: Server | null = null;
 let server: http.Server | null = null;
@@ -38,7 +35,7 @@ export function createSocketServer(app: any) {
     "connection",
     (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
       const userId = socket.data.userId;
-      console.log("✅ New client connected:", socket.id, "user:", userId);
+      console.log("New client connected:", socket.id, "user:", userId);
 
       // Join a room for the user
 
