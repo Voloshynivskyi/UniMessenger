@@ -4,7 +4,7 @@ import { AccountListItem } from "./AccountListItem";
 import type { TelegramAuthAccount } from "../../api/telegramApi";
 import NoAccountsPlaceholder from "./NoAccountsPlaceholder";
 import AccountAddListItem from "./AccountAddListItem";
-import { useTelegram } from "../../context/TelegramContext";
+import { useTelegram } from "../../context/TelegramAccountContext";
 /**
  * Props for AccountList component.
  */

@@ -1,3 +1,7 @@
+// frontend/src/types/telegram.types.ts
+
+import type { BaseUnifiedChat } from "./unifiedChat.types";
+
 /** Project-wide account info shape for Telegram accounts (DB selection). */
 export interface TelegramAccountInfo {
   id: string; // Unique identifier for the account
@@ -9,17 +13,14 @@ export interface TelegramAccountInfo {
   isActive: boolean; // Whether the account is currently active
 }
 
-export interface UnifiedTelegramChat {
-  id: string; // Telegram internal id (userId/chatId/channelId)
-  title: string; // Chat name or user full name
-  type: "user" | "group" | "supergroup" | "channel"; // Chat type
-  username?: string | null; // Optional username/handle
-  forum?: boolean; // If channel has forum topics
-  pinned?: boolean; // If chat is pinned
-  unreadCount?: number; // Unread messages
-  lastMessage?: string; // Short text of last message (if loaded)
-  lastMessageDate?: string; // ISO timestamp
-  folderId?: number | null; // Telegram folder (if user uses folders)
+export interface UnifiedTelegramChat extends BaseUnifiedChat {
+  platform: "telegram";
+  username?: string | null;
+  phone?: string | null;
+  verified?: boolean;
+  isSelf?: boolean;
+  folderId?: number | null;
+  photo?: string | null;
 }
 
 /** Result type returned by `getDialogs`. */

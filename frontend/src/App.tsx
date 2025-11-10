@@ -17,8 +17,7 @@ import ProfilePage from "./pages/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useTelegramSocket } from "./realtime/hooks/useTelegramSocket";
 const App: React.FC = () => {
-  
-  useTelegramSocket(); // for testing Telegram real-time updates
+  //useTelegramSocket(); // for testing Telegram real-time updates
 
   return (
     <Routes>

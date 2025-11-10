@@ -9,15 +9,18 @@ import App from "./App";
 import { BrowserRouter } from "react-router-dom";
 import { ThemeProvider, CssBaseline } from "@mui/material";
 import { useAuth, AuthProvider } from "./context/AuthContext";
-import { TelegramProvider } from "./context/TelegramContext";
+import { TelegramProvider } from "./context/TelegramAccountContext";
 import theme from "./theme";
 import { RealtimeProvider } from "./context/RealtimeContext";
+import { UnifiedDialogsProvider } from "./context/UnifiedDialogsContext";
 
 function RootApp() {
   const { token } = useAuth();
   return (
     <RealtimeProvider token={token || ""}>
-      <App />
+      <UnifiedDialogsProvider>
+        <App />
+      </UnifiedDialogsProvider>
     </RealtimeProvider>
   );
 }

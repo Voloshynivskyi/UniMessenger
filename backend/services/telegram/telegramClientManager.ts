@@ -8,7 +8,7 @@ import { logger } from "../../utils/logger";
 import { Api } from "telegram";
 import bigInt from "big-integer";
 import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
-import type { TelegramGetDialogsResult } from "./telegram.types";
+import type { TelegramGetDialogsResult } from "../../types/telegram.types";
 import socketGateway, { getSocketGateway } from "../../realtime/socketGateway";
 import type { TelegramNewMessagePayload } from "../../realtime/events";
 import {
@@ -279,7 +279,7 @@ export class TelegramClientManager {
       if (isTelegramUpdateType(className)) {
         telegramUpdateHandlers[className]({ update: raw, accountId, userId });
       } else {
-        logger.info(`[Unhandled Telegram update] ${className}`);
+        logger.info(`[Unhandled Telegram update] ${className}\n`, raw);
       }
     });
   }
@@ -353,9 +353,7 @@ export class TelegramClientManager {
         limit,
       })
     );
-
     const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes);
-
     return {
       status: "ok",
       dialogs,

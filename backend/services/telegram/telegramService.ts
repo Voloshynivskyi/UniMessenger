@@ -17,7 +17,7 @@ import type {
   TelegramLogoutResult,
   TelegramAccountInfo,
   TelegramGetDialogsResult,
-} from "./telegram.types";
+} from "../../types/telegram.types";
 import bigInt from "big-integer";
 import telegramClientManager from "./telegramClientManager";
 

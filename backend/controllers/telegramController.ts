@@ -469,7 +469,6 @@ export async function getDialogs(req: Request, res: Response) {
       ...(offsetId !== undefined ? { offsetId } : {}),
       ...(offsetPeer ? { offsetPeer } : {}),
     });
-
     return sendOk(res, {
       dialogs: response.dialogs,
       nextOffset: response.nextOffset,

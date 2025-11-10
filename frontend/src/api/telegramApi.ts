@@ -145,14 +145,15 @@ export const telegramApi = {
     const response = await apiClient.get("/api/telegram/dialogs", {
       params: {
         accountId,
-        limit: 50,
+        limit: 9,
       },
     });
+    console.log("[DEBUG] getLatestDialogs response:", response.data);
     return handleApiResponse(response);
   },
 
   async getDialogs(accountId: string, nextOffset?: NextOffset | null) {
-    const params: any = { accountId, limit: 50 };
+    const params: any = { accountId, limit: 15 };
 
     if (nextOffset) {
       params.offsetDate = nextOffset.offsetDate;

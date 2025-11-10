@@ -5,13 +5,15 @@
 
 import React from "react";
 import { Box, Typography } from "@mui/material";
-import { useTelegram } from "../context/TelegramContext";
-import UnifiedInbox from "../components/inbox/UnifiedInbox";
+import { useTelegram } from "../context/TelegramAccountContext";
+import DialogDebugPage from "./DebugDialog";
+// import UnifiedInbox from "../components/inbox/UnifiedInbox";
 const InboxPage: React.FC = () => {
   const { accounts } = useTelegram();
   return (
     <Box>
-      <UnifiedInbox accounts={accounts || []} />
+      {/* <UnifiedInbox accounts={accounts || []} /> */}
+      <DialogDebugPage />
     </Box>
   );
 };

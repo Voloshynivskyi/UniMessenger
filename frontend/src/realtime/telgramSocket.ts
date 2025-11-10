@@ -1,3 +1,4 @@
+// frontend/src/realtime/telgramSocket.ts
 import { socketClient } from "./socketClient";
 import type {
   TelegramSendMessagePayload,

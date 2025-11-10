@@ -6,7 +6,7 @@ import React from "react";
 import { Card, Box, Typography, Divider } from "@mui/material";
 import { useEffect } from "react";
 import AccountList from "./AccountList";
-import { useTelegram } from "../../context/TelegramContext";
+import { useTelegram } from "../../context/TelegramAccountContext";
 import TelegramAuthModal from "./telegram/TelegramAuthModal";
 import type { TelegramAuthAccount } from "../../api/telegramApi";
 
