@@ -21,6 +21,8 @@ export interface UnifiedTelegramChat extends BaseUnifiedChat {
   isSelf?: boolean;
   folderId?: number | null;
   photo?: string | null;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string | undefined;
 }
 
 /** Result type returned by `getDialogs`. */

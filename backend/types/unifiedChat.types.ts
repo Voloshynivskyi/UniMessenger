@@ -37,5 +37,7 @@ export interface BaseUnifiedChat {
       username?: string | null;
     };
     isOutgoing?: boolean;
+    views?: number;
+    isPinned?: boolean;
   };
 }

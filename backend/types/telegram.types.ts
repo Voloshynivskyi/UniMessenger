@@ -57,6 +57,8 @@ export interface UnifiedTelegramChat extends BaseUnifiedChat {
   isSelf?: boolean;
   folderId?: number | null;
   photo?: string | null;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string | undefined;
 }
 
 export interface TelegramGetDialogsResult {

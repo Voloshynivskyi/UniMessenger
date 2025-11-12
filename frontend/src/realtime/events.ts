@@ -1,14 +1,15 @@
-// frontend/src/realtime/events.ts
+// backend/realtime/events.ts
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
   platform: "telegram" | "discord" | "slack";
-  accountId: string; // TELEGRAM_ACCOUNT_ID
-  /** ISO8601 timestamp of the event */
-  timestamp: string; // ISO-String
+  accountId: string;
+  timestamp: string; // ISO8601
 }
 
-// Server-To-Client Events
+// ────────────────────────────────────────────────
+// Telegram: Base payloads
+// ────────────────────────────────────────────────
 
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
   chatId: string;
@@ -51,47 +52,77 @@ export interface TelegramAccountStatusPayload extends BaseRealtimePayload {
   status: "online" | "offline" | "away" | "recently" | "hidden";
 }
 
+export interface TelegramMessageViewPayload extends BaseRealtimePayload {
+  chatId: string;
+  messageId: string;
+  views: number;
+}
+
+export interface TelegramPinnedMessagesPayload extends BaseRealtimePayload {
+  chatId: string;
+  messageIds: string[];
+  pinned: boolean;
+}
+
 export interface TelegramErrorPayload extends BaseRealtimePayload {
   code: number;
   message: string;
-  context?: string; // Additional context about where the error occurred
+  context?: string;
   severity?: "info" | "warning" | "critical";
 }
+
+// ────────────────────────────────────────────────
+// Server → Client events
+// ────────────────────────────────────────────────
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
   "system:pong": () => void;
+
   "telegram:new_message": (data: TelegramNewMessagePayload) => void;
   "telegram:typing": (data: TelegramTypingPayload) => void;
   "telegram:message_edited": (data: TelegramMessageEditedPayload) => void;
   "telegram:message_deleted": (data: TelegramMessageDeletedPayload) => void;
   "telegram:read_updates": (data: TelegramReadUpdatesPayload) => void;
   "telegram:account_status": (data: TelegramAccountStatusPayload) => void;
+  "telegram:message_views": (data: TelegramMessageViewPayload) => void;
+  "telegram:pinned_messages": (data: TelegramPinnedMessagesPayload) => void;
+
   "system:error": (data: TelegramErrorPayload) => void;
 }
 
-// Client-To-Server Events
+// ────────────────────────────────────────────────
+// Client → Server events
+// ────────────────────────────────────────────────
 
 export interface TelegramSendMessagePayload {
   accountId: string;
   chatId: string;
   text: string;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface TelegramTypingStartPayload {
   accountId: string;
   chatId: string;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface TelegramTypingStopPayload {
   accountId: string;
   chatId: string;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface TelegramMarkAsReadPayload {
   accountId: string;
   chatId: string;
   lastReadMessageId: string;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface TelegramEditMessagePayload {
@@ -99,12 +130,16 @@ export interface TelegramEditMessagePayload {
   chatId: string;
   messageId: string;
   newText: string;
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface TelegramDeleteMessagePayload {
   accountId: string;
   chatId: string;
   messageIds: string[];
+  peerType?: "user" | "chat" | "channel";
+  accessHash?: string;
 }
 
 export interface ClientToServerEvents {

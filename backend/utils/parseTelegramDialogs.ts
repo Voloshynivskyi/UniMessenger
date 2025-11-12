@@ -25,7 +25,7 @@ function getUserDisplayName(user?: Api.TypeUser): string {
 }
 
 /**
- * Detect message type based on its content
+ * Detect message type
  */
 function detectMessageType(
   msg: Api.Message
@@ -41,18 +41,16 @@ function detectMessageType(
       if (mime.includes("sticker")) return "sticker";
       return "file";
     }
-    return "file";
   }
 
   if (msg.media instanceof Api.MessageMediaWebPage) return "link";
   if (msg.action) return "service";
   if (msg.message) return "text";
-
   return "unknown";
 }
 
 /**
- * Replace message text if the type is not text
+ * Message summary for non-text types
  */
 function messageSummaryByType(type?: string): string {
   switch (type) {
@@ -76,7 +74,7 @@ function messageSummaryByType(type?: string): string {
 }
 
 /**
- * Main function — parsing dialogs into a unified format
+ * Parse Telegram dialogs to unified format
  */
 export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
   dialogs: UnifiedTelegramChat[];
@@ -103,24 +101,28 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
   const parsed: UnifiedTelegramChat[] = [];
 
   for (const d of dialogs.dialogs) {
-    let peerType: "user" | "group" | "supergroup" | "channel" = "user";
+    let peerType: "user" | "chat" | "channel" = "user";
     let entity: Api.User | Api.Chat | Api.Channel | undefined;
+    let accessHash: string | undefined;
 
     if (d.peer instanceof Api.PeerUser) {
       entity = userMap.get(Number(d.peer.userId)) as Api.User;
+      peerType = "user";
+      accessHash = entity?.accessHash ? String(entity.accessHash) : undefined;
     } else if (d.peer instanceof Api.PeerChat) {
-      peerType = "group";
       entity = chatMap.get(Number(d.peer.chatId)) as Api.Chat;
+      peerType = "chat";
     } else if (d.peer instanceof Api.PeerChannel) {
-      const ch = chatMap.get(Number(d.peer.channelId)) as Api.Channel;
-      peerType = ch?.megagroup ? "supergroup" : "channel";
-      entity = ch;
+      entity = chatMap.get(Number(d.peer.channelId)) as Api.Channel;
+      peerType = "channel";
+      accessHash = entity?.accessHash ? String(entity.accessHash) : undefined;
     }
 
     if (!entity) continue;
 
+    // Parse last message
     const topMsg = d.topMessage ? msgMap.get(Number(d.topMessage)) : null;
-    let lastMessage: UnifiedTelegramChat["lastMessage"] | undefined = undefined;
+    let lastMessage: UnifiedTelegramChat["lastMessage"] | undefined;
 
     if (topMsg instanceof Api.Message) {
       const msgType = detectMessageType(topMsg);
@@ -153,9 +155,15 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
           username: senderUsername,
         },
         isOutgoing: !!topMsg.out,
+        views:
+          typeof (topMsg as any).views === "number"
+            ? (topMsg as any).views
+            : undefined,
+        isPinned: !!(topMsg as any).pinned,
       };
     }
 
+    // Entity display name and info
     const title =
       "title" in entity
         ? entity.title
@@ -168,21 +176,18 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
     let displayName: string;
 
     if (entity instanceof Api.User) {
-      // If this is a user
       displayName =
         `${entity.firstName ?? ""} ${entity.lastName ?? ""}`.trim() ||
         entity.username ||
         (entity.phone ? `+${entity.phone}` : `ID ${entity.id}`) ||
         "Unknown";
     } else if ("title" in entity) {
-      // If this is a group or channel
       displayName =
         entity.title ||
         (entity as any).username ||
         (entity as any).id?.toString?.() ||
         "Unknown";
     } else {
-      // fallback
       displayName = "Unknown";
     }
 
@@ -192,10 +197,10 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
       photo = p?.photoId?.toString?.() ?? null;
     }
 
-    // === TypeScript-safe object formation ===
+    // ✅ Telegram-specific fields now included
     const baseChat: UnifiedTelegramChat = {
-      platform: "telegram", // 👈 add platform
-      accountId: "telegram-" + String(entity.id), // can be real account ID
+      platform: "telegram",
+      accountId: "telegram-" + String(entity.id),
       chatId: String(entity.id),
       title,
       displayName,
@@ -207,6 +212,11 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
       unreadCount: (d as any).unreadCount ?? 0,
       photo,
       folderId: (d as any).folderId ?? null,
+      peerType,
+      accessHash:
+        (entity as any).accessHash !== undefined
+          ? String((entity as any).accessHash)
+          : undefined,
     };
 
     if (lastMessage) {
@@ -216,47 +226,12 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
     parsed.push(baseChat);
   }
 
-  // === pagination offset ===
+  // pagination offset (unchanged)
   let nextOffset: any = undefined;
   const lastDialog = dialogs.dialogs[dialogs.dialogs.length - 1];
-
-  // try to find a valid last dialog with to get correct offset
-  let validLastDialog = lastDialog;
-  for (let i = dialogs.dialogs.length - 1; i >= 0; i--) {
-    const candidate = dialogs.dialogs[i];
-    if (candidate?.topMessage) {
-      const msgCandidate = msgMap.get(Number(candidate.topMessage));
-      if (msgCandidate instanceof Api.Message && msgCandidate.date) {
-        validLastDialog = candidate;
-        break;
-      }
-    }
-  }
-
-  // if valid dialog found — use it instead
-  if (validLastDialog && validLastDialog.peer && validLastDialog.topMessage) {
-    const topMsg = msgMap.get(Number(validLastDialog.topMessage));
-    const peer = validLastDialog.peer;
-
-    if (topMsg instanceof Api.Message && topMsg.date) {
-      nextOffset = {
-        offsetId: Number(validLastDialog.topMessage),
-        offsetDate: topMsg.date,
-        offsetPeer:
-          peer instanceof Api.PeerUser
-            ? { id: peer.userId, type: "user" }
-            : peer instanceof Api.PeerChat
-            ? { id: peer.chatId, type: "chat" }
-            : peer instanceof Api.PeerChannel
-            ? { id: peer.channelId, type: "channel" }
-            : null,
-      };
-    }
-  }
   if (lastDialog && lastDialog.peer && lastDialog.topMessage) {
     const topMsg = msgMap.get(Number(lastDialog.topMessage));
     const peer = lastDialog.peer;
-
     if (topMsg instanceof Api.Message && topMsg.date) {
       let offsetPeer: {
         id: number;
@@ -272,10 +247,7 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
           ...(user?.accessHash ? { accessHash: String(user.accessHash) } : {}),
         };
       } else if (peer instanceof Api.PeerChat) {
-        offsetPeer = {
-          id: Number(peer.chatId),
-          type: "chat",
-        };
+        offsetPeer = { id: Number(peer.chatId), type: "chat" };
       } else if (peer instanceof Api.PeerChannel) {
         const channel = chatMap.get(Number(peer.channelId)) as
           | Api.Channel
@@ -289,7 +261,6 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
         };
       }
 
-      // ✅ return proper offset structure
       nextOffset = {
         offsetId: Number(lastDialog.topMessage),
         offsetDate: topMsg.date,
@@ -297,6 +268,7 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
       };
     }
   }
+
   console.debug(
     "[parseTelegramDialogs] dialogs type:",
     dialogs.constructor.name,
@@ -305,5 +277,6 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
     "nextOffset:",
     nextOffset
   );
+
   return { dialogs: parsed, nextOffset };
 }

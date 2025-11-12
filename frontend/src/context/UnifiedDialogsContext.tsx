@@ -1,4 +1,3 @@
-// frontend/src/context/UnifiedDialogsContext.tsx
 import {
   createContext,
   useContext,
@@ -15,6 +14,9 @@ import type {
   TelegramMessageDeletedPayload,
   TelegramReadUpdatesPayload,
   TelegramTypingPayload,
+  TelegramAccountStatusPayload,
+  TelegramPinnedMessagesPayload,
+  TelegramMessageViewPayload,
 } from "../realtime/events";
 
 interface UnifiedDialogsContextType {
@@ -44,12 +46,10 @@ export const UnifiedDialogsProvider = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // === Realtime Telegram events ===
   useEffect(() => {
-    // TEMP: for now we handle only text-based messages
-    function handleNewMessage(data: TelegramNewMessagePayload) {
+    // ===== SOCKET EVENT HANDLERS =====
+    const handleNewMessage = (data: TelegramNewMessagePayload) => {
       const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-
       setChatsByKey((prev) => {
         const existing = prev[chatKey];
         const updated: UnifiedChat = {
@@ -59,67 +59,97 @@ export const UnifiedDialogsProvider = ({
             chatId: data.chatId,
             title: data.message.from.name || "Unknown chat",
           }),
-          lastMessage: { ...data.message, type: "text" }, // TEMP: raw message until media support is added
+          lastMessage: { ...data.message, type: "text" },
           unreadCount: existing ? (existing.unreadCount || 0) + 1 : 1,
         };
-
         return { ...prev, [chatKey]: updated };
       });
-    }
+    };
 
-    function handleMessageEdited(data: TelegramMessageEditedPayload) {
+    const handleMessageEdited = (data: TelegramMessageEditedPayload) => {
       const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
       setChatsByKey((prev) => {
         const existing = prev[chatKey];
         if (!existing?.lastMessage) return prev;
         if (existing.lastMessage.id !== data.messageId) return prev;
-
-        const updated: UnifiedChat = {
-          ...existing,
-          lastMessage: {
-            ...existing.lastMessage,
-            text: data.newText,
+        return {
+          ...prev,
+          [chatKey]: {
+            ...existing,
+            lastMessage: { ...existing.lastMessage, text: data.newText },
           },
         };
-        return { ...prev, [chatKey]: updated };
       });
-    }
+    };
 
-    function handleMessageDeleted(data: TelegramMessageDeletedPayload) {
+    const handleMessageDeleted = (data: TelegramMessageDeletedPayload) => {
       const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
       setChatsByKey((prev) => {
         const existing = prev[chatKey];
         if (!existing) return prev;
-
         if (
           existing.lastMessage &&
           data.messageIds.includes(existing.lastMessage.id)
         ) {
-          // TEMP: clear preview, later will handle media properly
           const updated = { ...existing, lastMessage: undefined };
           return { ...prev, [chatKey]: updated };
         }
         return prev;
       });
-    }
+    };
 
-    function handleReadUpdates(data: TelegramReadUpdatesPayload) {
+    const handleReadUpdates = (data: TelegramReadUpdatesPayload) => {
       const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+      console.log("[FRONT] read_updates:", data);
       setChatsByKey((prev) => {
         const existing = prev[chatKey];
         if (!existing) return prev;
         return { ...prev, [chatKey]: { ...existing, unreadCount: 0 } };
       });
-    }
+    };
 
-    // TEMP: typing updates will be visualized later in UI
-    function handleTyping(_: TelegramTypingPayload) {}
+    const handleMessageViews = (data: TelegramMessageViewPayload) => {
+      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+      setChatsByKey((prev) => {
+        const existing = prev[chatKey];
+        if (!existing?.lastMessage) return prev;
+        if (existing.lastMessage.id !== data.messageId) return prev;
+        return {
+          ...prev,
+          [chatKey]: {
+            ...existing,
+            lastMessage: { ...existing.lastMessage, views: data.views },
+          },
+        };
+      });
+    };
 
+    const handlePinnedMessages = (data: TelegramPinnedMessagesPayload) => {
+      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+      setChatsByKey((prev) => {
+        const existing = prev[chatKey];
+        if (!existing) return prev;
+        return { ...prev, [chatKey]: { ...existing, pinned: data.pinned } };
+      });
+    };
+
+    const handleAccountStatus = (data: TelegramAccountStatusPayload) => {
+      console.log(`[Account ${data.accountId}] Status: ${data.status}`);
+    };
+
+    const handleTyping = (data: TelegramTypingPayload) => {
+      console.debug("Typing:", data);
+    };
+
+    // ===== SOCKET BINDINGS =====
     socketClient.on("telegram:new_message", handleNewMessage);
     socketClient.on("telegram:message_edited", handleMessageEdited);
     socketClient.on("telegram:message_deleted", handleMessageDeleted);
     socketClient.on("telegram:read_updates", handleReadUpdates);
     socketClient.on("telegram:typing", handleTyping);
+    socketClient.on("telegram:message_views", handleMessageViews);
+    socketClient.on("telegram:pinned_messages", handlePinnedMessages);
+    socketClient.on("telegram:account_status", handleAccountStatus);
 
     return () => {
       socketClient.off("telegram:new_message", handleNewMessage);
@@ -127,42 +157,42 @@ export const UnifiedDialogsProvider = ({
       socketClient.off("telegram:message_deleted", handleMessageDeleted);
       socketClient.off("telegram:read_updates", handleReadUpdates);
       socketClient.off("telegram:typing", handleTyping);
+      socketClient.off("telegram:message_views", handleMessageViews);
+      socketClient.off("telegram:pinned_messages", handlePinnedMessages);
+      socketClient.off("telegram:account_status", handleAccountStatus);
     };
   }, []);
 
-  // === Chat selection ===
-  function selectChat(chatKey: string | null) {
-    setSelectedChatKey(chatKey);
-  }
+  // ===== SELECT CHAT =====
+  const selectChat = (chatKey: string | null) => setSelectedChatKey(chatKey);
 
-  // === Fetch dialogs (initial load) ===
+  // ===== FETCH DIALOGS =====
   const fetchDialogs = async (platform: string, accountId: string) => {
     if (!accountId) return;
     try {
       setLoading(true);
       const res = await telegramApi.getLatestDialogs(accountId);
-
-      // TEMP: store next offset for pagination
       setNextOffsetByAccount((prev) => ({
         ...prev,
         [accountId]: res.nextOffset || null,
       }));
 
-      const newChatsByKey: Record<string, UnifiedChat> = {};
+      const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
-        console.log("Fetched chat:", chat);
         const chatKey = `${platform}:${accountId}:${chat.chatId}`;
-        newChatsByKey[chatKey] = {
-          platform: "telegram", // TEMP: hardcoded for now
+        newChats[chatKey] = {
+          platform: "telegram",
           accountId,
           chatId: chat.chatId,
           title: chat.displayName || chat.title,
-          lastMessage: { ...chat.lastMessage, type: "text" }, // TEMP: raw from backend
+          lastMessage: chat.lastMessage
+            ? { ...chat.lastMessage, type: chat.lastMessage.type || "text" }
+            : undefined,
           unreadCount: chat.unreadCount || 0,
+          pinned: chat.pinned || false,
         };
       }
-
-      setChatsByKey((prev) => ({ ...prev, ...newChatsByKey }));
+      setChatsByKey((prev) => ({ ...prev, ...newChats }));
     } catch (err) {
       console.error("Failed to fetch dialogs", err);
       setError("Failed to load dialogs");
@@ -171,29 +201,29 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
-  // === Fetch more dialogs (pagination) ===
+  // ===== FETCH MORE =====
   const fetchMoreDialogs = async (platform: string, accountId: string) => {
     const nextOffset = nextOffsetByAccount[accountId];
-    console.log("Fetching more dialogs with offsets:", nextOffsetByAccount);
     if (!nextOffset) return;
-    console.log("Fetching more dialogs with offset:", nextOffset);
     try {
       setLoading(true);
       const res = await telegramApi.getDialogs(accountId, nextOffset);
-
-      const newChatsByKey: Record<string, UnifiedChat> = {};
+      const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
         const chatKey = `${platform}:${accountId}:${chat.chatId}`;
-        newChatsByKey[chatKey] = {
-          platform: "telegram", // TEMP: hardcoded for now
+        newChats[chatKey] = {
+          platform: "telegram",
           accountId,
           chatId: chat.chatId,
           title: chat.displayName || chat.title,
-          lastMessage: { ...chat.lastMessage, type: "text" }, // TEMP: raw from backend
+          lastMessage: chat.lastMessage
+            ? { ...chat.lastMessage, type: chat.lastMessage.type || "text" }
+            : undefined,
           unreadCount: chat.unreadCount || 0,
+          pinned: chat.pinned || false,
         };
       }
-      setChatsByKey((prev) => ({ ...prev, ...newChatsByKey }));
+      setChatsByKey((prev) => ({ ...prev, ...newChats }));
       setNextOffsetByAccount((prev) => ({
         ...prev,
         [accountId]: res.nextOffset || null,
@@ -206,7 +236,6 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
-  // === Context value ===
   const value: UnifiedDialogsContextType = {
     chatsByKey,
     selectedChatKey,
@@ -226,6 +255,9 @@ export const UnifiedDialogsProvider = ({
 
 export const useUnifiedDialogs = () => {
   const ctx = useContext(UnifiedDialogsContext);
-  if (!ctx) throw new Error("useUnifiedDialogs must be used within provider");
+  if (!ctx)
+    throw new Error(
+      "useUnifiedDialogs must be used within UnifiedDialogsProvider"
+    );
   return ctx;
 };

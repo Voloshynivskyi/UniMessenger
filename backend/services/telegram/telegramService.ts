@@ -62,14 +62,12 @@ export class TelegramService {
         { apiId: API_ID, apiHash: API_HASH },
         phoneNumber
       );
-      console.log("[DEBUG] sendCode result:", res);
       return {
         status: "code_sent",
         phoneCodeHash: res.phoneCodeHash,
         tempSession: client.session.save()!,
       };
     } catch (error) {
-      console.error("[DEBUG] sendCode error:", error);
       this.logError("sendCode", error);
       throw error; // 👈 MTProto errors go up
     } finally {

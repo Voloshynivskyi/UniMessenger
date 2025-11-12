@@ -8,6 +8,7 @@ import { logger } from "../../utils/logger";
 import { Api } from "telegram";
 import bigInt from "big-integer";
 import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
+import { resolveTelegramPeer } from "../../utils/resolveTelegramPeer";
 import type { TelegramGetDialogsResult } from "../../types/telegram.types";
 import socketGateway, { getSocketGateway } from "../../realtime/socketGateway";
 import type { TelegramNewMessagePayload } from "../../realtime/events";
@@ -450,29 +451,35 @@ export class TelegramClientManager {
   // Client actions: send/edit/delete messages, typing, mark as read
   //--------------------------------------------------------------
   // Send message
-  async sendMessage(accountId: string, chatId: string, text: string) {
-    const client = await this.ensureClient(accountId);
-    await client.sendMessage(chatId, { message: text });
-  }
-  // Edit message
-  async editMessage(
+  async sendMessage(
     accountId: string,
     chatId: string,
-    messageId: string,
-    newText: string
+    text: string,
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
   ) {
     const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
     await client.invoke(
-      new Api.messages.EditMessage({
-        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
-        id: parseInt(messageId, 10),
-        message: newText,
+      new Api.messages.SendMessage({
+        peer,
+        message: text,
       })
     );
   }
+
   // Delete messages
-  async deleteMessages(accountId: string, messageIds: string[]) {
+  async deleteMessages(
+    accountId: string,
+    chatId: string,
+    messageIds: string[],
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
+  ) {
     const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
     await client.invoke(
       new Api.messages.DeleteMessages({
         id: messageIds.map((id) => parseInt(id, 10)),
@@ -480,38 +487,82 @@ export class TelegramClientManager {
       })
     );
   }
+
   // Start typing indicator
-  async startTyping(accountId: string, chatId: string) {
+  async startTyping(
+    accountId: string,
+    chatId: string,
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
+  ) {
     const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
     await client.invoke(
       new Api.messages.SetTyping({
-        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        peer,
         action: new Api.SendMessageTypingAction(),
       })
     );
   }
   // Stop typing indicator
-  async stopTyping(accountId: string, chatId: string) {
+  async stopTyping(
+    accountId: string,
+    chatId: string,
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
+  ) {
     const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
     await client.invoke(
       new Api.messages.SetTyping({
-        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        peer,
         action: new Api.SendMessageCancelAction(),
       })
     );
   }
+
   // Mark messages as read up to a specific message ID
   async markAsRead(
     accountId: string,
     chatId: string,
-    lastReadMessageId: string
+    lastReadMessageId: string,
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
   ) {
     const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
     await client.invoke(
       new Api.messages.ReadHistory({
-        peer: new Api.InputPeerChat({ chatId: bigInt(chatId) }),
+        peer,
         maxId: parseInt(lastReadMessageId, 10),
       })
+    );
+  }
+
+  async editMessage(
+    accountId: string,
+    chatId: string,
+    messageId: string,
+    newText: string,
+    peerType: "user" | "chat" | "channel" = "chat",
+    accessHash?: string
+  ) {
+    const client = await this.ensureClient(accountId);
+    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+
+    await client.invoke(
+      new Api.messages.EditMessage({
+        peer,
+        id: parseInt(messageId, 10),
+        message: newText,
+      })
+    );
+
+    console.log(
+      `[TelegramClientManager] Edited message ${messageId} in chat ${chatId}`
     );
   }
 }

@@ -13,6 +13,8 @@ import type {
   TelegramMessageDeletedPayload,
   TelegramReadUpdatesPayload,
   TelegramAccountStatusPayload,
+  TelegramPinnedMessagesPayload,
+  TelegramMessageViewPayload,
 } from "./events";
 
 // Telegram Socket API
@@ -73,7 +75,12 @@ export const telegramSocket = {
   onAccountStatus(callback: (data: TelegramAccountStatusPayload) => void) {
     socketClient.on("telegram:account_status", callback);
   },
-
+  onMessageViews(callback: (data: TelegramMessageViewPayload) => void) {
+    socketClient.on("telegram:message_views", callback);
+  },
+  onPinnedMessages(callback: (data: TelegramPinnedMessagesPayload) => void) {
+    socketClient.on("telegram:pinned_messages", callback);
+  },
   // ======================
   // OFF (Unsubscribe)
   // ======================
@@ -100,5 +107,11 @@ export const telegramSocket = {
 
   offAccountStatus(callback: (data: TelegramAccountStatusPayload) => void) {
     socketClient.off("telegram:account_status", callback);
+  },
+  offMessageViews(callback: (data: TelegramMessageViewPayload) => void) {
+    socketClient.off("telegram:message_views", callback);
+  },
+  offPinnedMessages(callback: (data: TelegramPinnedMessagesPayload) => void) {
+    socketClient.off("telegram:pinned_messages", callback);
   },
 };

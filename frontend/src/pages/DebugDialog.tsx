@@ -1,4 +1,3 @@
-// frontend/src/pages/DebugDialog.tsx
 import { useEffect, useMemo } from "react";
 import {
   Box,
@@ -11,6 +10,7 @@ import {
   Stack,
   Chip,
   Paper,
+  Tooltip,
 } from "@mui/material";
 import { useUnifiedDialogs } from "../context/UnifiedDialogsContext";
 
@@ -47,6 +47,7 @@ export default function DebugDialog() {
       >
         🧩 Debug Dialog
       </Typography>
+
       {/* Controls */}
       <Stack direction="row" spacing={2}>
         <Button
@@ -72,7 +73,11 @@ export default function DebugDialog() {
           Deselect
         </Button>
       </Stack>
-      Total Chats: {chatList.length}
+
+      <Typography variant="body2" color="text.secondary">
+        Total Chats: <strong>{chatList.length}</strong>
+      </Typography>
+
       {/* Error & Loading */}
       {error && <Typography color="error">❌ {error}</Typography>}
       {loading && (
@@ -83,12 +88,14 @@ export default function DebugDialog() {
           </Typography>
         </Stack>
       )}
+
       {/* No dialogs */}
       {!loading && chatList.length === 0 && (
         <Typography variant="body2" color="text.secondary" fontStyle="italic">
           No dialogs loaded yet.
         </Typography>
       )}
+
       {/* Layout */}
       <Box
         sx={{
@@ -113,6 +120,7 @@ export default function DebugDialog() {
             const chatKey = `${chat.platform}:${chat.accountId}:${chat.chatId}`;
             const isSelected = selectedChatKey === chatKey;
             const hasUnread = chat.unreadCount && chat.unreadCount > 0;
+
             return (
               <Card
                 key={chatKey}
@@ -131,22 +139,37 @@ export default function DebugDialog() {
                 onClick={() => selectChat(chatKey)}
               >
                 <CardContent>
+                  {/* Header */}
                   <Box
                     display="flex"
                     justifyContent="space-between"
                     alignItems="center"
                   >
                     <Typography variant="subtitle1" fontWeight={600}>
-                      {chat.displayName || chat.title}
+                      {chat.displayName || chat.title || "Unnamed Chat"}
                     </Typography>
-                    <Chip
-                      size="small"
-                      label={chat.platform.toUpperCase()}
-                      color="info"
-                      variant="outlined"
-                    />
+
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {chat.pinned && (
+                        <Tooltip title="Pinned chat">
+                          <Chip
+                            size="small"
+                            color="warning"
+                            label="📌"
+                            sx={{ fontSize: "0.8rem" }}
+                          />
+                        </Tooltip>
+                      )}
+                      <Chip
+                        size="small"
+                        label={chat.platform.toUpperCase()}
+                        color="info"
+                        variant="outlined"
+                      />
+                    </Stack>
                   </Box>
 
+                  {/* Last message */}
                   <Typography
                     variant="body2"
                     color="text.secondary"
@@ -165,14 +188,27 @@ export default function DebugDialog() {
                       : "No messages yet"}
                   </Typography>
 
-                  <Typography variant="caption" color="text.secondary">
-                    {chat.lastMessage?.date
-                      ? new Date(chat.lastMessage.date).toLocaleString()
-                      : "No date"}
-                  </Typography>
+                  {/* Date & Views */}
+                  <Stack direction="row" spacing={1} alignItems="center" mt={0.3}>
+                    <Typography variant="caption" color="text.secondary">
+                      {chat.lastMessage?.date
+                        ? new Date(chat.lastMessage.date).toLocaleString()
+                        : "No date"}
+                    </Typography>
+                    {typeof chat.lastMessage?.views === "number" && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                      >
+                        👁 {chat.lastMessage.views}
+                      </Typography>
+                    )}
+                  </Stack>
 
                   <Divider sx={{ my: 1 }} />
 
+                  {/* Footer */}
                   <Stack
                     direction="row"
                     justifyContent="space-between"
@@ -214,8 +250,18 @@ export default function DebugDialog() {
           {selectedChat ? (
             <>
               <Typography variant="h6" fontWeight={600} gutterBottom>
-                {selectedChat.displayName}
+                {selectedChat.displayName || selectedChat.title}
               </Typography>
+
+              {selectedChat.pinned && (
+                <Typography
+                  variant="body2"
+                  color="warning.main"
+                  sx={{ mb: 1, fontWeight: 600 }}
+                >
+                  📌 Pinned chat
+                </Typography>
+              )}
 
               <Divider sx={{ mb: 2 }} />
 
@@ -264,6 +310,17 @@ export default function DebugDialog() {
                       <strong>Outgoing:</strong>{" "}
                       {selectedChat.lastMessage.isOutgoing ? "Yes" : "No"}
                     </Typography>
+                    {typeof selectedChat.lastMessage.views === "number" && (
+                      <Typography variant="body2">
+                        <strong>Views:</strong>{" "}
+                        {selectedChat.lastMessage.views}
+                      </Typography>
+                    )}
+                    {selectedChat.lastMessage.isPinned && (
+                      <Typography variant="body2" color="warning.main">
+                        📌 This message is pinned
+                      </Typography>
+                    )}
                   </Box>
                 ) : (
                   <Typography
