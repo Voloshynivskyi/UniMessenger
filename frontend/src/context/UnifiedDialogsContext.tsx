@@ -5,7 +5,10 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import type { UnifiedChat } from "../types/unifiedChat.types";
+import type {
+  UnifiedChatPlatform,
+  UnifiedChat,
+} from "../types/unifiedChat.types";
 import { telegramApi } from "../api/telegramApi";
 import { socketClient } from "../realtime/socketClient";
 import type {
@@ -18,14 +21,39 @@ import type {
   TelegramPinnedMessagesPayload,
   TelegramMessageViewPayload,
 } from "../realtime/events";
+import { useTelegram } from "./TelegramAccountContext";
+
+/* 🧩 Сортування чатів (прикріплені завжди зверху, решта — за датою останнього повідомлення) */
+function sortChats(
+  chats: Record<string, UnifiedChat>
+): Record<string, UnifiedChat> {
+  const sortedEntries = Object.entries(chats).sort(([_, a], [__, b]) => {
+    // 1️⃣ pinned чати завжди зверху
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+
+    // 2️⃣ За датою останнього повідомлення
+    const dateA = new Date(a.lastMessage?.date || 0).getTime();
+    const dateB = new Date(b.lastMessage?.date || 0).getTime();
+    return dateB - dateA;
+  });
+
+  return Object.fromEntries(sortedEntries);
+}
 
 interface UnifiedDialogsContextType {
-  chatsByKey: Record<string, UnifiedChat>;
+  chatsByAccount: Record<string, Record<string, UnifiedChat>>;
   selectedChatKey: string | null;
   loading: boolean;
   error: string | null;
-  fetchDialogs: (platform: string, accountId: string) => Promise<void>;
-  fetchMoreDialogs: (platform: string, accountId: string) => Promise<void>;
+  fetchDialogs: (
+    platform: UnifiedChatPlatform,
+    accountId: string
+  ) => Promise<void>;
+  fetchMoreDialogs: (
+    platform: UnifiedChatPlatform,
+    accountId: string
+  ) => Promise<void>;
   selectChat: (chatKey: string | null) => void;
 }
 
@@ -38,7 +66,9 @@ export const UnifiedDialogsProvider = ({
 }: {
   children: ReactNode;
 }) => {
-  const [chatsByKey, setChatsByKey] = useState<Record<string, UnifiedChat>>({});
+  const [chatsByAccount, setChatsByAccount] = useState<
+    Record<string, Record<string, UnifiedChat>>
+  >({});
   const [nextOffsetByAccount, setNextOffsetByAccount] = useState<
     Record<string, any | null>
   >({});
@@ -46,90 +76,143 @@ export const UnifiedDialogsProvider = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { accounts } = useTelegram();
+
+  /* ===== SOCKET EVENTS ===== */
   useEffect(() => {
-    // ===== SOCKET EVENT HANDLERS =====
+    if (!accounts?.length) return;
+
+    const updateAccountChats = (
+      accountId: string,
+      newData: Record<string, UnifiedChat>
+    ) => {
+      setChatsByAccount((prev) => {
+        const updated = { ...(prev[accountId] || {}), ...newData };
+        return { ...prev, [accountId]: sortChats(updated) };
+      });
+    };
+
     const handleNewMessage = (data: TelegramNewMessagePayload) => {
       const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
-        const updated: UnifiedChat = {
-          ...(existing || {
-            platform: data.platform,
-            accountId: data.accountId,
-            chatId: data.chatId,
-            title: data.message.from.name || "Unknown chat",
-          }),
-          lastMessage: { ...data.message, type: "text" },
-          unreadCount: existing ? (existing.unreadCount || 0) + 1 : 1,
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId] || {};
+        const existing = accountChats[chatKey];
+        const baseChat: UnifiedChat = existing || {
+          platform: data.platform,
+          accountId: data.accountId,
+          chatId: data.chatId,
+          title: data.message.from?.name || "Unknown chat",
+          unreadCount: 0,
+          pinned: false,
         };
-        return { ...prev, [chatKey]: updated };
+
+        const newUnreadCount = data.message.isOutgoing
+          ? baseChat.unreadCount
+          : (baseChat.unreadCount ?? 0) + 1;
+
+        const updatedChat: UnifiedChat = {
+          ...baseChat,
+          lastMessage: { ...data.message, type: "text" },
+          unreadCount: newUnreadCount,
+        };
+
+        const merged = { ...accountChats, [chatKey]: updatedChat };
+        return { ...prev, [data.accountId]: sortChats(merged) };
       });
     };
 
     const handleMessageEdited = (data: TelegramMessageEditedPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
-        if (!existing?.lastMessage) return prev;
-        if (existing.lastMessage.id !== data.messageId) return prev;
-        return {
-          ...prev,
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+        const existing = accountChats[chatKey];
+        if (
+          !existing?.lastMessage ||
+          existing.lastMessage.id !== data.messageId
+        )
+          return prev;
+
+        const updated = {
+          ...accountChats,
           [chatKey]: {
             ...existing,
             lastMessage: { ...existing.lastMessage, text: data.newText },
           },
         };
+        return { ...prev, [data.accountId]: sortChats(updated) };
       });
     };
 
     const handleMessageDeleted = (data: TelegramMessageDeletedPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
-        if (!existing) return prev;
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+        const existing = accountChats[chatKey];
         if (
-          existing.lastMessage &&
+          existing?.lastMessage &&
           data.messageIds.includes(existing.lastMessage.id)
         ) {
-          const updated = { ...existing, lastMessage: undefined };
-          return { ...prev, [chatKey]: updated };
+          const updated = {
+            ...accountChats,
+            [chatKey]: { ...existing, lastMessage: undefined },
+          };
+          return { ...prev, [data.accountId]: sortChats(updated) };
         }
         return prev;
       });
     };
 
     const handleReadUpdates = (data: TelegramReadUpdatesPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      console.log("[FRONT] read_updates:", data);
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+        const existing = accountChats[chatKey];
         if (!existing) return prev;
-        return { ...prev, [chatKey]: { ...existing, unreadCount: 0 } };
+        const updated = {
+          ...accountChats,
+          [chatKey]: { ...existing, unreadCount: 0 },
+        };
+        return { ...prev, [data.accountId]: sortChats(updated) };
+      });
+    };
+
+    const handlePinnedMessages = (data: TelegramPinnedMessagesPayload) => {
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+        const existing = accountChats[chatKey];
+        if (!existing) return prev;
+        const updated = {
+          ...accountChats,
+          [chatKey]: { ...existing, pinned: data.pinned },
+        };
+        return { ...prev, [data.accountId]: sortChats(updated) };
       });
     };
 
     const handleMessageViews = (data: TelegramMessageViewPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
-        if (!existing?.lastMessage) return prev;
-        if (existing.lastMessage.id !== data.messageId) return prev;
-        return {
-          ...prev,
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+        const existing = accountChats[chatKey];
+        if (
+          !existing?.lastMessage ||
+          existing.lastMessage.id !== data.messageId
+        )
+          return prev;
+        const updated = {
+          ...accountChats,
           [chatKey]: {
             ...existing,
             lastMessage: { ...existing.lastMessage, views: data.views },
           },
         };
-      });
-    };
-
-    const handlePinnedMessages = (data: TelegramPinnedMessagesPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
-      setChatsByKey((prev) => {
-        const existing = prev[chatKey];
-        if (!existing) return prev;
-        return { ...prev, [chatKey]: { ...existing, pinned: data.pinned } };
+        return { ...prev, [data.accountId]: sortChats(updated) };
       });
     };
 
@@ -137,16 +220,10 @@ export const UnifiedDialogsProvider = ({
       console.log(`[Account ${data.accountId}] Status: ${data.status}`);
     };
 
-    const handleTyping = (data: TelegramTypingPayload) => {
-      console.debug("Typing:", data);
-    };
-
-    // ===== SOCKET BINDINGS =====
     socketClient.on("telegram:new_message", handleNewMessage);
     socketClient.on("telegram:message_edited", handleMessageEdited);
     socketClient.on("telegram:message_deleted", handleMessageDeleted);
     socketClient.on("telegram:read_updates", handleReadUpdates);
-    socketClient.on("telegram:typing", handleTyping);
     socketClient.on("telegram:message_views", handleMessageViews);
     socketClient.on("telegram:pinned_messages", handlePinnedMessages);
     socketClient.on("telegram:account_status", handleAccountStatus);
@@ -156,32 +233,34 @@ export const UnifiedDialogsProvider = ({
       socketClient.off("telegram:message_edited", handleMessageEdited);
       socketClient.off("telegram:message_deleted", handleMessageDeleted);
       socketClient.off("telegram:read_updates", handleReadUpdates);
-      socketClient.off("telegram:typing", handleTyping);
       socketClient.off("telegram:message_views", handleMessageViews);
       socketClient.off("telegram:pinned_messages", handlePinnedMessages);
       socketClient.off("telegram:account_status", handleAccountStatus);
     };
-  }, []);
+  }, [accounts?.length]);
 
-  // ===== SELECT CHAT =====
-  const selectChat = (chatKey: string | null) => setSelectedChatKey(chatKey);
-
-  // ===== FETCH DIALOGS =====
-  const fetchDialogs = async (platform: string, accountId: string) => {
+  /* ===== FETCH DIALOGS ===== */
+  const fetchDialogs = async (
+    platform: UnifiedChatPlatform,
+    accountId: string
+  ) => {
     if (!accountId) return;
     try {
       setLoading(true);
-      const res = await telegramApi.getLatestDialogs(accountId);
-      setNextOffsetByAccount((prev) => ({
-        ...prev,
-        [accountId]: res.nextOffset || null,
-      }));
+      let res;
+      switch (platform) {
+        case "telegram":
+          res = await telegramApi.getLatestDialogs(accountId);
+          break;
+        default:
+          throw new Error(`Unsupported platform: ${platform}`);
+      }
 
       const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
         const chatKey = `${platform}:${accountId}:${chat.chatId}`;
         newChats[chatKey] = {
-          platform: "telegram",
+          platform,
           accountId,
           chatId: chat.chatId,
           title: chat.displayName || chat.title,
@@ -192,7 +271,16 @@ export const UnifiedDialogsProvider = ({
           pinned: chat.pinned || false,
         };
       }
-      setChatsByKey((prev) => ({ ...prev, ...newChats }));
+
+      setChatsByAccount((prev) => {
+        const updated = { ...(prev[accountId] || {}), ...newChats };
+        return { ...prev, [accountId]: sortChats(updated) };
+      });
+
+      setNextOffsetByAccount((prev) => ({
+        ...prev,
+        [accountId]: res.nextOffset || null,
+      }));
     } catch (err) {
       console.error("Failed to fetch dialogs", err);
       setError("Failed to load dialogs");
@@ -201,18 +289,29 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
-  // ===== FETCH MORE =====
-  const fetchMoreDialogs = async (platform: string, accountId: string) => {
+  /* ===== FETCH MORE ===== */
+  const fetchMoreDialogs = async (
+    platform: UnifiedChatPlatform,
+    accountId: string
+  ) => {
     const nextOffset = nextOffsetByAccount[accountId];
     if (!nextOffset) return;
     try {
       setLoading(true);
-      const res = await telegramApi.getDialogs(accountId, nextOffset);
+      let res;
+      switch (platform) {
+        case "telegram":
+          res = await telegramApi.getDialogs(accountId, nextOffset);
+          break;
+        default:
+          throw new Error(`Unsupported platform: ${platform}`);
+      }
+
       const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
         const chatKey = `${platform}:${accountId}:${chat.chatId}`;
         newChats[chatKey] = {
-          platform: "telegram",
+          platform,
           accountId,
           chatId: chat.chatId,
           title: chat.displayName || chat.title,
@@ -223,7 +322,12 @@ export const UnifiedDialogsProvider = ({
           pinned: chat.pinned || false,
         };
       }
-      setChatsByKey((prev) => ({ ...prev, ...newChats }));
+
+      setChatsByAccount((prev) => {
+        const updated = { ...(prev[accountId] || {}), ...newChats };
+        return { ...prev, [accountId]: sortChats(updated) };
+      });
+
       setNextOffsetByAccount((prev) => ({
         ...prev,
         [accountId]: res.nextOffset || null,
@@ -236,8 +340,10 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
+  const selectChat = (chatKey: string | null) => setSelectedChatKey(chatKey);
+
   const value: UnifiedDialogsContextType = {
-    chatsByKey,
+    chatsByAccount,
     selectedChatKey,
     loading,
     error,

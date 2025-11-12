@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
@@ -13,10 +13,11 @@ import {
   Tooltip,
 } from "@mui/material";
 import { useUnifiedDialogs } from "../context/UnifiedDialogsContext";
+import { useTelegram } from "../context/TelegramAccountContext";
 
 export default function DebugDialog() {
   const {
-    chatsByKey,
+    chatsByAccount,
     selectedChatKey,
     loading,
     error,
@@ -25,18 +26,45 @@ export default function DebugDialog() {
     selectChat,
   } = useUnifiedDialogs();
 
-  const accountId = "cmhqwug1x0001u6jn4kmr6it4"; // TEMP
-  const platform = "telegram";
-
-  useEffect(() => {
-    fetchDialogs(platform, accountId);
-  }, []);
-
-  const chatList = Object.values(chatsByKey);
-  const selectedChat = useMemo(
-    () => (selectedChatKey ? chatsByKey[selectedChatKey] : null),
-    [selectedChatKey, chatsByKey]
+  const { accounts } = useTelegram(); // ✅ усі Telegram акаунти
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    null
   );
+
+  const platform = "telegram"; // 🔹 можна потім динамічно вибирати платформу
+
+  // коли акаунти завантажились — вибираємо перший за замовчуванням
+  useEffect(() => {
+    if (accounts && accounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accounts[0].accountId);
+      fetchDialogs(platform, accounts[0].accountId);
+    }
+  }, [accounts]);
+
+  // оновлення чатів при зміні акаунта
+  useEffect(() => {
+    if (selectedAccountId) {
+      fetchDialogs(platform, selectedAccountId);
+    }
+  }, [selectedAccountId]);
+
+  // усі чати для поточного акаунта
+  const chatList = selectedAccountId
+    ? Object.values(chatsByAccount[selectedAccountId] || {})
+    : [];
+
+  const selectedChat = useMemo(
+    () => (selectedChatKey ? findChatByKey(selectedChatKey) : null),
+    [selectedChatKey, chatsByAccount]
+  );
+
+  function findChatByKey(chatKey: string) {
+    for (const accId in chatsByAccount) {
+      const found = chatsByAccount[accId][chatKey];
+      if (found) return found;
+    }
+    return null;
+  }
 
   return (
     <Box sx={{ p: 4, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -52,15 +80,19 @@ export default function DebugDialog() {
       <Stack direction="row" spacing={2}>
         <Button
           variant="contained"
-          onClick={() => fetchDialogs(platform, accountId)}
-          disabled={loading}
+          onClick={() =>
+            selectedAccountId && fetchDialogs(platform, selectedAccountId)
+          }
+          disabled={loading || !selectedAccountId}
         >
           Refresh
         </Button>
         <Button
           variant="outlined"
-          onClick={() => fetchMoreDialogs(platform, accountId)}
-          disabled={loading}
+          onClick={() =>
+            selectedAccountId && fetchMoreDialogs(platform, selectedAccountId)
+          }
+          disabled={loading || !selectedAccountId}
         >
           Load More
         </Button>
@@ -73,6 +105,26 @@ export default function DebugDialog() {
           Deselect
         </Button>
       </Stack>
+
+      {/* Account selector */}
+      {accounts && accounts.length > 1 && (
+        <Stack direction="row" spacing={2}>
+          {accounts.map((acc) => (
+            <Button
+              key={acc.accountId}
+              variant={
+                selectedAccountId === acc.accountId ? "contained" : "outlined"
+              }
+              onClick={() => setSelectedAccountId(acc.accountId)}
+            >
+              {acc.username ||
+                acc.firstName ||
+                acc.phoneNumber ||
+                "Unknown Account"}
+            </Button>
+          ))}
+        </Stack>
+      )}
 
       <Typography variant="body2" color="text.secondary">
         Total Chats: <strong>{chatList.length}</strong>
@@ -146,7 +198,7 @@ export default function DebugDialog() {
                     alignItems="center"
                   >
                     <Typography variant="subtitle1" fontWeight={600}>
-                      {chat.displayName || chat.title || "Unnamed Chat"}
+                      {chat.title || "Unnamed Chat"}
                     </Typography>
 
                     <Stack direction="row" spacing={1} alignItems="center">
@@ -189,7 +241,12 @@ export default function DebugDialog() {
                   </Typography>
 
                   {/* Date & Views */}
-                  <Stack direction="row" spacing={1} alignItems="center" mt={0.3}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    mt={0.3}
+                  >
                     <Typography variant="caption" color="text.secondary">
                       {chat.lastMessage?.date
                         ? new Date(chat.lastMessage.date).toLocaleString()
@@ -250,7 +307,7 @@ export default function DebugDialog() {
           {selectedChat ? (
             <>
               <Typography variant="h6" fontWeight={600} gutterBottom>
-                {selectedChat.displayName || selectedChat.title}
+                {selectedChat.title}
               </Typography>
 
               {selectedChat.pinned && (
@@ -312,8 +369,7 @@ export default function DebugDialog() {
                     </Typography>
                     {typeof selectedChat.lastMessage.views === "number" && (
                       <Typography variant="body2">
-                        <strong>Views:</strong>{" "}
-                        {selectedChat.lastMessage.views}
+                        <strong>Views:</strong> {selectedChat.lastMessage.views}
                       </Typography>
                     )}
                     {selectedChat.lastMessage.isPinned && (

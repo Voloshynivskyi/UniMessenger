@@ -7,8 +7,10 @@ export type UnifiedChat = UnifiedTelegramChat;
 //  | UnifiedDiscordChat
 //  | UnifiedSlackChat;
 
+export type UnifiedChatPlatform = "telegram" | "discord" | "slack";
+
 export interface BaseUnifiedChat {
-  platform: "telegram" | "discord" | "slack";
+  platform: UnifiedChatPlatform;
   accountId: string;
   chatId: string;
 

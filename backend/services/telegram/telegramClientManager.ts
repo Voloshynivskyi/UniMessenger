@@ -354,7 +354,7 @@ export class TelegramClientManager {
         limit,
       })
     );
-    const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes);
+    const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes, accountId);
     return {
       status: "ok",
       dialogs,

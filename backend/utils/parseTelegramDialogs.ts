@@ -76,7 +76,10 @@ function messageSummaryByType(type?: string): string {
 /**
  * Parse Telegram dialogs to unified format
  */
-export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
+export function parseTelegramDialogs(
+  dialogs: Api.messages.TypeDialogs,
+  accountId: string
+): {
   dialogs: UnifiedTelegramChat[];
   nextOffset?: any;
 } {
@@ -200,7 +203,7 @@ export function parseTelegramDialogs(dialogs: Api.messages.TypeDialogs): {
     // ✅ Telegram-specific fields now included
     const baseChat: UnifiedTelegramChat = {
       platform: "telegram",
-      accountId: "telegram-" + String(entity.id),
+      accountId: accountId,
       chatId: String(entity.id),
       title,
       displayName,
