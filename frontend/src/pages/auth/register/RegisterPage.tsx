@@ -13,11 +13,12 @@ import {
   Alert,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import { isValidEmail, isValidPassword } from "../utils/validation";
-import PasswordField from "../ui/login/PasswordField";
-import PasswordConfirmationField from "../ui/login/PasswordConfirmationField";
-import { ApiError } from "../api/ApiError";
+import { useAuth } from "../../../context/AuthContext";
+import { isValidEmail, isValidPassword } from "../../../utils/validation";
+import PasswordField from "../../../ui/login/PasswordField";
+import PasswordConfirmationField from "../../../ui/login/PasswordConfirmationField";
+import { ApiError } from "../../../api/ApiError";
+import PageContainer from "../../../components/common/PageContainer";
 
 const RegisterPage: React.FC = () => {
   const { isAuthenticated, register } = useAuth();
@@ -50,7 +51,7 @@ const RegisterPage: React.FC = () => {
   }
 
   return (
-    <Box>
+    <PageContainer>
       <Paper sx={{ p: "4vh", minWidth: 400, width: "100%", borderRadius: 5 }}>
         <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
           UniMessenger Register
@@ -109,7 +110,7 @@ const RegisterPage: React.FC = () => {
           Sign in
         </Button>
       </Paper>
-    </Box>
+    </PageContainer>
   );
 };
 

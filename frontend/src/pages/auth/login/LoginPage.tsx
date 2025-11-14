@@ -19,9 +19,10 @@ import {
 } from "@mui/material";
 import LoginIcon from "@mui/icons-material/Login";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import PasswordField from "../ui/login/PasswordField";
-import { ApiError } from "../api/ApiError";
+import { useAuth } from "../../../context/AuthContext";
+import PasswordField from "../../../ui/login/PasswordField";
+import { ApiError } from "../../../api/ApiError";
+import PageContainer from "../../../components/common/PageContainer";
 
 const LoginPage: React.FC = () => {
   const { isAuthenticated, login } = useAuth();
@@ -53,7 +54,7 @@ const LoginPage: React.FC = () => {
   }
 
   return (
-    <Box sx={{ p: 0 }}>
+    <PageContainer>
       <Paper sx={{ p: "4vh", minWidth: 400, width: "100%", borderRadius: 5 }}>
         <Typography sx={{ mb: "4vh", fontSize: "h5.fontSize" }}>
           UniMessenger Login
@@ -104,7 +105,7 @@ const LoginPage: React.FC = () => {
           Sign up
         </Button>
       </Paper>
-    </Box>
+    </PageContainer>
   );
 };
 

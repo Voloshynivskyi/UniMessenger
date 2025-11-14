@@ -12,8 +12,8 @@ import {
   Paper,
   Tooltip,
 } from "@mui/material";
-import { useUnifiedDialogs } from "../context/UnifiedDialogsContext";
-import { useTelegram } from "../context/TelegramAccountContext";
+import { useUnifiedDialogs } from "../../context/UnifiedDialogsContext";
+import { useTelegram } from "../../context/TelegramAccountContext";
 
 export default function DebugDialog() {
   const {

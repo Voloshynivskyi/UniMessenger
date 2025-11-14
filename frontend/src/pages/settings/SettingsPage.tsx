@@ -4,13 +4,14 @@
  */
 
 import React from "react";
-import { Box, Typography } from "@mui/material";
+import { Typography } from "@mui/material";
+import PageContainer from "../../components/common/PageContainer";
 
 const SettingsPage: React.FC = () => {
   return (
-    <Box>
+    <PageContainer>
       <Typography>Settings Page</Typography>
-    </Box>
+    </PageContainer>
   );
 };
 
