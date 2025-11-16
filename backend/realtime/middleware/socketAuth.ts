@@ -1,6 +1,7 @@
 // backend/realtime/middleware/socketAuth.ts
 import type { Socket } from "socket.io";
 import { verifyToken } from "../../utils/jwt";
+import { logger } from "../../utils/logger";
 
 /**
  * Middleware to authenticate Socket.IO connections using JWT.
@@ -11,14 +12,14 @@ export function socketAuth(socket: Socket, next: (err?: Error) => void) {
     // 1️⃣ Get the token from handshake auth data
     const token = socket.handshake.auth?.token;
     if (!token) {
-      console.log("Socket connection rejected — no token");
+      logger.info("Socket connection rejected — no token");
       return next(new Error("Unauthorized"));
     }
 
     // 2️⃣ Check and decode the token
     const payload = verifyToken(token);
     if (!payload || !(payload.id || payload.user_id)) {
-      console.log(
+      logger.info(
         "Socket connection rejected — invalid token payload:",
         payload
       );
@@ -27,12 +28,12 @@ export function socketAuth(socket: Socket, next: (err?: Error) => void) {
 
     // 3️⃣ Save user info to socket object for future use
     socket.data.userId = payload.id || payload.user_id;
-    console.log(`Authorized socket for user ${socket.data.userId}`);
+    logger.info(`Authorized socket for user ${socket.data.userId}`);
 
     // 4️⃣ Call next to proceed with the connection
     next();
   } catch (err) {
-    console.log("Socket auth error:", (err as Error).message);
+    logger.info("Socket auth error:", { err });
     next(new Error("Unauthorized"));
   }
 }

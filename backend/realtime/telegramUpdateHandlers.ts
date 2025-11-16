@@ -1,3 +1,4 @@
+// backend/realtime/telegramUpdateHandlers.ts
 import type {
   TelegramNewMessagePayload,
   TelegramTypingPayload,
@@ -11,6 +12,7 @@ import type {
 import { getSocketGateway } from "./socketGateway";
 import { Api } from "telegram";
 import { telegramPeerToChatId } from "../utils/telegramPeerToChatId";
+import { logger } from "../utils/logger";
 
 export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
   return key in telegramUpdateHandlers;
@@ -23,6 +25,7 @@ export type TelegramUpdateType =
   | "UpdateShortMessage"
   | "UpdateShortChatMessage"
   | "UpdateUserTyping"
+  | "UpdateChatUserTyping"
   | "UpdateUserStatus"
   | "UpdateDeleteMessages"
   | "UpdateEditMessage"
@@ -101,14 +104,28 @@ export const telegramUpdateHandlers: Record<
 
   // User typing update
   UpdateUserTyping: ({ update, accountId, userId }) => {
+    const chatId = update.userId?.toString() ?? "";
+    const fromUserId = update.userId?.toString() ?? "";
+
+    logger.info("[TYPING][PRIVATE] UpdateUserTyping", {
+      raw: update,
+      resolved: {
+        chatId,
+        fromUserId,
+      },
+      accountId,
+      userId,
+    });
+
     const payload: TelegramTypingPayload = {
       platform: "telegram",
       accountId,
       timestamp: new Date().toISOString(),
-      chatId: update.peer?.toString() ?? "unknown",
-      userId: update.userId?.toString() ?? "",
+      chatId,
+      userId: fromUserId,
       isTyping: true,
     };
+
     getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
 
@@ -188,7 +205,7 @@ export const telegramUpdateHandlers: Record<
   // Connection state update
   UpdateConnectionState: ({ update, accountId, userId }) => {
     const state = update.state == 1 ? "Connected" : "Disconnected";
-    console.debug(
+    logger.debug(
       `[ConnectionState] Account ${accountId} from user ${userId}: ${state}`
     );
   },
@@ -216,6 +233,34 @@ export const telegramUpdateHandlers: Record<
     };
 
     getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
+  },
+  UpdateChatUserTyping: ({ update, accountId, userId }) => {
+    const chatId = update.chatId?.toString() ?? "unknown";
+    const fromUserId =
+      update.fromId?.className === "PeerUser"
+        ? update.fromId.userId?.toString()
+        : "";
+
+    logger.info("[TYPING][GROUP] UpdateChatUserTyping", {
+      raw: update,
+      resolved: {
+        chatId,
+        fromUserId,
+      },
+      accountId,
+      userId,
+    });
+
+    const payload: TelegramTypingPayload = {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
+      userId: fromUserId,
+      isTyping: true,
+    };
+
+    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
 
   // Edit message in a channel
@@ -270,14 +315,31 @@ export const telegramUpdateHandlers: Record<
   },
   // Someone is typing in a channel / supergroup
   UpdateChannelUserTyping: ({ update, accountId, userId }) => {
+    const chatId = update.channelId?.toString() ?? "unknown";
+    const fromUserId =
+      update.fromId?.className === "PeerUser"
+        ? update.fromId.userId?.toString()
+        : "";
+
+    logger.info("[TYPING][CHANNEL] UpdateChannelUserTyping", {
+      raw: update,
+      resolved: {
+        chatId,
+        fromUserId,
+      },
+      accountId,
+      userId,
+    });
+
     const payload: TelegramTypingPayload = {
       platform: "telegram",
       accountId,
       timestamp: new Date().toISOString(),
-      chatId: update.channelId?.toString() ?? "unknown",
-      userId: update.fromId?.toString() ?? "",
+      chatId,
+      userId: fromUserId,
       isTyping: true,
     };
+
     getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
 
@@ -322,7 +384,7 @@ export const telegramUpdateHandlers: Record<
 
   // Channel too long update
   UpdateChannelTooLong: ({ update, accountId, userId }) => {
-    console.warn(
+    logger.warn(
       `[Telegram] Channel ${update.channelId} too long (pts=${update.pts}) — should refresh`
     );
     // Currently no specific event is emitted for this update
@@ -348,6 +410,6 @@ export const telegramUpdateHandlers: Record<
 
   const missing = expected.filter((e) => !defined.includes(e));
   if (missing.length > 0) {
-    console.warn("⚠️ Missing Telegram update handlers:", missing.join(", "));
+    logger.warn("⚠️ Missing Telegram update handlers:", { missing: missing.join(", ") });
   }
 })();

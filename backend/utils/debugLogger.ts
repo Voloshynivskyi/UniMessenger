@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-
+import { logger } from "./logger";
 const LOG_DIR = path.join(process.cwd(), "debug-logs");
 const LOG_FILE = path.join(LOG_DIR, "telegram-debug.log");
 
@@ -27,7 +27,7 @@ export function appendLog(label: string, data: any) {
 
     fs.appendFileSync(LOG_FILE, entry, "utf8");
   } catch (err) {
-    console.error("Failed to write debug log:", err);
+    logger.error("Failed to write debug log:", { err });
   }
 }
 
@@ -39,6 +39,6 @@ export function clearLog() {
     ensureLogDir();
     fs.writeFileSync(LOG_FILE, "", "utf8");
   } catch (err) {
-    console.error("Failed to clear debug log:", err);
+    logger.error("Failed to clear debug log:", { err });
   }
 }

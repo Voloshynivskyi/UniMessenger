@@ -20,6 +20,7 @@ import type {
 } from "../../types/telegram.types";
 import bigInt from "big-integer";
 import telegramClientManager from "./telegramClientManager";
+import { logger } from "../../utils/logger";
 
 const API_ID = Number(process.env.TELEGRAM_API_ID);
 const API_HASH = process.env.TELEGRAM_API_HASH!;
@@ -49,7 +50,7 @@ export class TelegramService {
   }
 
   private logError(ctx: string, err: any) {
-    console.error(`[TelegramService:${ctx}]`, err?.message || err);
+    logger.error(`[TelegramService:${ctx}]`, err?.message || err);
   }
 
   /** ────────────── AUTH ────────────── */
@@ -79,7 +80,7 @@ export class TelegramService {
           await client.disconnect();
         }
       } catch (e) {
-        console.warn("[TelegramService] destroy/disconnect failed", e);
+        logger.warn("[TelegramService] destroy/disconnect failed", { e });
       }
     }
   }
@@ -123,7 +124,7 @@ export class TelegramService {
           await client.disconnect();
         }
       } catch (e) {
-        console.warn("[TelegramService] destroy/disconnect failed", e);
+        logger.warn("[TelegramService] destroy/disconnect failed", { e });
       }
     }
   }
@@ -165,7 +166,7 @@ export class TelegramService {
           await client.disconnect();
         }
       } catch (e) {
-        console.warn("[TelegramService] destroy/disconnect failed", e);
+        logger.warn("[TelegramService] destroy/disconnect failed", { e });
       }
     }
   }

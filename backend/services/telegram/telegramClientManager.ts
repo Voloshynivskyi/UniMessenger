@@ -10,8 +10,6 @@ import bigInt from "big-integer";
 import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
 import { resolveTelegramPeer } from "../../utils/resolveTelegramPeer";
 import type { TelegramGetDialogsResult } from "../../types/telegram.types";
-import socketGateway, { getSocketGateway } from "../../realtime/socketGateway";
-import type { TelegramNewMessagePayload } from "../../realtime/events";
 import {
   isTelegramUpdateType,
   telegramUpdateHandlers,
@@ -23,7 +21,7 @@ const API_ID = process.env.TELEGRAM_API_ID
 const API_HASH = process.env.TELEGRAM_API_HASH;
 
 if (!API_ID || !API_HASH) {
-  console.warn(
+  logger.warn(
     "[TelegramClientManager] TELEGRAM_API_ID or TELEGRAM_API_HASH is not set. Telegram clients will not work correctly."
   );
 }
@@ -59,7 +57,7 @@ export class TelegramClientManager {
       // Set initial online status (only if connected)
       if (client.connected) {
         await client.invoke(new Api.account.UpdateStatus({ offline: false }));
-        console.log("[Telegram] Client is now ONLINE");
+        logger.info("[Telegram] Client is now ONLINE");
       }
 
       // Keep-alive loop
@@ -67,14 +65,14 @@ export class TelegramClientManager {
         try {
           // Check connection status
           if (!client.connected) {
-            console.warn(
+            logger.warn(
               "[Telegram] Client disconnected. Trying to reconnect..."
             );
             try {
               await client.connect();
-              console.log("[Telegram] Reconnected successfully.");
+              logger.info("[Telegram] Reconnected successfully.");
             } catch (reconnectErr) {
-              console.error("[Telegram] Reconnect failed:", reconnectErr);
+              logger.error("[Telegram] Reconnect failed:", { reconnectErr });
               return;
             }
           }
@@ -83,11 +81,11 @@ export class TelegramClientManager {
           await client.invoke(new Api.updates.GetState());
           await client.invoke(new Api.account.UpdateStatus({ offline: false }));
         } catch (err) {
-          console.warn("[Telegram] Keep-alive ping failed:", err);
+          logger.warn("[Telegram] Keep-alive ping failed:", { err });
         }
       }, 60_000);
     } catch (err) {
-      console.error("[Telegram] Failed to go online:", err);
+      logger.error("[Telegram] Failed to go online:", { err });
     }
   }
 
@@ -579,7 +577,7 @@ export class TelegramClientManager {
       })
     );
 
-    console.log(
+    logger.info(
       `[TelegramClientManager] Edited message ${messageId} in chat ${chatId}`
     );
   }

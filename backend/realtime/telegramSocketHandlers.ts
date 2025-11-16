@@ -1,3 +1,4 @@
+// backend/realtime/telegramSocketHandlers.ts
 import { Socket } from "socket.io";
 import telegramClientManager from "../services/telegram/telegramClientManager";
 import type {

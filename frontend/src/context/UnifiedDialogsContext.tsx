@@ -1,10 +1,13 @@
+// frontend/src/context/UnifiedDialogsContext.tsx
 import {
   createContext,
   useContext,
   useState,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react";
+
 import type {
   UnifiedChatPlatform,
   UnifiedChat,
@@ -23,16 +26,16 @@ import type {
 } from "../realtime/events";
 import { useTelegram } from "./TelegramAccountContext";
 
-/* 🧩 Сортування чатів (прикріплені завжди зверху, решта — за датою останнього повідомлення) */
+/* Sort chats utility */
 function sortChats(
   chats: Record<string, UnifiedChat>
 ): Record<string, UnifiedChat> {
   const sortedEntries = Object.entries(chats).sort(([_, a], [__, b]) => {
-    // 1️⃣ pinned чати завжди зверху
+    // 1️⃣ pinned chats always on top
     if (a.pinned && !b.pinned) return -1;
     if (!a.pinned && b.pinned) return 1;
 
-    // 2️⃣ За датою останнього повідомлення
+    // 2️⃣ By date of the last message
     const dateA = new Date(a.lastMessage?.date || 0).getTime();
     const dateB = new Date(b.lastMessage?.date || 0).getTime();
     return dateB - dateA;
@@ -76,6 +79,9 @@ export const UnifiedDialogsProvider = ({
   const [typingByChat, setTypingByChat] = useState<
     Record<string, { users: string[] }>
   >({});
+  const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {}
+  );
 
   const [selectedChatKey, setSelectedChatKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,7 +126,12 @@ export const UnifiedDialogsProvider = ({
           lastMessage: { ...data.message, type: "text" },
           unreadCount: newUnreadCount,
         };
-
+        // Remove all typing indicators in this chat
+        setTypingByChat((prev) => {
+          const copy = { ...prev };
+          delete copy[chatKey];
+          return copy;
+        });
         const merged = { ...accountChats, [chatKey]: updatedChat };
         return { ...prev, [data.accountId]: sortChats(merged) };
       });
@@ -248,26 +259,37 @@ export const UnifiedDialogsProvider = ({
   /* ===== TYPING INDICATORS ===== */
   const handleTyping = (data: TelegramTypingPayload) => {
     const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+    const userKey = `${chatKey}:${data.userId}`;
 
     setTypingByChat((prev) => {
       const existing = prev[chatKey]?.users ?? [];
-
-      // typing stop
-      if (!data.isTyping) {
-        const filtered = existing.filter((id) => id !== data.userId);
-        if (filtered.length === 0) {
-          const copy = { ...prev };
-          delete copy[chatKey];
-          return copy;
-        }
-        return { ...prev, [chatKey]: { users: filtered } };
-      }
-
-      // typing start
-      const updated = [...new Set([...existing, data.userId])];
+      const updated = [...new Set([...existing, data.userId])]; // add user
 
       return { ...prev, [chatKey]: { users: updated } };
     });
+
+    // Clear previous timeout
+    if (typingTimeouts.current[userKey]) {
+      clearTimeout(typingTimeouts.current[userKey]);
+    }
+
+    // 5 seconds timeout to remove typing status
+    typingTimeouts.current[userKey] = setTimeout(() => {
+      setTypingByChat((prev) => {
+        const existing = prev[chatKey]?.users ?? [];
+        const filtered = existing.filter((id) => id !== data.userId);
+
+        if (filtered.length === 0) {
+          const copy = { ...prev };
+          delete copy[chatKey]; // if no users left, remove the chat entry
+          return copy;
+        }
+
+        return { ...prev, [chatKey]: { users: filtered } };
+      });
+
+      delete typingTimeouts.current[userKey];
+    }, 5000);
   };
 
   /* ===== FETCH DIALOGS ===== */

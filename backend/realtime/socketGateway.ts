@@ -1,6 +1,6 @@
 /**
  * backend/realtime/socketGateway.ts
- * Міст між TelegramClientManager та Socket.IO сервером
+ * Bridge for emitting socket events to clients
  */
 
 import type { Server } from "socket.io";

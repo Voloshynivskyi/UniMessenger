@@ -1,7 +1,7 @@
 import { Api } from "telegram";
 import type { UnifiedTelegramChat } from "../types/telegram.types";
 import { clearLog, appendLog } from "./debugLogger";
-
+import { logger } from "./logger";
 /**
  * Checks if this is a full dialog structure (Dialogs or DialogsSlice)
  */
@@ -86,9 +86,9 @@ export function parseTelegramDialogs(
 } {
   appendLog("parseTelegramDialogs input", dialogs);
   if (!isFullDialog(dialogs)) {
-    console.warn(
+    logger.warn(
       "[parseTelegramDialogs] Unsupported dialog type:",
-      dialogs.constructor.name
+      { type: dialogs.constructor.name }
     );
     return { dialogs: [] };
   }

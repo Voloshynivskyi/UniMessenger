@@ -12,6 +12,7 @@ import type {
   InterServerEvents,
 } from "./events";
 import { telegramSocketHandlers } from "./telegramSocketHandlers";
+import { logger } from "../utils/logger";
 let io: Server | null = null;
 let server: http.Server | null = null;
 
@@ -35,7 +36,7 @@ export function createSocketServer(app: any) {
     "connection",
     (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
       const userId = socket.data.userId;
-      console.log("New client connected:", socket.id, "user:", userId);
+      logger.info("New client connected:", { socketId: socket.id, userId });
 
       // Join a room for the user
 
@@ -80,7 +81,7 @@ export function createSocketServer(app: any) {
 
       // Handle disconnection
       socket.on("disconnect", () => {
-        console.log(`❎ User ${userId} disconnected`);
+        logger.info("User disconnected", { userId });
       });
     }
   );

@@ -58,7 +58,7 @@ app.use((req, res) => {
  * Global error handler
  */
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[GlobalErrorHandler]:", err);
+  logger.error("[GlobalErrorHandler]:", err);
   res.status(err.status || 500).json({
     status: "error",
     code: err.code || "UNEXPECTED",
@@ -68,33 +68,34 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 /** Start server and Socket.IO */
 import telegramClientManager from "./services/telegram/telegramClientManager";
+import { logger } from "./utils/logger";
 const { server } = createSocketServer(app);
 
 const PORT = process.env.PORT || 7007;
 (async () => {
   try {
-    console.log("Restoring active Telegram clients...");
+    logger.info("Restoring active Telegram clients...");
     await telegramClientManager.restoreActiveClients();
-    console.log("Telegram clients restored successfully.");
+    logger.info("Telegram clients restored successfully.");
   } catch (err) {
-    console.error("Failed to restore Telegram clients:", err);
+    logger.error("Failed to restore Telegram clients:", { err });
   }
 
   // 🚀 Запускаємо сервер
   server.listen(PORT, () => {
-    console.log(`🚀 Express + Socket.IO running on http://localhost:${PORT}`);
+    logger.info(`🚀 Express + Socket.IO running on http://localhost:${PORT}`);
   });
 })();
 
 /** Graceful shutdown */
 process.on("SIGINT", async () => {
-  console.log("SIGINT received. Closing database connection.");
+  logger.info("SIGINT received. Closing database connection.");
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
-  console.log("SIGTERM received. Closing database connection.");
+  logger.info("SIGTERM received. Closing database connection.");
   await prisma.$disconnect();
   process.exit(0);
 });
