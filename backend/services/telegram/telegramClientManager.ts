@@ -70,6 +70,13 @@ export class TelegramClientManager {
             );
             try {
               await client.connect();
+              await client.getMe();
+              try {
+                await client.getDialogs({ limit: 200 });
+                console.log("[Telegram] Dialogs preload done");
+              } catch (e) {
+                console.warn("[Telegram] Failed to preload dialogs", e);
+              }
               logger.info("[Telegram] Reconnected successfully.");
             } catch (reconnectErr) {
               logger.error("[Telegram] Reconnect failed:", { reconnectErr });
@@ -145,7 +152,13 @@ export class TelegramClientManager {
     try {
       // 3. Connect to Telegram
       await client.connect();
-
+      await client.getMe();
+      try {
+        await client.getDialogs({ limit: 200 });
+        console.log("[Telegram] Dialogs preload done");
+      } catch (e) {
+        console.warn("[Telegram] Failed to preload dialogs", e);
+      }
       // 4. Subscribe to updates (currently just a logger stub)
       this.subscribeToUpdates(accountId, resolvedUserId, client);
 
@@ -464,8 +477,14 @@ export class TelegramClientManager {
   }
 
   // Lookup Telegram username or name by user ID within a specific account
-  
+
   async getUserName(accountId: string, userId: string): Promise<string | null> {
+    logger.info(
+      `[UserNameLookup] Resolving user name for userId=${userId} in accountId=${accountId}`
+    );
+    if (!userId || userId === "0") {
+      return null;
+    }
     try {
       const client = this.clients.get(accountId);
       if (!client) return null;

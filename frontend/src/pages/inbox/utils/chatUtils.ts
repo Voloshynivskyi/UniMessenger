@@ -6,7 +6,7 @@ import type { UnifiedChat } from "../../../types/unifiedChat.types";
 ============================================================ */
 export function getSenderLabel(chat: UnifiedChat): string | null {
   const last = chat.lastMessage;
-  if (!last?.from?.name) return null;
+  if (!last) return null;
 
   if (chat.peerType === "user" || chat.peerType === "channel") {
     return null;
