@@ -1,54 +1,85 @@
+// frontend/src/pages/inbox/utils/chatUtils.ts
 import type { UnifiedChat } from "../../../types/unifiedChat.types";
 
-/**
- * Returns sender name for display in group chats.
- *
- * Private chat (peerType = "user") → null
- * Channel (peerType = "channel") → null
- * Undefined peerType → null
- *
- * Group chats:
- *   - Outgoing → "You"
- *   - Incoming → sender name/username/id
- */
+/* ============================================================
+   SENDER LABEL (last message)
+============================================================ */
 export function getSenderLabel(chat: UnifiedChat): string | null {
   const last = chat.lastMessage;
-  if (!last) return null;
+  if (!last?.from?.name) return null;
 
-  // No sender in private chats or channels
-  if (
-    chat.peerType === "user" ||
-    chat.peerType === "channel" ||
-    chat.peerType === undefined
-  ) {
+  if (chat.peerType === "user" || chat.peerType === "channel") {
     return null;
   }
 
-  // Outgoing → "You"
-  if (last.isOutgoing) {
-    return "You";
-  }
+  if (last.isOutgoing) return "You";
 
-  // Incoming sender
   const from = last.from;
   if (!from) return null;
 
-  const name =
+  return (
     from.name?.trim() ||
     from.username?.trim() ||
-    (from.id !== "0" ? from.id : null);
-
-  return name || null;
+    (from.id !== "0" ? from.id : null)
+  );
 }
 
-/**
- * Determines whether UI should show sender.
- * Private chats and channels → false
- * Groups → true
- */
-export function shouldShowSender(chat: UnifiedChat): boolean {
-  if (chat.peerType === "user") return false;
-  if (chat.peerType === "channel") return false;
-  if (chat.peerType === undefined) return false;
-  return true;
+/* ============================================================
+   TIME LABEL
+============================================================ */
+export function formatTimeLabel(dateStr?: string): string {
+  if (!dateStr) return "";
+
+  const date = new Date(dateStr);
+  const now = new Date();
+
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (isToday) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  const dayIndex = (now.getDay() + 6) % 7;
+  const start = new Date(now);
+  start.setDate(now.getDate() - dayIndex);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  if (date >= start && date <= end) {
+    return date.toLocaleDateString("en-US", { weekday: "short" });
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/* ============================================================
+   TYPING LABEL —  only name from backend to reduce payload size
+============================================================ */
+export function formatTypingLabel(
+  chat: UnifiedChat,
+  typing?: { users: { id: string; name: string }[] }
+): string | null {
+  if (!typing || typing.users.length === 0) return null;
+
+  if (chat.peerType === "channel") return null;
+
+  // Private
+  if (chat.peerType === "user") {
+    return "typing";
+  }
+
+  const names = typing.users.map((u) => u.name || u.id);
+
+  if (names.length === 1) return `${names[0]} is typing`;
+  if (names.length === 2) return `${names[0]}, ${names[1]} are typing`;
+
+  return `${names[0]}, ${names[1]}… are typing`;
 }

@@ -46,7 +46,7 @@ function sortChats(
 
 interface UnifiedDialogsContextType {
   chatsByAccount: Record<string, Record<string, UnifiedChat>>;
-  typingByChat: Record<string, { users: string[] }>;
+  typingByChat: Record<string, { users: { id: string; name: string }[] }>;
   selectedChatKey: string | null;
   loading: boolean;
   error: string | null;
@@ -77,8 +77,9 @@ export const UnifiedDialogsProvider = ({
     Record<string, any | null>
   >({});
   const [typingByChat, setTypingByChat] = useState<
-    Record<string, { users: string[] }>
+    Record<string, { users: { id: string; name: string }[] }>
   >({});
+
   const typingTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {}
   );
@@ -123,7 +124,15 @@ export const UnifiedDialogsProvider = ({
 
         const updatedChat: UnifiedChat = {
           ...baseChat,
-          lastMessage: { ...data.message, type: "text" },
+          lastMessage: {
+            ...data.message,
+            type: "text",
+            from: {
+              id: data.message.from.id,
+              name: data.message.from.name,
+            },
+          },
+
           unreadCount: newUnreadCount,
         };
         // Remove all typing indicators in this chat
@@ -257,31 +266,34 @@ export const UnifiedDialogsProvider = ({
     };
   }, [accounts?.length]);
   /* ===== TYPING INDICATORS ===== */
+
   const handleTyping = (data: TelegramTypingPayload) => {
     const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
     const userKey = `${chatKey}:${data.userId}`;
 
     setTypingByChat((prev) => {
       const existing = prev[chatKey]?.users ?? [];
-      const updated = [...new Set([...existing, data.userId])]; // add user
+
+      // Remove old record of this user
+      const filtered = existing.filter((u) => u.id !== data.userId);
+
+      const updated = [...filtered, { id: data.userId, name: data.username }];
 
       return { ...prev, [chatKey]: { users: updated } };
     });
 
-    // Clear previous timeout
     if (typingTimeouts.current[userKey]) {
       clearTimeout(typingTimeouts.current[userKey]);
     }
 
-    // 5 seconds timeout to remove typing status
     typingTimeouts.current[userKey] = setTimeout(() => {
       setTypingByChat((prev) => {
         const existing = prev[chatKey]?.users ?? [];
-        const filtered = existing.filter((id) => id !== data.userId);
+        const filtered = existing.filter((u) => u.id !== data.userId);
 
         if (filtered.length === 0) {
           const copy = { ...prev };
-          delete copy[chatKey]; // if no users left, remove the chat entry
+          delete copy[chatKey];
           return copy;
         }
 

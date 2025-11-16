@@ -1,3 +1,4 @@
+// frontend/src/pages/inbox/InboxPage.tsx
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import PageContainer from "../../components/common/PageContainer";

@@ -1,71 +1,12 @@
+// frontend/src/pages/inbox/InboxChatItem.tsx
 import React from "react";
 import { Box, ListItemButton, Typography, Avatar } from "@mui/material";
 import PushPinIcon from "@mui/icons-material/PushPin";
 import { useUnifiedDialogs } from "../../context/UnifiedDialogsContext";
 import type { UnifiedChat } from "../../types/unifiedChat.types";
-
+import { TypingIndicator } from "../../components/common/TypingIndicator";
 import { getSenderLabel } from "./utils/chatUtils";
-
-/* -------------------- TIME FORMAT -------------------- */
-const formatTimeLabel = (dateStr?: string): string => {
-  if (!dateStr) return "";
-
-  const date = new Date(dateStr);
-  const now = new Date();
-
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-
-  const dayIndex = (now.getDay() + 6) % 7;
-  const start = new Date(now);
-  start.setDate(now.getDate() - dayIndex);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-
-  if (date >= start && date <= end) {
-    return date.toLocaleDateString("en-US", { weekday: "short" });
-  }
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-};
-
-/* -------------------- TYPING FORMAT -------------------- */
-const formatTypingLabel = (
-  chat: UnifiedChat,
-  typing?: { users: string[] }
-): string | null => {
-  if (!typing || typing.users.length === 0) return null;
-
-  // Channels don't type
-  if (chat.peerType === "channel") return null;
-
-  // Private chat → simple
-  if (chat.peerType === "user") {
-    return "typing…";
-  }
-
-  // Group chat
-  if (typing.users.length === 1) {
-    return `${typing.users[0]} is typing…`;
-  }
-
-  if (typing.users.length === 2) {
-    return `${typing.users[0]}, ${typing.users[1]} are typing…`;
-  }
-
-  return `${typing.users[0]}, ${typing.users[1]}… are typing…`;
-};
+import { formatTimeLabel, formatTypingLabel } from "./utils/chatUtils";
 
 const InboxChatItem: React.FC<{
   chat: UnifiedChat;
@@ -161,12 +102,33 @@ const InboxChatItem: React.FC<{
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              maxWidth: "100%",
+              maxWidth: "70%",
               pr: 1,
               fontSize: "0.78rem",
+              alignItems: "center",
+              minWidth: 0,
             }}
           >
-            {subtitle}
+            {typingText ? (
+              <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flexShrink: 1,
+                    minWidth: 0,
+                    mr: 0.5,
+                  }}
+                >
+                  {typingText}
+                </Box>
+                <TypingIndicator />
+              </Box>
+            ) : (
+              subtitle
+            )}
           </Typography>
         </Box>
 

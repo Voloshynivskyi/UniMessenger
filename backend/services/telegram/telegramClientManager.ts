@@ -463,6 +463,29 @@ export class TelegramClientManager {
     }
   }
 
+  // Lookup Telegram username or name by user ID within a specific account
+  
+  async getUserName(accountId: string, userId: string): Promise<string | null> {
+    try {
+      const client = this.clients.get(accountId);
+      if (!client) return null;
+
+      const entity = await client.getEntity(Number(userId));
+
+      if ("firstName" in entity || "lastName" in entity) {
+        return [entity.firstName, entity.lastName].filter(Boolean).join(" ");
+      }
+
+      if ("title" in entity) return entity.title;
+      if ("username" in entity) return entity.username;
+
+      return null;
+    } catch (err) {
+      console.warn("[UserNameLookup] cannot resolve user:", userId, err);
+      return null;
+    }
+  }
+
   //--------------------------------------------------------------
   // Client actions: send/edit/delete messages, typing, mark as read
   //--------------------------------------------------------------

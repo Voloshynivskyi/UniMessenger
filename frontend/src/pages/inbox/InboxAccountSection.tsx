@@ -1,3 +1,4 @@
+// frontend/src/pages/inbox/InboxAccountSection.tsx
 import React, { useState } from "react";
 import { Box, Typography, Divider, IconButton, Collapse } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";

@@ -13,14 +13,12 @@ import { getSocketGateway } from "./socketGateway";
 import { Api } from "telegram";
 import { telegramPeerToChatId } from "../utils/telegramPeerToChatId";
 import { logger } from "../utils/logger";
+import telegramClientManager from "../services/telegram/telegramClientManager";
 
 export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
   return key in telegramUpdateHandlers;
 }
 
-// ------------------------------------------------------------------
-// Types of Telegram updates we handle
-// ------------------------------------------------------------------
 export type TelegramUpdateType =
   | "UpdateShortMessage"
   | "UpdateShortChatMessage"
@@ -43,49 +41,55 @@ export type TelegramUpdateType =
   | "UpdatePinnedChannelMessages"
   | "UpdateChannelTooLong";
 
-// ------------------------------------------------------------------
-// Context for Telegram update handlers
-// ------------------------------------------------------------------
 interface HandlerContext {
   update: any;
   accountId: string;
   userId: string;
 }
 
-// ------------------------------------------------------------------
-// Type of Telegram update handler function
-// ------------------------------------------------------------------
 type TelegramUpdateHandler = (ctx: HandlerContext) => Promise<void> | void;
 
-// ------------------------------------------------------------------
-// Realization of Telegram update handlers
-// ------------------------------------------------------------------
 export const telegramUpdateHandlers: Record<
   TelegramUpdateType,
   TelegramUpdateHandler
 > = {
-  // New message (private chat)
-  UpdateShortMessage: ({ update, accountId, userId }) => {
+  /* ============================================================
+     PRIVATE MESSAGE
+  ============================================================ */
+  UpdateShortMessage: async ({ update, accountId, userId }) => {
     const msg = update;
+    const fromUserId = msg.userId?.toString() ?? "";
+    const senderName =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
+
     const payload: TelegramNewMessagePayload = {
       platform: "telegram",
       accountId,
       timestamp: new Date().toISOString(),
-      chatId: msg.userId?.toString() ?? "unknown",
+      chatId: fromUserId,
       message: {
         id: msg.id.toString(),
         text: msg.message ?? "",
         date: new Date(msg.date * 1000).toISOString(),
-        from: { id: msg.userId?.toString() ?? "", name: "" },
+        from: { id: fromUserId, name: senderName },
         isOutgoing: msg.out ?? false,
       },
     };
+
     getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
   },
 
-  // New message (group)
-  UpdateShortChatMessage: ({ update, accountId, userId }) => {
+  /* ============================================================
+     GROUP MESSAGE
+  ============================================================ */
+  UpdateShortChatMessage: async ({ update, accountId, userId }) => {
     const msg = update;
+    const fromUserId = msg.fromId?.toString() ?? "";
+    const senderName =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
+
     const payload: TelegramNewMessagePayload = {
       platform: "telegram",
       accountId,
@@ -95,41 +99,39 @@ export const telegramUpdateHandlers: Record<
         id: msg.id.toString(),
         text: msg.message ?? "",
         date: new Date(msg.date * 1000).toISOString(),
-        from: { id: msg.fromId?.toString() ?? "", name: "" },
+        from: { id: fromUserId, name: senderName },
         isOutgoing: msg.out ?? false,
       },
     };
+
     getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
   },
 
-  // User typing update
-  UpdateUserTyping: ({ update, accountId, userId }) => {
-    const chatId = update.userId?.toString() ?? "";
+  /* ============================================================
+     PRIVATE TYPING
+  ============================================================ */
+  UpdateUserTyping: async ({ update, accountId, userId }) => {
     const fromUserId = update.userId?.toString() ?? "";
-
-    logger.info("[TYPING][PRIVATE] UpdateUserTyping", {
-      raw: update,
-      resolved: {
-        chatId,
-        fromUserId,
-      },
-      accountId,
-      userId,
-    });
+    const username =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
 
     const payload: TelegramTypingPayload = {
       platform: "telegram",
       accountId,
       timestamp: new Date().toISOString(),
-      chatId,
+      chatId: fromUserId,
       userId: fromUserId,
+      username,
       isTyping: true,
     };
 
     getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
 
-  // User status update
+  /* ============================================================
+     USER STATUS
+  ============================================================ */
   UpdateUserStatus: ({ update, accountId, userId }) => {
     const statusName =
       update.status?.className?.replace("UserStatus", "").toLowerCase() ??
@@ -147,7 +149,9 @@ export const telegramUpdateHandlers: Record<
     getSocketGateway().emitToUser(userId, "telegram:account_status", payload);
   },
 
-  // Delete message
+  /* ============================================================
+     DELETE MESSAGE
+  ============================================================ */
   UpdateDeleteMessages: ({ update, accountId, userId }) => {
     const payload: TelegramMessageDeletedPayload = {
       platform: "telegram",
@@ -159,9 +163,17 @@ export const telegramUpdateHandlers: Record<
     getSocketGateway().emitToUser(userId, "telegram:message_deleted", payload);
   },
 
-  // Edit message
-  UpdateEditMessage: ({ update, accountId, userId }) => {
+  /* ============================================================
+     EDIT MESSAGE (PRIVATE / GROUP)
+  ============================================================ */
+  UpdateEditMessage: async ({ update, accountId, userId }) => {
     const msg = update.message as Api.Message;
+
+    const fromUserId = msg.fromId?.toString() ?? "";
+    const senderName =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
+
     const payload: TelegramMessageEditedPayload = {
       platform: "telegram",
       accountId,
@@ -169,49 +181,49 @@ export const telegramUpdateHandlers: Record<
       chatId: msg.peerId?.toString() ?? "unknown",
       messageId: msg.id.toString(),
       newText: msg.message ?? "",
+      from: { id: fromUserId, name: senderName },
     };
+
     getSocketGateway().emitToUser(userId, "telegram:message_edited", payload);
   },
-  // Read updates (inbox)
-  UpdateReadHistoryInbox: ({ update, accountId, userId }) => {
-    const chatId = telegramPeerToChatId(update.peer, "unknown");
 
-    const payload: TelegramReadUpdatesPayload = {
+  /* ============================================================
+     GROUP TYPING
+  ============================================================ */
+  UpdateChatUserTyping: async ({ update, accountId, userId }) => {
+    const chatId = update.chatId?.toString() ?? "unknown";
+    const fromUserId =
+      update.fromId?.className === "PeerUser"
+        ? update.fromId.userId?.toString()
+        : "";
+
+    const username =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
+
+    const payload: TelegramTypingPayload = {
       platform: "telegram",
       accountId,
       timestamp: new Date().toISOString(),
       chatId,
-      lastReadMessageId: update.maxId?.toString() ?? "",
-      direction: "inbox",
+      userId: fromUserId,
+      username,
+      isTyping: true,
     };
 
-    getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
+    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
-  // Read updates (outbox)
-  UpdateReadHistoryOutbox: ({ update, accountId, userId }) => {
-    const chatId = telegramPeerToChatId(update.peer, "unknown");
 
-    const payload: TelegramReadUpdatesPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      lastReadMessageId: update.maxId?.toString() ?? "",
-      direction: "outbox",
-    };
-
-    getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
-  },
-  // Connection state update
-  UpdateConnectionState: ({ update, accountId, userId }) => {
-    const state = update.state == 1 ? "Connected" : "Disconnected";
-    logger.debug(
-      `[ConnectionState] Account ${accountId} from user ${userId}: ${state}`
-    );
-  },
-  // New message in a channel / supergroup
-  UpdateNewChannelMessage: ({ update, accountId, userId }) => {
+  /* ============================================================
+     NEW CHANNEL MESSAGE
+  ============================================================ */
+  UpdateNewChannelMessage: async ({ update, accountId, userId }) => {
     const msg = update.message as Api.Message;
+
+    const fromUserId = msg.fromId?.toString() ?? "";
+    const senderName =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
 
     const chatId =
       (msg.peerId && telegramPeerToChatId(msg.peerId as any, undefined)) ||
@@ -227,29 +239,28 @@ export const telegramUpdateHandlers: Record<
         id: msg.id.toString(),
         text: msg.message ?? "",
         date: new Date(msg.date * 1000).toISOString(),
-        from: { id: msg.fromId?.toString() ?? "", name: "" },
+        from: { id: fromUserId, name: senderName },
         isOutgoing: !!msg.out,
       },
     };
 
     getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
   },
-  UpdateChatUserTyping: ({ update, accountId, userId }) => {
-    const chatId = update.chatId?.toString() ?? "unknown";
+
+  /* ============================================================
+     CHANNEL TYPING
+  ============================================================ */
+  UpdateChannelUserTyping: async ({ update, accountId, userId }) => {
+    const chatId = update.channelId?.toString() ?? "unknown";
+
     const fromUserId =
       update.fromId?.className === "PeerUser"
         ? update.fromId.userId?.toString()
         : "";
 
-    logger.info("[TYPING][GROUP] UpdateChatUserTyping", {
-      raw: update,
-      resolved: {
-        chatId,
-        fromUserId,
-      },
-      accountId,
-      userId,
-    });
+    const username =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
 
     const payload: TelegramTypingPayload = {
       platform: "telegram",
@@ -257,15 +268,24 @@ export const telegramUpdateHandlers: Record<
       timestamp: new Date().toISOString(),
       chatId,
       userId: fromUserId,
+      username,
       isTyping: true,
     };
 
     getSocketGateway().emitToUser(userId, "telegram:typing", payload);
   },
 
-  // Edit message in a channel
-  UpdateEditChannelMessage: ({ update, accountId, userId }) => {
+  /* ============================================================
+     EDIT CHANNEL MESSAGE
+  ============================================================ */
+  UpdateEditChannelMessage: async ({ update, accountId, userId }) => {
     const msg = update.message;
+
+    const fromUserId = msg.fromId?.toString() ?? "";
+    const senderName =
+      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
+      fromUserId;
+
     const payload: TelegramMessageEditedPayload = {
       platform: "telegram",
       accountId,
@@ -274,11 +294,15 @@ export const telegramUpdateHandlers: Record<
         msg.peerId?.toString() ?? update.channelId?.toString() ?? "unknown",
       messageId: msg.id.toString(),
       newText: msg.message ?? "",
+      from: { id: fromUserId, name: senderName },
     };
+
     getSocketGateway().emitToUser(userId, "telegram:message_edited", payload);
   },
 
-  // Delete messages in a channel
+  /* ============================================================
+     DELETE CHANNEL MSG
+  ============================================================ */
   UpdateDeleteChannelMessages: ({ update, accountId, userId }) => {
     const payload: TelegramMessageDeletedPayload = {
       platform: "telegram",
@@ -289,7 +313,10 @@ export const telegramUpdateHandlers: Record<
     };
     getSocketGateway().emitToUser(userId, "telegram:message_deleted", payload);
   },
-  // Read updates in a channel (inbox)
+
+  /* ============================================================
+     READ UPDATES
+  ============================================================ */
   UpdateReadChannelInbox: ({ update, accountId, userId }) => {
     const payload: TelegramReadUpdatesPayload = {
       platform: "telegram",
@@ -301,7 +328,7 @@ export const telegramUpdateHandlers: Record<
     };
     getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
   },
-  // Read updates in a channel (outbox)
+
   UpdateReadChannelOutbox: ({ update, accountId, userId }) => {
     const payload: TelegramReadUpdatesPayload = {
       platform: "telegram",
@@ -313,37 +340,10 @@ export const telegramUpdateHandlers: Record<
     };
     getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
   },
-  // Someone is typing in a channel / supergroup
-  UpdateChannelUserTyping: ({ update, accountId, userId }) => {
-    const chatId = update.channelId?.toString() ?? "unknown";
-    const fromUserId =
-      update.fromId?.className === "PeerUser"
-        ? update.fromId.userId?.toString()
-        : "";
 
-    logger.info("[TYPING][CHANNEL] UpdateChannelUserTyping", {
-      raw: update,
-      resolved: {
-        chatId,
-        fromUserId,
-      },
-      accountId,
-      userId,
-    });
-
-    const payload: TelegramTypingPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      userId: fromUserId,
-      isTyping: true,
-    };
-
-    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
-  },
-
-  // Update message views
+  /* ============================================================
+     MESSAGE VIEWS
+  ============================================================ */
   UpdateChannelMessageViews: ({ update, accountId, userId }) => {
     const payload: TelegramMessageViewPayload = {
       platform: "telegram",
@@ -356,7 +356,9 @@ export const telegramUpdateHandlers: Record<
     getSocketGateway().emitToUser(userId, "telegram:message_views", payload);
   },
 
-  // Pin/unpin messages in regular chats
+  /* ============================================================
+     PIN
+  ============================================================ */
   UpdatePinnedMessages: ({ update, accountId, userId }) => {
     const payload: TelegramPinnedMessagesPayload = {
       platform: "telegram",
@@ -369,7 +371,6 @@ export const telegramUpdateHandlers: Record<
     getSocketGateway().emitToUser(userId, "telegram:pinned_messages", payload);
   },
 
-  // Pin/unpin messages in a channel
   UpdatePinnedChannelMessages: ({ update, accountId, userId }) => {
     const payload: TelegramPinnedMessagesPayload = {
       platform: "telegram",
@@ -382,18 +383,49 @@ export const telegramUpdateHandlers: Record<
     getSocketGateway().emitToUser(userId, "telegram:pinned_messages", payload);
   },
 
-  // Channel too long update
-  UpdateChannelTooLong: ({ update, accountId, userId }) => {
+  UpdateChannelTooLong: ({ update }) => {
     logger.warn(
       `[Telegram] Channel ${update.channelId} too long (pts=${update.pts}) — should refresh`
     );
-    // Currently no specific event is emitted for this update
+  },
+  UpdateReadHistoryInbox: ({ update, accountId, userId }) => {
+    const chatId = telegramPeerToChatId(update.peer, "unknown");
+
+    const payload: TelegramReadUpdatesPayload = {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
+      lastReadMessageId: update.maxId?.toString() ?? "",
+      direction: "inbox",
+    };
+
+    getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
+  },
+
+  UpdateReadHistoryOutbox: ({ update, accountId, userId }) => {
+    const chatId = telegramPeerToChatId(update.peer, "unknown");
+
+    const payload: TelegramReadUpdatesPayload = {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
+      lastReadMessageId: update.maxId?.toString() ?? "",
+      direction: "outbox",
+    };
+
+    getSocketGateway().emitToUser(userId, "telegram:read_updates", payload);
+  },
+
+  UpdateConnectionState: ({ update, accountId, userId }) => {
+    const state = update.state === 1 ? "Connected" : "Disconnected";
+    logger.debug(
+      `[ConnectionState] Account ${accountId} from user ${userId}: ${state}`
+    );
   },
 };
 
-// ------------------------------------------------------------------
-// Check that all handlers are implemented
-// ------------------------------------------------------------------
 (function validateHandlers() {
   const defined = Object.keys(telegramUpdateHandlers);
   const expected: TelegramUpdateType[] = [
@@ -410,6 +442,8 @@ export const telegramUpdateHandlers: Record<
 
   const missing = expected.filter((e) => !defined.includes(e));
   if (missing.length > 0) {
-    logger.warn("⚠️ Missing Telegram update handlers:", { missing: missing.join(", ") });
+    logger.warn("⚠️ Missing Telegram update handlers:", {
+      missing: missing.join(", "),
+    });
   }
 })();

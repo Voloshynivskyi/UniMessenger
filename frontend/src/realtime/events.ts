@@ -1,4 +1,4 @@
-// backend/realtime/events.ts
+// frontend/src/realtime/events.ts
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -29,6 +29,7 @@ export interface TelegramTypingPayload extends BaseRealtimePayload {
   chatId: string;
   userId: string;
   isTyping: boolean;
+  username: string; // added username field
 }
 
 export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
