@@ -1,41 +1,33 @@
-// frontend/src/pages/accounts/telegram/steps/PhoneStep.tsx
-/**
- * Step component for entering phone number during Telegram authentication.
- */
 import React from "react";
-import { TextField, Alert, Typography } from "@mui/material";
+import { Box, TextField, Alert } from "@mui/material";
 import StepHeader from "../../_shared/StepHeader";
-export interface PhoneStepProps {
-  phone: string;
-  setPhone: (v: string) => void;
+import StepContainer from "../../_shared/StepContainer";
 
-  error?: string;
-  loading: boolean;
+interface Props {
+  phone: string;
+  error?: string | null;
+  onChange: (v: string) => void;
 }
 
-const PhoneStepContent: React.FC<PhoneStepProps> = ({
-  phone,
-  setPhone,
-  error,
-}) => {
+const PhoneStepContent: React.FC<Props> = ({ phone, error, onChange }) => {
   return (
-    <>
-      <StepHeader title="Enter your phone number" />
-
-      <TextField
-        label="Phone Number"
-        fullWidth
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        placeholder="+380931234567"
+    <StepContainer>
+      <StepHeader
+        title="Enter your phone number"
+        subtitle="We will send you a Telegram verification code"
       />
 
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
-      )}
-    </>
+      <TextField
+        label="Phone number"
+        fullWidth
+        value={phone}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="+480XXXXXXXXX"
+      />
+
+      {error && <Alert severity="error">{error}</Alert>}
+    </StepContainer>
   );
 };
+
 export default PhoneStepContent;

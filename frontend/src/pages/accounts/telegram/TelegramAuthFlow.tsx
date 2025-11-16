@@ -116,7 +116,7 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
       } else {
         // success
         setAccountInfo(
-          result.firstName + " " + result.lastName ||
+          [result.firstName, result.lastName].filter(Boolean).join(" ") ||
             result.username ||
             "Unknown"
         );
@@ -142,7 +142,9 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
       const result = await telegramApi.verifyTwoFA(tempSession, password);
 
       setAccountInfo(
-        result.firstName + " " + result.lastName || result.username || "Unknown"
+        [result.firstName, result.lastName].filter(Boolean).join(" ") ||
+          result.username ||
+          "Unknown"
       );
       setStep("success");
 
@@ -167,12 +169,7 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
     case "phone":
       header = "Connect Telegram Account";
       content = (
-        <PhoneStepContent
-          phone={phone}
-          setPhone={setPhone}
-          error={error ?? undefined}
-          loading={loading}
-        />
+        <PhoneStepContent phone={phone} error={error} onChange={setPhone} />
       );
       actions = (
         <PhoneStepActions
@@ -189,9 +186,9 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
       content = (
         <CodeStepContent
           code={code}
-          setCode={setCode}
-          error={error ?? undefined}
-          loading={loading}
+          phoneNumber={phone}
+          error={error}
+          onChange={setCode}
         />
       );
       actions = (
@@ -209,9 +206,8 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
       content = (
         <PasswordStepContent
           password={password}
-          setPassword={setPassword}
-          error={error ?? undefined}
-          loading={loading}
+          error={error}
+          onChange={setPassword}
         />
       );
       actions = (
@@ -226,7 +222,7 @@ const TelegramAuthFlow: React.FC<TelegramAuthFlowProps> = ({
 
     case "success":
       header = "Success";
-      content = <SuccessStepContent accountLabel={accountInfo} />;
+      content = <SuccessStepContent label={accountInfo} />;
       actions = <SuccessStepActions onClose={exitFlow} />;
       break;
   }

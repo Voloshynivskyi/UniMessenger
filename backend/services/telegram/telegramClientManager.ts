@@ -56,23 +56,41 @@ export class TelegramClientManager {
   // Keep the Telegram client online by periodically sending updates
   public async keepOnline(client: TelegramClient) {
     try {
-      // Initial online status
-      await client.invoke(new Api.account.UpdateStatus({ offline: false }));
-      console.log("[Telegram] Client is now ONLINE");
+      // Set initial online status (only if connected)
+      if (client.connected) {
+        await client.invoke(new Api.account.UpdateStatus({ offline: false }));
+        console.log("[Telegram] Client is now ONLINE");
+      }
 
-      // Ping Telegram every minute to avoid "sleeping"
+      // Keep-alive loop
       setInterval(async () => {
         try {
+          // Check connection status
+          if (!client.connected) {
+            console.warn(
+              "[Telegram] Client disconnected. Trying to reconnect..."
+            );
+            try {
+              await client.connect();
+              console.log("[Telegram] Reconnected successfully.");
+            } catch (reconnectErr) {
+              console.error("[Telegram] Reconnect failed:", reconnectErr);
+              return;
+            }
+          }
+
+          // Send a lightweight request to keep the session active
           await client.invoke(new Api.updates.GetState());
           await client.invoke(new Api.account.UpdateStatus({ offline: false }));
         } catch (err) {
-          console.warn("[Telegram] Keep-alive ping failed:", { message: err });
+          console.warn("[Telegram] Keep-alive ping failed:", err);
         }
       }, 60_000);
     } catch (err) {
-      console.error("[Telegram] Failed to go online:", { message: err });
+      console.error("[Telegram] Failed to go online:", err);
     }
   }
+
   // Attach and initialize a Telegram client for a specific Telegram account
   public async attachAccount(
     accountId: string,

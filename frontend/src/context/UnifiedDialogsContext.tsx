@@ -43,6 +43,7 @@ function sortChats(
 
 interface UnifiedDialogsContextType {
   chatsByAccount: Record<string, Record<string, UnifiedChat>>;
+  typingByChat: Record<string, { users: string[] }>;
   selectedChatKey: string | null;
   loading: boolean;
   error: string | null;
@@ -72,6 +73,10 @@ export const UnifiedDialogsProvider = ({
   const [nextOffsetByAccount, setNextOffsetByAccount] = useState<
     Record<string, any | null>
   >({});
+  const [typingByChat, setTypingByChat] = useState<
+    Record<string, { users: string[] }>
+  >({});
+
   const [selectedChatKey, setSelectedChatKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +224,7 @@ export const UnifiedDialogsProvider = ({
     const handleAccountStatus = (data: TelegramAccountStatusPayload) => {
       console.log(`[Account ${data.accountId}] Status: ${data.status}`);
     };
-
+    socketClient.on("telegram:typing", handleTyping);
     socketClient.on("telegram:new_message", handleNewMessage);
     socketClient.on("telegram:message_edited", handleMessageEdited);
     socketClient.on("telegram:message_deleted", handleMessageDeleted);
@@ -229,6 +234,7 @@ export const UnifiedDialogsProvider = ({
     socketClient.on("telegram:account_status", handleAccountStatus);
 
     return () => {
+      socketClient.off("telegram:typing", handleTyping);
       socketClient.off("telegram:new_message", handleNewMessage);
       socketClient.off("telegram:message_edited", handleMessageEdited);
       socketClient.off("telegram:message_deleted", handleMessageDeleted);
@@ -236,8 +242,33 @@ export const UnifiedDialogsProvider = ({
       socketClient.off("telegram:message_views", handleMessageViews);
       socketClient.off("telegram:pinned_messages", handlePinnedMessages);
       socketClient.off("telegram:account_status", handleAccountStatus);
+      socketClient.off("telegram:typing", handleTyping);
     };
   }, [accounts?.length]);
+  /* ===== TYPING INDICATORS ===== */
+  const handleTyping = (data: TelegramTypingPayload) => {
+    const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+    setTypingByChat((prev) => {
+      const existing = prev[chatKey]?.users ?? [];
+
+      // typing stop
+      if (!data.isTyping) {
+        const filtered = existing.filter((id) => id !== data.userId);
+        if (filtered.length === 0) {
+          const copy = { ...prev };
+          delete copy[chatKey];
+          return copy;
+        }
+        return { ...prev, [chatKey]: { users: filtered } };
+      }
+
+      // typing start
+      const updated = [...new Set([...existing, data.userId])];
+
+      return { ...prev, [chatKey]: { users: updated } };
+    });
+  };
 
   /* ===== FETCH DIALOGS ===== */
   const fetchDialogs = async (
@@ -255,20 +286,20 @@ export const UnifiedDialogsProvider = ({
         default:
           throw new Error(`Unsupported platform: ${platform}`);
       }
-
       const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
         const chatKey = `${platform}:${accountId}:${chat.chatId}`;
+
         newChats[chatKey] = {
+          ...chat,
           platform,
           accountId,
-          chatId: chat.chatId,
-          title: chat.displayName || chat.title,
           lastMessage: chat.lastMessage
-            ? { ...chat.lastMessage, type: chat.lastMessage.type || "text" }
+            ? {
+                ...chat.lastMessage,
+                type: chat.lastMessage.type || "text",
+              }
             : undefined,
-          unreadCount: chat.unreadCount || 0,
-          pinned: chat.pinned || false,
         };
       }
 
@@ -350,6 +381,7 @@ export const UnifiedDialogsProvider = ({
     fetchDialogs,
     fetchMoreDialogs,
     selectChat,
+    typingByChat,
   };
 
   return (

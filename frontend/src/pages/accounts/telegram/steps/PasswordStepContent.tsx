@@ -1,38 +1,38 @@
-// frontend/src/pages/accounts/telegram/steps/PasswordStepContent.tsx
 import React from "react";
-import { TextField, Alert, Typography } from "@mui/material";
+import { TextField, Alert } from "@mui/material";
+import StepContainer from "../../_shared/StepContainer";
 import StepHeader from "../../_shared/StepHeader";
-export interface PasswordStepProps {
-  password: string;
-  setPassword: (v: string) => void;
 
-  error?: string;
-  loading: boolean;
+interface Props {
+  password: string;
+  error?: string | null;
+  onChange: (v: string) => void;
 }
 
-const PasswordStepContent: React.FC<PasswordStepProps> = ({
+const PasswordStepContent: React.FC<Props> = ({
   password,
-  setPassword,
+  onChange,
   error,
 }) => {
   return (
-    <>
-      <StepHeader title="Enter your Telegram 2FA password" />
+    <StepContainer>
+      <StepHeader
+        title="Two-Factor Authentication"
+        subtitle="Enter your Telegram password to continue"
+      />
 
       <TextField
         type="password"
-        label="Password"
+        label="Telegram password"
         fullWidth
         value={password}
-        onChange={(e) => setPassword(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Your 2FA password"
       />
 
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
-      )}
-    </>
+      {error && <Alert severity="error">{error}</Alert>}
+    </StepContainer>
   );
 };
+
 export default PasswordStepContent;

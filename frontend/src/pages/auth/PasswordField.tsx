@@ -1,32 +1,36 @@
+// frontend/src/pages/auth/PasswordField.tsx
+import {
+  isValidPassword,
+  isValidPasswordMessage,
+} from "../../utils/validation";
 import React from "react";
 import { TextField, IconButton, InputAdornment } from "@mui/material";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 interface PasswordFieldProps {
   password: string;
-  passwordConfirmation: string;
-  setPasswordConfirmation: React.Dispatch<React.SetStateAction<string>>;
+  setPassword: (value: string) => void;
+  validation: boolean;
 }
-const PasswordConfirmationField: React.FC<PasswordFieldProps> = ({
+
+const PasswordField: React.FC<PasswordFieldProps> = ({
   password,
-  passwordConfirmation,
-  setPasswordConfirmation,
+  setPassword,
+  validation,
 }) => {
   const [showPassword, setShowPassword] = React.useState(false);
-
   const togglePasswordVisibility = () => setShowPassword((prev) => !prev);
   return (
     <TextField
-      type={showPassword ? "text" : "password"}
       error={
-        password !== passwordConfirmation && passwordConfirmation.length > 0
+        !isValidPassword(password).isValid && password.length > 0 && validation
       }
-      onChange={(e) => setPasswordConfirmation(e.target.value)}
-      label="Password confirmation"
+      onChange={(e) => setPassword(e.target.value)}
+      label="Password"
       sx={{ width: "100%", mb: "4vh" }}
-      helperText={
-        password !== passwordConfirmation ? "Passwords do not match" : ""
-      }
+      type={showPassword ? "text" : "password"}
+      helperText={validation ? isValidPasswordMessage(password) : ""}
+      fullWidth
       slotProps={{
         input: {
           endAdornment: (
@@ -41,5 +45,4 @@ const PasswordConfirmationField: React.FC<PasswordFieldProps> = ({
     />
   );
 };
-
-export default PasswordConfirmationField;
+export default PasswordField;

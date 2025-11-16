@@ -51,14 +51,56 @@ export interface TelegramAccountInfo {
 
 export interface UnifiedTelegramChat extends BaseUnifiedChat {
   platform: "telegram";
+
+  /** Telegram username for user/chat/channel */
   username?: string | null;
+
+  /** User phone (if available) */
   phone?: string | null;
+
+  /** Verified user or channel */
   verified?: boolean;
+
+  /** Is this the user's own account */
   isSelf?: boolean;
+
+  /** Folder where dialog belongs (Archived, Folders) */
   folderId?: number | null;
+
+  /** Photo ID (we might resolve it later to URL) */
   photo?: string | null;
+
+  /** Peer type (Telegram-specific but also exists in base) */
   peerType?: "user" | "chat" | "channel";
+
+  /** Access hash for API calls */
   accessHash?: string | undefined;
+
+  /** Mentions counter */
+  unreadMentionsCount?: number;
+
+  /** Reaction unread counter */
+  unreadReactionsCount?: number;
+
+  /** Telegram mute status */
+  isMuted?: boolean;
+
+  /** Exact mute timestamp (from notify settings) */
+  muteUntil?: number | null;
+
+  /** Whether previews are shown */
+  showPreviews?: boolean | null;
+
+  /** Supersets of channels */
+  isMegagroup?: boolean;
+  isBroadcast?: boolean;
+  isForum?: boolean;
+
+  /** Draft text and date */
+  draft?: {
+    text: string;
+    date: string;
+  } | null;
 }
 
 export interface TelegramGetDialogsResult {

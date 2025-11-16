@@ -1,6 +1,7 @@
+// frontend/src/components/layout/sidebar/Sidebar.tsx
 /**
- * Fixed desktop sidebar with smooth width animation and compact mode.
- * Mobile: temporary overlay drawer (no compact).
+ * Sidebar — тепер з самого верху до низу.
+ * Ніяких змін у стилях кнопок.
  */
 import React from "react";
 import {
@@ -30,10 +31,9 @@ import { useAuth } from "../../../context/AuthContext";
 
 interface SidebarProps {
   open: boolean;
-  collapsed: boolean; // compact mode
+  collapsed: boolean;
   onClose: () => void;
-  onToggleCollapse: () => void; // toggle compact
-  appBarHeight: number;
+  onToggleCollapse: () => void;
   fullWidth: number;
   compactWidth: number;
 }
@@ -43,7 +43,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   collapsed,
   onClose,
   onToggleCollapse,
-  appBarHeight,
   fullWidth,
   compactWidth,
 }) => {
@@ -60,34 +59,27 @@ const Sidebar: React.FC<SidebarProps> = ({
     { text: "Settings", icon: <SettingsIcon />, path: "/settings" },
   ];
 
-  // Title row (sticky)
   const TitleBar = (
     <Box
       sx={{
-        height: appBarHeight,
+        height: 64,
         display: "flex",
         alignItems: "center",
         justifyContent: collapsed ? "center" : "space-between",
         px: collapsed ? 0 : 2,
         borderBottom: `1px solid ${theme.palette.divider}`,
-        position: "sticky",
-        top: 0,
-        zIndex: 1,
         backgroundColor: theme.palette.background.paper,
       }}
     >
       {!collapsed && (
         <Typography
           variant="h6"
-          sx={{
-            fontWeight: 600,
-            color: theme.palette.primary.main,
-            userSelect: "none",
-          }}
+          sx={{ fontWeight: 600, color: theme.palette.primary.main }}
         >
           UniMessenger
         </Typography>
       )}
+
       {isDesktop && open && (
         <IconButton
           size="small"
@@ -97,7 +89,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             bgcolor: "action.hover",
             "&:hover": { bgcolor: "action.selected" },
           }}
-          aria-label="toggle compact"
         >
           {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
         </IconButton>
@@ -125,6 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <List sx={{ py: 1 }}>
           {menuItems.map((item) => {
             const isActive = location.pathname.startsWith(item.path);
+
             return (
               <Tooltip
                 key={item.text}
@@ -132,6 +124,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 placement="right"
                 disableHoverListener={!collapsed}
               >
+                {/* Menu Item */}
                 <ListItemButton
                   selected={isActive}
                   onClick={() => {
@@ -140,16 +133,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   sx={{
                     borderRadius: 2,
-                    mx: 1,
+                    mx: collapsed ? 1 : 2,
                     my: 0.5,
-
-                    // Compact mode fixes
                     minHeight: 48,
-                    px: collapsed ? 1 : 2, // symmetric padding when collapsed
+                    px: collapsed ? 1 : 2,
                     justifyContent: collapsed ? "center" : "flex-start",
 
                     "& .MuiListItemIcon-root": {
-                      minWidth: collapsed ? 0 : 40, // remove extra gap
+                      minWidth: collapsed ? 0 : 40,
                       mr: collapsed ? 0 : 2,
                       justifyContent: "center",
                     },
@@ -165,23 +156,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                     },
                   }}
                 >
-                  <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    sx={{
-                      opacity: collapsed ? 0 : 1,
-                      visibility: collapsed ? "hidden" : "visible",
-                      transition: "opacity 0.2s ease",
-                      whiteSpace: "nowrap",
-                    }}
-                  />
+                  <ListItemIcon sx={{ minWidth: 28 }}>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
                 </ListItemButton>
               </Tooltip>
             );
           })}
         </List>
-
-        <Divider />
 
         <Divider />
 
@@ -200,7 +181,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               borderRadius: 2,
               mx: 1,
               my: 0.5,
-
               minHeight: 48,
               px: collapsed ? 1 : 2,
               justifyContent: collapsed ? "center" : "flex-start",
@@ -214,12 +194,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               "& .MuiListItemText-root": {
                 display: collapsed ? "none" : "block",
               },
-
-              "&.Mui-selected": {
-                backgroundColor: theme.palette.primary.main,
-                color: "white",
-                "& .MuiListItemIcon-root": { color: "white" },
-              },
             }}
           >
             <ListItemIcon>
@@ -229,36 +203,32 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <LoginIcon color="primary" />
               )}
             </ListItemIcon>
-
-            <ListItemText
-              primary={isAuthenticated ? "Log out" : "Log in"}
-              sx={{ whiteSpace: "nowrap" }}
-            />
+            <ListItemText primary={isAuthenticated ? "Log out" : "Log in"} />
           </ListItemButton>
         </Tooltip>
       </Box>
     </>
   );
 
-  // Desktop: fixed, animating width 0 / compact / full
   if (isDesktop) {
-    const targetWidth = open ? (collapsed ? compactWidth : fullWidth) : 0;
+    const width = open ? (collapsed ? compactWidth : fullWidth) : 0;
 
     return (
       <Box
         sx={{
           position: "fixed",
-          top: appBarHeight,
+          top: 0,
           left: 0,
-          height: `calc(100vh - ${appBarHeight}px)`,
-          width: `${targetWidth}px`,
+          height: "100vh",
+          width,
           transition: "width 0.25s ease-in-out",
-          display: "flex", // ← ВАЖЛИВО
-          flexDirection: "column", // ← ВАЖЛИВО
-          overflow: "hidden", // залишаємо, це ок
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           borderRight:
-            targetWidth > 0 ? `1px solid ${theme.palette.divider}` : "none",
+            width > 0 ? `1px solid ${theme.palette.divider}` : "none",
           backgroundColor: theme.palette.background.paper,
+          zIndex: theme.zIndex.drawer,
         }}
       >
         {renderMenu}
@@ -266,7 +236,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     );
   }
 
-  // Mobile: overlay drawer
   return (
     <Drawer
       variant="temporary"

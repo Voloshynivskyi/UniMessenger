@@ -16,6 +16,8 @@ import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
 import { createSocketServer } from "./realtime/socketServer";
+import { clearLog } from "./utils/debugLogger";
+clearLog();
 dotenv.config();
 
 export const app = express();

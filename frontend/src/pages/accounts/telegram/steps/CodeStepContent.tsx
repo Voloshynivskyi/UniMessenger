@@ -1,34 +1,39 @@
-// frontend/src/pages/accounts/telegram/steps/CodeStepContent.tsx
 import React from "react";
-import { TextField, Alert, Typography } from "@mui/material";
+import { Box, TextField, Alert } from "@mui/material";
 import StepHeader from "../../_shared/StepHeader";
-export interface CodeStepProps {
-  code: string;
-  setCode: (v: string) => void;
+import StepContainer from "../../_shared/StepContainer";
 
-  error?: string;
-  loading: boolean;
+interface Props {
+  code: string;
+  phoneNumber: string;
+  error?: string | null;
+  onChange: (v: string) => void;
 }
 
-const CodeStepContent: React.FC<CodeStepProps> = ({ code, setCode, error }) => {
+const CodeStepContent: React.FC<Props> = ({
+  code,
+  onChange,
+  error,
+  phoneNumber,
+}) => {
   return (
-    <>
-      <StepHeader title="Enter the verification code" />
+    <StepContainer>
+      <StepHeader
+        title="Enter Verification Code"
+        subtitle={`We've sent a code to ${phoneNumber}`}
+      />
 
       <TextField
-        label="Verification Code"
+        label="Verification code"
         fullWidth
         value={code}
-        onChange={(e) => setCode(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
         placeholder="12345"
       />
 
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
-      )}
-    </>
+      {error && <Alert severity="error">{error}</Alert>}
+    </StepContainer>
   );
 };
+
 export default CodeStepContent;
