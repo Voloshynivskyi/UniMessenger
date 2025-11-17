@@ -14,7 +14,7 @@ import { Api } from "telegram";
 import { telegramPeerToChatId } from "../utils/telegramPeerToChatId";
 import { logger } from "../utils/logger";
 import telegramClientManager from "../services/telegram/telegramClientManager";
-
+import { extractUserId } from "../utils/extractUserId";
 export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
   return key in telegramUpdateHandlers;
 }
@@ -59,6 +59,9 @@ export const telegramUpdateHandlers: Record<
   UpdateShortMessage: async ({ update, accountId, userId }) => {
     const msg = update;
     const fromUserId = msg.userId?.toString() ?? "";
+    logger.info(
+      `[Telegram] New private message from ${fromUserId} to account ${accountId}`
+    );
     const senderName =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -85,7 +88,11 @@ export const telegramUpdateHandlers: Record<
   ============================================================ */
   UpdateShortChatMessage: async ({ update, accountId, userId }) => {
     const msg = update;
-    const fromUserId = msg.fromId?.toString() ?? "";
+    const fromUserId = extractUserId(msg.fromId) ?? "";
+
+    logger.info(
+      `[Telegram] New group message from ${fromUserId} to account ${accountId}`
+    );
     const senderName =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -112,6 +119,9 @@ export const telegramUpdateHandlers: Record<
   ============================================================ */
   UpdateUserTyping: async ({ update, accountId, userId }) => {
     const fromUserId = update.userId?.toString() ?? "";
+    logger.info(
+      `[Telegram] New private typing from ${fromUserId} to account ${accountId}`
+    );
     const username =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -170,6 +180,9 @@ export const telegramUpdateHandlers: Record<
     const msg = update.message as Api.Message;
 
     const fromUserId = msg.fromId?.toString() ?? "";
+    logger.info(
+      `[Telegram] New edit message from ${fromUserId} to account ${accountId}`
+    );
     const senderName =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -196,7 +209,9 @@ export const telegramUpdateHandlers: Record<
       update.fromId?.className === "PeerUser"
         ? update.fromId.userId?.toString()
         : "";
-
+    logger.info(
+      `[Telegram] New group typing from ${fromUserId} to account ${accountId}`
+    );
     const username =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -220,11 +235,15 @@ export const telegramUpdateHandlers: Record<
   UpdateNewChannelMessage: async ({ update, accountId, userId }) => {
     const msg = update.message as Api.Message;
 
-    const fromUserId = msg.fromId?.toString() ?? "";
+    const fromUserId = extractUserId(msg.fromId);
     const senderName =
-      (await telegramClientManager.getUserName(accountId, fromUserId)) ||
-      fromUserId;
+      (await telegramClientManager.getUserName(accountId, fromUserId ?? "")) ||
+      fromUserId ||
+      "";
 
+    logger.info(
+      `[Telegram] New channel message from ${fromUserId} to account ${accountId}`
+    );
     const chatId =
       (msg.peerId && telegramPeerToChatId(msg.peerId as any, undefined)) ||
       update.channelId?.toString() ||
@@ -239,7 +258,9 @@ export const telegramUpdateHandlers: Record<
         id: msg.id.toString(),
         text: msg.message ?? "",
         date: new Date(msg.date * 1000).toISOString(),
-        from: { id: fromUserId, name: senderName },
+        from: fromUserId
+          ? { id: fromUserId, name: senderName }
+          : { id: "", name: "" },
         isOutgoing: !!msg.out,
       },
     };
@@ -257,7 +278,9 @@ export const telegramUpdateHandlers: Record<
       update.fromId?.className === "PeerUser"
         ? update.fromId.userId?.toString()
         : "";
-
+    logger.info(
+      `[Telegram] New channel typing from ${fromUserId} to account ${accountId}`
+    );
     const username =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -282,6 +305,9 @@ export const telegramUpdateHandlers: Record<
     const msg = update.message;
 
     const fromUserId = msg.fromId?.toString() ?? "";
+    logger.info(
+      `[Telegram] New edit channel message from ${fromUserId} to account ${accountId}`
+    );
     const senderName =
       (await telegramClientManager.getUserName(accountId, fromUserId)) ||
       fromUserId;
@@ -420,7 +446,7 @@ export const telegramUpdateHandlers: Record<
 
   UpdateConnectionState: ({ update, accountId, userId }) => {
     const state = update.state === 1 ? "Connected" : "Disconnected";
-    logger.debug(
+    logger.info(
       `[ConnectionState] Account ${accountId} from user ${userId}: ${state}`
     );
   },

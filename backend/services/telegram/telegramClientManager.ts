@@ -482,9 +482,10 @@ export class TelegramClientManager {
     logger.info(
       `[UserNameLookup] Resolving user name for userId=${userId} in accountId=${accountId}`
     );
-    if (!userId || userId === "0") {
-      return null;
-    }
+    if (!userId) return null;
+    if (userId === "0") return null;
+    if (isNaN(Number(userId))) return null;
+
     try {
       const client = this.clients.get(accountId);
       if (!client) return null;
