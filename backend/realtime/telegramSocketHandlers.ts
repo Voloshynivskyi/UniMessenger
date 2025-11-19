@@ -100,9 +100,6 @@ export const telegramSocketHandlers = {
         data.accessHash
       );
 
-      logger.debug(
-        `[Socket] Typing start for ${data.accountId} → chat ${data.chatId}`
-      );
     } catch (err: any) {
       logger.error(
         `[Socket] telegram:typing_start failed for ${data.accountId}: ${err.message}`
@@ -122,9 +119,6 @@ export const telegramSocketHandlers = {
         data.accessHash
       );
 
-      logger.debug(
-        `[Socket] Typing stop for ${data.accountId} → chat ${data.chatId}`
-      );
     } catch (err: any) {
       logger.error(
         `[Socket] telegram:typing_stop failed for ${data.accountId}: ${err.message}`

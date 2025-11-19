@@ -1,5 +1,6 @@
 import { Api } from "telegram";
 import type { BaseUnifiedChat } from "./unifiedChat.types";
+import type { BaseUnifiedMessage } from "./unifiedMessage.types";
 /** Result type returned by `sendCode` on success. */
 export interface TelegramSendCodeResult {
   status: "code_sent"; // Indicates that the code was sent successfully
@@ -107,4 +108,49 @@ export interface TelegramGetDialogsResult {
   status: "ok";
   dialogs: UnifiedTelegramChat[];
   nextOffset?: any; // Raw MTProto dialogs response
+}
+
+/**
+ * Telegram-specific unified message.
+ * Extends the base structure with Telegram-only fields.
+ */
+export interface UnifiedTelegramMessage {
+  platform: "telegram";
+
+  accountId: string;
+  chatId: string;
+
+  messageId: number;
+
+  type:
+    | "text"
+    | "photo"
+    | "video"
+    | "voice"
+    | "file"
+    | "sticker"
+    | "service"
+    | "unknown";
+
+  text?: string;
+
+  date: number;
+  isOutgoing: boolean;
+
+  from: {
+    id: string;
+    name: string;
+    username?: string | null;
+  };
+
+  media?: {
+    photo?: {
+      id: string;
+      accessHash: string;
+      dcId: number;
+      width: number;
+      height: number;
+      size: number | null;
+    };
+  };
 }

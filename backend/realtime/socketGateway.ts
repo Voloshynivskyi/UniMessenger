@@ -18,26 +18,16 @@ export class SocketGateway {
 
   /** Send an event to a specific user */
   emitToUser(userId: string, event: string, payload: any) {
-    logger.info(
-      `[SocketGateway] Emit to user ${userId} from account ${payload.accountId}: ${event}`
-    );
-
     this.io.to(userId).emit(event, payload);
   }
 
   /** Send an event to a specific room */
   emitToRoom(room: string, event: string, payload: any) {
-    logger.info(
-      `[SocketGateway] Emit to room ${room} from account ${payload.accountId}: ${event}`
-    );
     this.io.to(room).emit(event, payload);
   }
 
   /** Send an event to all users */
   broadcast(event: string, payload: any) {
-    logger.info(
-      `[SocketGateway] Broadcast from account ${payload.accountId}: ${event}`
-    );
     this.io.emit(event, payload);
   }
 }

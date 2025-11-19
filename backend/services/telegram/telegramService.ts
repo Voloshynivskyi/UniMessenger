@@ -2,7 +2,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { Api, TelegramClient } from "telegram";
+import { Api, Logger, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { computeCheck } from "telegram/Password";
 import { prisma } from "../../lib/prisma";
@@ -21,6 +21,7 @@ import type {
 import bigInt from "big-integer";
 import telegramClientManager from "./telegramClientManager";
 import { logger } from "../../utils/logger";
+import { parseTelegramMessage } from "../../utils/parseTelegramMessage";
 
 const API_ID = Number(process.env.TELEGRAM_API_ID);
 const API_HASH = process.env.TELEGRAM_API_HASH!;
@@ -254,5 +255,52 @@ export class TelegramService {
       | undefined;
   }): Promise<TelegramGetDialogsResult> {
     return telegramClientManager.fetchDialogs(params);
+  }
+
+  async getChatHistory({
+    accountId,
+    peerType,
+    peerId,
+    accessHash,
+    limit = 50,
+    offsetId = 0,
+  }: {
+    accountId: string;
+    peerType: "user" | "chat" | "channel";
+    peerId: string | number | bigint;
+    accessHash?: string | number | bigint | null;
+    limit?: number;
+    offsetId?: number;
+  }) {
+    // Validate accessHash for user/channel peers
+    if (peerType !== "chat" && accessHash == null) {
+      throw new Error("accessHash is required for user and channel peers");
+    }
+
+    // Fetch raw MTProto messages
+    const rawMessages = await telegramClientManager.fetchHistory({
+      accountId,
+      peerType,
+      peerId,
+      accessHash,
+      limit,
+      offsetId,
+    });
+
+    // Parse messages → always returns UnifiedTelegramMessage
+    const parsedMessages = rawMessages.map((msg) =>
+      parseTelegramMessage(msg, accountId)
+    );
+
+    const lastMessage = rawMessages.length
+      ? rawMessages[rawMessages.length - 1]
+      : null;
+
+    return {
+      status: "ok",
+      rawMessages, // optional debugging
+      messages: parsedMessages,
+      nextOffsetId: lastMessage ? Number(lastMessage.id) : null,
+    };
   }
 }

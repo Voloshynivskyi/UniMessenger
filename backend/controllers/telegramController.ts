@@ -9,6 +9,7 @@ import type { Api } from "telegram";
 import { TelegramService } from "../services/telegram/telegramService";
 import { prisma } from "../lib/prisma";
 import { isValidPhone } from "../utils/validation";
+import { logger } from "../utils/logger";
 
 const telegramService = new TelegramService();
 
@@ -482,3 +483,70 @@ export async function getDialogs(req: Request, res: Response) {
     );
   }
 }
+
+export const getMessageHistory = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId; // from requireAuth middleware
+
+    const { accountId, peerType, peerId, accessHash, limit, offsetId } =
+      req.query;
+
+    // Validate required params
+    if (!accountId || !peerType || !peerId || !userId) {
+      return sendError(
+        res,
+        "BAD_REQUEST",
+        "Missing required parameters: accountId, peerType, peerId",
+        400
+      );
+    }
+
+    if (peerType !== "user" && peerType !== "chat" && peerType !== "channel") {
+      return sendError(
+        res,
+        "BAD_REQUEST",
+        "Invalid peerType. Must be 'user', 'chat', or 'channel'.",
+        400
+      );
+    }
+
+    // Make sure account belongs to user
+    const account = await prisma.telegramAccount.findFirst({
+      where: { id: String(accountId), userId },
+    });
+
+    if (!account) {
+      return sendError(
+        res,
+        "BAD_REQUEST",
+        "Account does not belong to authenticated user",
+        400
+      );
+    }
+
+    // Fetch from service
+    const serviceResponse = await telegramService.getChatHistory({
+      accountId: String(accountId),
+      peerType: peerType as "user" | "chat" | "channel",
+      peerId: peerId as string,
+      accessHash: accessHash ? String(accessHash) : null,
+      limit: limit ? Number(limit) : 50,
+      offsetId: offsetId ? Number(offsetId) : 0,
+    });
+    // Response structure
+    return sendOk(res, {
+      messages: serviceResponse.messages, // parsed & normalized messages
+      raw: serviceResponse.rawMessages, // for debugging (optional)
+      nextOffsetId: serviceResponse.nextOffsetId,
+    });
+  } catch (err) {
+    logger.error("getMessageHistory error:", { err });
+
+    return sendError(
+      res,
+      "UNEXPECTED",
+      err instanceof Error ? err.message : "Failed to get message history",
+      500
+    );
+  }
+};

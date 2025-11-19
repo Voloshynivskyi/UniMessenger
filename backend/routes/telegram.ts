@@ -11,6 +11,7 @@ import {
   verifyTwoFA,
   getTelegramAccounts,
   getDialogs,
+  getMessageHistory,
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
 
@@ -58,4 +59,10 @@ router.get("/accounts", requireAuth, getTelegramAccounts);
  */
 router.get("/dialogs", requireAuth, getDialogs);
 
+/**
+ * @route GET /telegram/history
+ * @desc Get message history for a specific Telegram account
+ * @access Private
+ */
+router.get("/history", requireAuth, getMessageHistory);
 export default router;

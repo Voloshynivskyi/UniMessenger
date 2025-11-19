@@ -14,6 +14,7 @@ import {
   isTelegramUpdateType,
   telegramUpdateHandlers,
 } from "../../realtime/telegramUpdateHandlers";
+import { TelegramMessageIndexService } from "./telegramMessageIndexService";
 
 const API_ID = process.env.TELEGRAM_API_ID
   ? Number(process.env.TELEGRAM_API_ID)
@@ -384,6 +385,18 @@ export class TelegramClientManager {
       })
     );
     const { dialogs, nextOffset } = parseTelegramDialogs(dialogsRes, accountId);
+    for (const dialog of dialogs) {
+      if (dialog.lastMessage?.id) {
+        await TelegramMessageIndexService.addIndex(
+          accountId,
+          dialog.lastMessage.id,
+          dialog.chatId,
+          dialog.lastMessage.date
+            ? new Date(dialog.lastMessage.date)
+            : undefined
+        );
+      }
+    }
     return {
       status: "ok",
       dialogs,
@@ -475,35 +488,81 @@ export class TelegramClientManager {
       });
     }
   }
+  // Fetch message history for a specific chat in a Telegram account
+  async fetchHistory({
+    accountId,
+    peerType,
+    peerId,
+    accessHash,
+    limit = 50,
+    offsetId = 0,
+  }: {
+    accountId: string;
+    peerType: "user" | "chat" | "channel";
+    peerId: string | number | bigint;
+    accessHash?: string | number | bigint | null | undefined;
+    limit?: number;
+    offsetId?: number;
+  }): Promise<Api.TypeMessage[]> {
+    const client = await this.ensureClient(accountId);
 
-  // Lookup Telegram username or name by user ID within a specific account
-
-  async getUserName(accountId: string, userId: string): Promise<string | null> {
-    logger.info(
-      `[UserNameLookup] Resolving user name for userId=${userId} in accountId=${accountId}`
-    );
-    if (!userId) return null;
-    if (userId === "0") return null;
-    if (isNaN(Number(userId))) return null;
-
-    try {
-      const client = this.clients.get(accountId);
-      if (!client) return null;
-
-      const entity = await client.getEntity(Number(userId));
-
-      if ("firstName" in entity || "lastName" in entity) {
-        return [entity.firstName, entity.lastName].filter(Boolean).join(" ");
-      }
-
-      if ("title" in entity) return entity.title;
-      if ("username" in entity) return entity.username;
-
-      return null;
-    } catch (err) {
-      console.warn("[UserNameLookup] cannot resolve user:", userId, err);
-      return null;
+    // 1. Peer building
+    if (peerType !== "chat" && accessHash === undefined) {
+      throw new Error("accessHash is required for user and channel peers");
     }
+
+    const peer = resolveTelegramPeer(
+      peerType,
+      peerId,
+      peerType === "chat" ? undefined : accessHash
+    );
+
+    // 2. Call API
+    const history = await client.invoke(
+      new Api.messages.GetHistory({
+        peer,
+        limit,
+        offsetId,
+      })
+    );
+
+    // 3. Extract all message types
+    const rawMessages =
+      history instanceof Api.messages.Messages ||
+      history instanceof Api.messages.MessagesSlice ||
+      history instanceof Api.messages.ChannelMessages
+        ? history.messages
+        : [];
+
+    // 3.5. Save MessageID -> ChatID to database
+    for (const msg of rawMessages) {
+      if (msg instanceof Api.Message) {
+        const messageId = msg.id?.toString();
+        const chatId = peerId.toString(); // we fetched history for this chat
+
+        if (messageId) {
+          await TelegramMessageIndexService.addIndex(
+            accountId,
+            msg.id.toString(),
+            chatId,
+            new Date(msg.date * 1000),
+            {
+              rawPeerType:
+                peerType === "user"
+                  ? "user"
+                  : peerType === "chat"
+                  ? "chat"
+                  : "channel",
+              rawPeerId: String(peerId),
+              rawAccessHash: accessHash ? String(accessHash) : null,
+            }
+          );
+        }
+      }
+    }
+
+    // 4. Do NOT filter them — return everything
+    return rawMessages as Api.TypeMessage[];
   }
 
   //--------------------------------------------------------------
@@ -545,6 +604,9 @@ export class TelegramClientManager {
         revoke: true,
       })
     );
+
+    // Save deletion info into DB index
+    await TelegramMessageIndexService.markDeleted(accountId, messageIds);
   }
 
   // Start typing indicator
