@@ -5,6 +5,7 @@ import PageContainer from "../../components/common/PageContainer";
 import InboxChatsSidebar from "./InboxChatsSidebar";
 import { useUnifiedDialogs } from "../../context/UnifiedDialogsContext";
 import { useTelegram } from "../../context/TelegramAccountContext";
+import ChatWindow from "./chat/ChatWindow";
 
 const MIN_SIDEBAR_WIDTH = 260;
 const MAX_SIDEBAR_WIDTH = 480;
@@ -15,22 +16,19 @@ const InboxPage: React.FC = () => {
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(320);
 
-  // Tracks which accounts already loaded dialogs
   const loadedAccounts = useRef<Set<string>>(new Set());
 
-  // Load dialogs for new accounts only ONCE
   useEffect(() => {
     if (!accounts || accounts.length === 0) return;
 
     for (const acc of accounts) {
       if (!loadedAccounts.current.has(acc.accountId)) {
-        loadedAccounts.current.add(acc.accountId); // mark as loaded
-        fetchDialogs("telegram", acc.accountId); // load once
+        loadedAccounts.current.add(acc.accountId);
+        fetchDialogs("telegram", acc.accountId);
       }
     }
   }, [accounts, fetchDialogs]);
 
-  // Sidebar resize
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -61,7 +59,7 @@ const InboxPage: React.FC = () => {
       <Box
         sx={{
           display: "flex",
-          height: "calc(100vh - 64px - 48px)",
+          height: "calc(100vh - 64px - 12px)", // header + paddings
           minHeight: 0,
           borderRadius: 2,
           overflow: "hidden",
@@ -81,16 +79,17 @@ const InboxPage: React.FC = () => {
           }}
         />
 
-        {/* Chat placeholder */}
+        {/* Chat area */}
         <Box
           sx={{
             flex: 1,
             minWidth: 0,
             bgcolor: "background.default",
-            p: 2,
+            p: 0, // щоб ChatWindow сам керував відступами
+            display: "flex",
           }}
         >
-          No chat selected. Please select a chat from the sidebar.
+          <ChatWindow />
         </Box>
       </Box>
     </PageContainer>

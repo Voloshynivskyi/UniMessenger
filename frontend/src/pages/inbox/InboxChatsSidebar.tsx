@@ -26,11 +26,15 @@ const InboxChatsSidebar: React.FC<Props> = ({ width }) => {
         width,
         minWidth: width,
         maxWidth: width,
-        height: containerHeight,
+        height: "100%",
+        minHeight: 0,
+        flexShrink: 0,
         bgcolor: "background.paper",
         borderRight: "1px solid",
         borderColor: "divider",
         overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       {!accounts || accounts.length === 0 ? (

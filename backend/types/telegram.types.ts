@@ -114,13 +114,8 @@ export interface TelegramGetDialogsResult {
  * Telegram-specific unified message.
  * Extends the base structure with Telegram-only fields.
  */
-export interface UnifiedTelegramMessage {
+export interface UnifiedTelegramMessage extends BaseUnifiedMessage {
   platform: "telegram";
-
-  accountId: string;
-  chatId: string;
-
-  messageId: number;
 
   type:
     | "text"
@@ -131,17 +126,6 @@ export interface UnifiedTelegramMessage {
     | "sticker"
     | "service"
     | "unknown";
-
-  text?: string;
-
-  date: number;
-  isOutgoing: boolean;
-
-  from: {
-    id: string;
-    name: string;
-    username?: string | null;
-  };
 
   media?: {
     photo?: {

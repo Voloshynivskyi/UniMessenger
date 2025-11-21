@@ -141,6 +141,8 @@ export const telegramApi = {
     return handleApiResponse(response);
   },
 
+  // Get latest dialogs without pagination
+
   async getLatestDialogs(accountId: string) {
     const response = await apiClient.get("/api/telegram/dialogs", {
       params: {
@@ -150,6 +152,8 @@ export const telegramApi = {
     });
     return handleApiResponse(response);
   },
+
+  // Get dialogs with pagination support
 
   async getDialogs(accountId: string, nextOffset?: NextOffset | null) {
     const params: any = { accountId, limit: 50 };
@@ -167,6 +171,47 @@ export const telegramApi = {
     }
 
     const response = await apiClient.get("/api/telegram/dialogs", { params });
+    return handleApiResponse(response);
+  },
+  /**
+   * Fetch message history for a specific Telegram chat.
+   *
+   * @param accountId - TelegramAccount.id associated with the user
+   * @param peerType - "user" | "chat" | "channel"
+   * @param peerId - Telegram raw peer ID
+   * @param accessHash - Access hash for user/channel peers (optional for chat)
+   * @param limit - Number of messages to load
+   * @param offsetId - Pagination offset (messageId of the oldest currently loaded message)
+   */
+  async getMessageHistory({
+    accountId,
+    peerType,
+    peerId,
+    accessHash,
+    limit = 50,
+    offsetId = 0,
+  }: {
+    accountId: string;
+    peerType: "user" | "chat" | "channel";
+    peerId: string | number | bigint;
+    accessHash?: string | number | bigint | null | undefined;
+    limit?: number;
+    offsetId?: number;
+  }) {
+    const response = await apiClient.get("/api/telegram/history", {
+      params: {
+        accountId,
+        peerType,
+        peerId: String(peerId),
+        accessHash:
+          accessHash !== undefined && accessHash !== null
+            ? String(accessHash)
+            : undefined,
+        limit,
+        offsetId,
+      },
+    });
+    console.log("API response:", handleApiResponse(response));
     return handleApiResponse(response);
   },
 };

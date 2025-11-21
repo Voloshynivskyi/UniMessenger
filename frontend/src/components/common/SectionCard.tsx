@@ -14,7 +14,7 @@ const SectionCard: React.FC<SectionCardProps> = ({ children }) => {
         maxWidth: "100%",
         width: "100%",
         borderRadius: 2,
-        mt: 1,
+        mt: 0,
         backgroundColor: theme.palette.background.paper,
       }}
       elevation={1}

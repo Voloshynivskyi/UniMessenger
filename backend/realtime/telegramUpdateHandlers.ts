@@ -95,17 +95,17 @@ async function resolveChatId(
   console.log("accountId:", accountId);
   console.log("messageId:", messageId);
 
-  // 1. Пробуємо напряму з update.peer
+  // 1. Try to get directly from update.peer
   const direct = telegramPeerToChatId(rawPeer);
   console.log("direct chatId:", direct);
   if (direct) return direct;
 
-  // 2. Якщо нема peer і нема messageId → все, кінець
+  // 2. If no peer and no messageId → that's it, end
   if (!messageId) return "unknown";
 
   console.log("No direct peer. Using DB getRecord()…");
 
-  // 3. Чекаємо запис (read-after-write захист)
+  // 3. Wait for record (read-after-write protection)
   let record = null;
   for (let i = 0; i < 5; i++) {
     record = await TelegramMessageIndexService.getRecord(accountId, messageId);
@@ -123,13 +123,13 @@ async function resolveChatId(
 
   console.log("Record found:", record);
 
-  // 4. Якщо chatId є — вертаємо
+  // 4. If chatId exists — return it
   if (record.chatId) {
     console.log("Returning record.chatId:", record.chatId);
     return record.chatId;
   }
 
-  // 5. Пробуємо реконструювати peer
+  // 5. Try to reconstruct peer
   const restoredPeer = buildPeerFromRecord(record);
   console.log("restoredPeer:", restoredPeer);
 
@@ -142,7 +142,7 @@ async function resolveChatId(
 }
 
 // -----------------------------------------------------------------------------
-// Helper: resolve sender name via DB cache + Telegram RPC (через UserResolver)
+// Helper: resolve sender name via DB cache + Telegram RPC (through UserResolver)
 // -----------------------------------------------------------------------------
 async function resolveSenderName(
   accountId: string,
@@ -154,7 +154,7 @@ async function resolveSenderName(
 
   const client = telegramClientManager.getClient(accountId);
   if (!client) {
-    // немає активного клієнта – віддаємо просто id
+    // no active client
     return fallback;
   }
 
@@ -624,7 +624,7 @@ export const telegramUpdateHandlers: Record<
   },
 };
 
-// Validate that all handlers exist (для основних типів)
+// Validate that all handlers exist (for main types)
 (function validateHandlers() {
   const defined = Object.keys(telegramUpdateHandlers);
   const expected: TelegramUpdateType[] = [

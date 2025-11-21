@@ -6,6 +6,7 @@ import InboxChatItem from "./InboxChatItem";
 
 import type { UnifiedChat } from "../../types/unifiedChat.types";
 import type { TelegramAuthAccount } from "../../api/telegramApi";
+import { buildChatKey } from "./utils/chatUtils";
 
 interface Props {
   account: TelegramAuthAccount;
@@ -72,7 +73,11 @@ const InboxAccountSection: React.FC<Props> = ({
       >
         <Box>
           {chats.map((chat) => {
-            const chatKey = `${chat.platform}:${chat.accountId}:${chat.chatId}`;
+            const chatKey = buildChatKey(
+              chat.platform,
+              chat.accountId,
+              chat.chatId
+            );
 
             return (
               <InboxChatItem

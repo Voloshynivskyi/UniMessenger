@@ -83,3 +83,20 @@ export function formatTypingLabel(
 
   return `${names[0]}, ${names[1]}… are typing`;
 }
+
+//Build chat key
+export function buildChatKey(
+  platform: string,
+  accountId: string,
+  chatId: string
+): string {
+  return `${platform}:${accountId}:${chatId}`;
+}
+
+// Parse chat key
+export function parseChatKey(
+  chatKey: string
+): { platform: string; accountId: string; chatId: string } {
+  const [platform, accountId, chatId] = chatKey.split(":");
+  return { platform, accountId, chatId };
+}

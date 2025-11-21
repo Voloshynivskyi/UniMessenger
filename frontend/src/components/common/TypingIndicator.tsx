@@ -1,3 +1,4 @@
+// frontend/src/components/common/TypingIndicator.tsx
 import { Box, keyframes } from "@mui/material";
 
 const blink = keyframes`

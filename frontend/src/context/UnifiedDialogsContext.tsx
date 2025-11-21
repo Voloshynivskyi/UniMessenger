@@ -25,6 +25,7 @@ import type {
   TelegramMessageViewPayload,
 } from "../realtime/events";
 import { useTelegram } from "./TelegramAccountContext";
+import { buildChatKey, parseChatKey } from "../pages/inbox/utils/chatUtils";
 
 /* Sort chats utility */
 function sortChats(
@@ -90,6 +91,27 @@ export const UnifiedDialogsProvider = ({
 
   const { accounts } = useTelegram();
 
+  //debugger;
+  useEffect(() => {
+    if (!selectedChatKey) return;
+
+    const { platform, accountId, chatId } = parseChatKey(selectedChatKey);
+    if (platform !== "telegram") return;
+
+    const chat = chatsByAccount[accountId]?.[selectedChatKey];
+    if (!chat) return;
+
+    // VALIDATION (should not happen)
+    if (!chat.peerType) return;
+
+    telegramApi.getMessageHistory({
+      accountId,
+      peerType: chat.peerType,
+      peerId: chat.chatId,
+      accessHash: chat.accessHash ?? null,
+    });
+  }, [selectedChatKey]);
+
   /* ===== SOCKET EVENTS ===== */
   useEffect(() => {
     if (!accounts?.length) return;
@@ -105,7 +127,7 @@ export const UnifiedDialogsProvider = ({
     };
 
     const handleNewMessage = (data: TelegramNewMessagePayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+      const chatKey = buildChatKey(data.platform, data.accountId, data.chatId);
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId] || {};
         const existing = accountChats[chatKey];
@@ -147,45 +169,76 @@ export const UnifiedDialogsProvider = ({
     };
 
     const handleMessageEdited = (data: TelegramMessageEditedPayload) => {
+      console.log("Handle message edited", data);
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
-        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+        const chatKey = buildChatKey(
+          data.platform,
+          data.accountId,
+          data.chatId
+        );
         const existing = accountChats[chatKey];
-        if (
-          !existing?.lastMessage ||
-          existing.lastMessage.id !== data.messageId
-        )
-          return prev;
+        if (!existing?.lastMessage) return prev;
+
+        // Only update if the edited message is the last message
+        const lastId = String(existing.lastMessage.id);
+        const editedId = String(data.messageId);
+        if (lastId !== editedId) return prev;
+
+        const updatedChat: UnifiedChat = {
+          ...existing,
+          lastMessage: {
+            ...existing.lastMessage,
+            text: data.newText,
+          },
+        };
 
         const updated = {
           ...accountChats,
-          [chatKey]: {
-            ...existing,
-            lastMessage: { ...existing.lastMessage, text: data.newText },
-          },
+          [chatKey]: updatedChat,
         };
+
         return { ...prev, [data.accountId]: sortChats(updated) };
       });
     };
 
     const handleMessageDeleted = (data: TelegramMessageDeletedPayload) => {
+      console.log("Handle message deleted", data);
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
-        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+        const chatKey = buildChatKey(
+          data.platform,
+          data.accountId,
+          data.chatId
+        );
         const existing = accountChats[chatKey];
-        if (
-          existing?.lastMessage &&
-          data.messageIds.includes(existing.lastMessage.id)
-        ) {
-          const updated = {
-            ...accountChats,
-            [chatKey]: { ...existing, lastMessage: undefined },
-          };
-          return { ...prev, [data.accountId]: sortChats(updated) };
-        }
-        return prev;
+        if (!existing?.lastMessage) return prev;
+
+        const lastId = String(existing.lastMessage.id);
+        const isLastDeleted = data.messageIds
+          .map((id) => String(id))
+          .includes(lastId);
+
+        if (!isLastDeleted) return prev;
+
+        const updatedChat: UnifiedChat = {
+          ...existing,
+          lastMessage: {
+            ...existing.lastMessage,
+            text: "Message deleted",
+          },
+        };
+
+        const updated = {
+          ...accountChats,
+          [chatKey]: updatedChat,
+        };
+
+        return { ...prev, [data.accountId]: sortChats(updated) };
       });
     };
 
@@ -263,6 +316,10 @@ export const UnifiedDialogsProvider = ({
       socketClient.off("telegram:pinned_messages", handlePinnedMessages);
       socketClient.off("telegram:account_status", handleAccountStatus);
       socketClient.off("telegram:typing", handleTyping);
+      for (const key of Object.keys(typingTimeouts.current)) {
+        clearTimeout(typingTimeouts.current[key]);
+      }
+      typingTimeouts.current = {};
     };
   }, [accounts?.length]);
   /* ===== TYPING INDICATORS ===== */
@@ -271,17 +328,38 @@ export const UnifiedDialogsProvider = ({
     const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
     const userKey = `${chatKey}:${data.userId}`;
 
+    // if "stopped typing" event received — remove immediately
+    if (!data.isTyping) {
+      if (typingTimeouts.current[userKey]) {
+        clearTimeout(typingTimeouts.current[userKey]);
+        delete typingTimeouts.current[userKey];
+      }
+
+      setTypingByChat((prev) => {
+        const existing = prev[chatKey]?.users ?? [];
+        const filtered = existing.filter((u) => u.id !== data.userId);
+
+        if (filtered.length === 0) {
+          const copy = { ...prev };
+          delete copy[chatKey];
+          return copy;
+        }
+
+        return { ...prev, [chatKey]: { users: filtered } };
+      });
+
+      return;
+    }
+
+    // isTyping === true → add / update
     setTypingByChat((prev) => {
       const existing = prev[chatKey]?.users ?? [];
-
-      // Remove old record of this user
       const filtered = existing.filter((u) => u.id !== data.userId);
-
       const updated = [...filtered, { id: data.userId, name: data.username }];
-
       return { ...prev, [chatKey]: { users: updated } };
     });
 
+    // restart the timer
     if (typingTimeouts.current[userKey]) {
       clearTimeout(typingTimeouts.current[userKey]);
     }
@@ -322,7 +400,7 @@ export const UnifiedDialogsProvider = ({
       }
       const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
-        const chatKey = `${platform}:${accountId}:${chat.chatId}`;
+        const chatKey = buildChatKey(platform, accountId, chat.chatId);
 
         newChats[chatKey] = {
           ...chat,

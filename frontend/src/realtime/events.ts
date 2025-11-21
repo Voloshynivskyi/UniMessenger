@@ -28,14 +28,18 @@ export interface TelegramNewMessagePayload extends BaseRealtimePayload {
 export interface TelegramTypingPayload extends BaseRealtimePayload {
   chatId: string;
   userId: string;
-  isTyping: boolean;
   username: string; // added username field
+  isTyping: boolean;
 }
 
 export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
   chatId: string;
   messageId: string;
   newText: string;
+  from: {
+    id: string;
+    name: string;
+  };
 }
 
 export interface TelegramMessageDeletedPayload extends BaseRealtimePayload {

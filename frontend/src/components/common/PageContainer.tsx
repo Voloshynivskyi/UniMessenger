@@ -16,8 +16,8 @@ const PageContainer: React.FC<Props> = ({ children }) => {
     <Box
       sx={{
         gap: 2,
-        px: isMdUp ? 3 : isSm ? 2 : isXs ? 1.5 : 1,
-        py: isMdUp ? 3 : 2,
+        px: isMdUp ? 1 : isSm ? 1.5 : isXs ? 1.5 : 1,
+        py: isMdUp ? 1 : 1.5,
       }}
     >
       {children}

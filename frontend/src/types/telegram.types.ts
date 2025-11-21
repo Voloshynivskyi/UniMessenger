@@ -1,6 +1,7 @@
 // frontend/src/types/telegram.types.ts
 
 import type { BaseUnifiedChat } from "./unifiedChat.types";
+import type { BaseUnifiedMessage } from "./unifiedMessage.types";
 
 /** Project-wide account info shape for Telegram accounts (DB selection). */
 export interface TelegramAccountInfo {
@@ -81,5 +82,34 @@ export interface NextOffset {
     id: number;
     type: "user" | "chat" | "channel";
     accessHash?: string;
+  };
+}
+
+/**
+ * Telegram-specific unified message.
+ * Extends the base structure with Telegram-only fields.
+ */
+export interface UnifiedTelegramMessage extends BaseUnifiedMessage {
+  platform: "telegram";
+
+  type:
+    | "text"
+    | "photo"
+    | "video"
+    | "voice"
+    | "file"
+    | "sticker"
+    | "service"
+    | "unknown";
+
+  media?: {
+    photo?: {
+      id: string;
+      accessHash: string;
+      dcId: number;
+      width: number;
+      height: number;
+      size: number | null;
+    };
   };
 }
