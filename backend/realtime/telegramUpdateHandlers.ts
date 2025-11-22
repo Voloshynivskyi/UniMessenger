@@ -20,6 +20,7 @@ import { extractUserId } from "../utils/extractUserId";
 import { TelegramMessageIndexService } from "../services/telegram/telegramMessageIndexService";
 import { TelegramUserResolverService } from "../services/telegram/telegramUserResolverService";
 import bigInt from "big-integer";
+import { outgoingTempStore } from "../realtime/outgoingTempStore";
 export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
   return key in telegramUpdateHandlers;
 }
@@ -44,7 +45,8 @@ export type TelegramUpdateType =
   | "UpdateChannelMessageViews"
   | "UpdatePinnedMessages"
   | "UpdatePinnedChannelMessages"
-  | "UpdateChannelTooLong";
+  | "UpdateChannelTooLong"
+  | "UpdateShortSentMessage";
 
 interface HandlerContext {
   update: any;
@@ -622,6 +624,45 @@ export const telegramUpdateHandlers: Record<
   UpdateConnectionState: ({ update, accountId, userId }) => {
     const state = update.state === 1 ? "Connected" : "Disconnected";
   },
+  // ------------------------------------------------------------
+  // SENT MESSAGE CONFIRMATION
+  // ------------------------------------------------------------
+  UpdateShortSentMessage: async ({ update, accountId, userId }) => {
+    const realMessageId = update.id.toString();
+    const pts = update.pts;
+    const date = update.date;
+
+    // In GramJS UpdateShortSentMessage doesn't contain tempId
+    // but the order corresponds to FIFO → take the FIRST pending outgoing
+    const pending = outgoingTempStore.peek(accountId);
+    if (!pending) return;
+
+    const { tempId, chatId, text } = pending;
+
+    // Confirm
+    outgoingTempStore.remove(accountId, tempId);
+    console.log("[UPDATE] ShortSentMessage received");
+    console.log(update);
+
+    getSocketGateway().emitToUser(userId, "telegram:message_confirmed", {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
+      tempId,
+      realMessageId,
+      date: new Date(date * 1000).toISOString(),
+    });
+
+    // add to message index
+    await TelegramMessageIndexService.addIndex(
+      accountId,
+      realMessageId,
+      chatId,
+      new Date(date * 1000),
+      { rawPeerType: "user", rawPeerId: chatId, rawAccessHash: null }
+    );
+  },
 };
 
 // Validate that all handlers exist (for main types)
@@ -638,6 +679,7 @@ export const telegramUpdateHandlers: Record<
     "UpdateReadHistoryInbox",
     "UpdateReadHistoryOutbox",
     "UpdateConnectionState",
+    "UpdateShortSentMessage",
   ];
 
   const missing = expected.filter((e) => !defined.includes(e));

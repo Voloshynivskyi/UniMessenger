@@ -1,4 +1,4 @@
-// backend/realtime/events.ts
+// frontend/src/realtime/events.ts
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -36,10 +36,10 @@ export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
   chatId: string;
   messageId: string;
   newText: string;
-  from:{
+  from: {
     id: string;
     name: string;
-  }
+  };
 }
 
 export interface TelegramMessageDeletedPayload extends BaseRealtimePayload {
@@ -76,6 +76,13 @@ export interface TelegramErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
+export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
+  chatId: string;
+  tempId: string;
+  realMessageId: string;
+  date: string;
+}
+
 // ────────────────────────────────────────────────
 // Server → Client events
 // ────────────────────────────────────────────────
@@ -92,6 +99,7 @@ export interface ServerToClientEvents {
   "telegram:account_status": (data: TelegramAccountStatusPayload) => void;
   "telegram:message_views": (data: TelegramMessageViewPayload) => void;
   "telegram:pinned_messages": (data: TelegramPinnedMessagesPayload) => void;
+  "telegram:message_confirmed": (data: TelegramMessageConfirmedPayload) => void;
 
   "system:error": (data: TelegramErrorPayload) => void;
 }
@@ -103,7 +111,8 @@ export interface ServerToClientEvents {
 export interface TelegramSendMessagePayload {
   accountId: string;
   chatId: string;
-  text: string;
+  text: string; 
+  tempId: string | number;
   peerType?: "user" | "chat" | "channel";
   accessHash?: string;
 }

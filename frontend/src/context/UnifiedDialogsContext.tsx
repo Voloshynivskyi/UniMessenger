@@ -7,7 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-
+import type { UnifiedTelegramMessage } from "../types/telegram.types";
 import type {
   UnifiedChatPlatform,
   UnifiedChat,
@@ -60,6 +60,11 @@ interface UnifiedDialogsContextType {
     accountId: string
   ) => Promise<void>;
   selectChat: (chatKey: string | null) => void;
+  /** Optimistically bump lastMessage for outgoing pending message */
+  applyOptimisticOutgoing: (
+    chatKey: string,
+    message: UnifiedTelegramMessage
+  ) => void;
 }
 
 const UnifiedDialogsContext = createContext<UnifiedDialogsContextType | null>(
@@ -485,6 +490,34 @@ export const UnifiedDialogsProvider = ({
 
   const selectChat = (chatKey: string | null) => setSelectedChatKey(chatKey);
 
+  // Optimistic lastMessage update for outgoing pending messages
+  const applyOptimisticOutgoing = (
+    chatKey: string,
+    message: UnifiedTelegramMessage
+  ) => {
+    const { accountId } = parseChatKey(chatKey);
+    setChatsByAccount((prev) => {
+      const accountChats = prev[accountId];
+      if (!accountChats) return prev;
+      const existing = accountChats[chatKey];
+      if (!existing) return prev;
+
+      const updatedChat: UnifiedChat = {
+        ...existing,
+        lastMessage: {
+          id: String(message.messageId),
+          text: message.text,
+          type: "text",
+          date: message.date,
+          from: message.from,
+          isOutgoing: true,
+        },
+        unreadCount: existing.unreadCount ?? 0,
+      };
+      const merged = { ...accountChats, [chatKey]: updatedChat };
+      return { ...prev, [accountId]: sortChats(merged) };
+    });
+  };
   const value: UnifiedDialogsContextType = {
     chatsByAccount,
     selectedChatKey,
@@ -493,6 +526,7 @@ export const UnifiedDialogsProvider = ({
     fetchDialogs,
     fetchMoreDialogs,
     selectChat,
+    applyOptimisticOutgoing,
     typingByChat,
   };
 

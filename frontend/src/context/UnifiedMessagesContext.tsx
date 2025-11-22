@@ -1,3 +1,4 @@
+// frontend/src/context/UnifiedMessagesContext.tsx
 import React, {
   createContext,
   useContext,
@@ -48,7 +49,14 @@ interface UnifiedMessagesContextValue {
     chatKey: string,
     message: UnifiedTelegramMessage
   ) => void;
-
+  sendTelegramMessage: (data: {
+    accountId: string;
+    chatId: string;
+    text: string;
+    tempId: string | number;
+    peerType?: "user" | "chat" | "channel";
+    accessHash?: string | number | bigint | null;
+  }) => void;
   removeMessage: (chatKey: string, id: string | number) => void;
 
   clearChatState: (chatKey: string) => void;
@@ -181,10 +189,14 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         const sorted = [...normalized].sort(sortAsc);
         const latest = sorted.slice(-INITIAL_KEEP);
 
-        setMessagesByChat((prev) => ({
-          ...prev,
-          [chatKey]: latest,
-        }));
+        setMessagesByChat((prev) => {
+          const current = prev[chatKey] ?? [];
+          const merged = dedupe([...current, ...latest]).sort(sortAsc);
+          return {
+            ...prev,
+            [chatKey]: merged,
+          };
+        });
 
         setNextOffsetByChat((prev) => ({
           ...prev,
@@ -331,7 +343,32 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
     },
     []
   );
+  /* ---------------------------------------------------------------------- */
+  /* Send message to backend (tempId is used for optimistic matching) */
+  /* ---------------------------------------------------------------------- */
 
+  const sendTelegramMessage = useCallback(
+    (data: {
+      accountId: string;
+      chatId: string;
+      text: string;
+      tempId: string | number;
+      peerType?: "user" | "chat" | "channel";
+      accessHash?: string | number | bigint | null;
+    }) => {
+      if (!socketClient) return;
+      console.log(
+        "[FRONT] ➡️ Emitting telegram:send_message",
+        JSON.stringify(data, null, 2)
+      );
+
+      socketClient.emit("telegram:send_message", data as any);
+    },
+    []
+  );
+  /* ---------------------------------------------------------------------- */
+  /* Remove message */
+  /* ---------------------------------------------------------------------- */
   const removeMessage = useCallback((chatKey: string, id: string | number) => {
     const idStr = String(id);
     setMessagesByChat((prev) => {
@@ -395,7 +432,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
       const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
       const raw = p.message;
-
+      const tempId = (p as any).tempId ?? (raw as any).tempId ?? null;
       const msg: UnifiedTelegramMessage = {
         platform: "telegram",
 
@@ -409,7 +446,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         status: "sent",
 
         /** when the real message arrives — tempId is no longer needed */
-        tempId: null,
+        tempId,
 
         text: raw.text ?? "",
         date: normalizeDateToISO(raw.date),
@@ -460,11 +497,13 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
     socketClient.on("telegram:new_message", handleNewMessage);
     socketClient.on("telegram:message_edited", handleEdited);
+    socketClient.on("telegram:message_confirmed", handleNewMessage as any);
     socketClient.on("telegram:message_deleted", handleDeleted);
 
     return () => {
       socketClient.off("telegram:new_message", handleNewMessage);
       socketClient.off("telegram:message_edited", handleEdited);
+      socketClient.off("telegram:message_confirmed", handleNewMessage as any);
       socketClient.off("telegram:message_deleted", handleDeleted);
     };
   }, [addOrUpdateMessage]);
@@ -480,6 +519,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         fetchedByChat,
         fullyLoadedByChat,
         error,
+        sendTelegramMessage,
         fetchMessages,
         fetchOlderMessages,
         addOrUpdateMessage,

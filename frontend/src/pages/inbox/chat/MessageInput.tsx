@@ -1,15 +1,19 @@
-import { useState, type KeyboardEvent, type FormEvent } from "react";
-import { Box, IconButton, TextField, InputAdornment } from "@mui/material";
+// frontend/src/pages/inbox/chat/MessageInput.tsx
+import { useState } from "react";
+import { Box, IconButton, TextField } from "@mui/material";
 import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
+
 import { useMessages } from "../../../context/UnifiedMessagesContext";
+import { useUnifiedDialogs } from "../../../context/UnifiedDialogsContext";
+
 import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
 
 interface Props {
   chatKey: string;
   accountId: string;
   peerType: "user" | "chat" | "channel";
-  peerId: string | number | bigint;
+  peerId: string | number;
   accessHash?: string | number | bigint | null;
 }
 
@@ -20,102 +24,86 @@ export default function MessageInput({
   peerId,
   accessHash,
 }: Props) {
-  const { addOrUpdateMessage } = useMessages();
+  const { addOrUpdateMessage, sendTelegramMessage } = useMessages();
+  const { applyOptimisticOutgoing } = useUnifiedDialogs();
+
   const [value, setValue] = useState("");
 
-  const canSend = value.trim().length > 0;
-
   const handleSend = () => {
-    if (!canSend) return;
+    const text = value.trim();
+    if (!text) return;
 
-    const now = Date.now();
-    const nowISO = new Date(now).toISOString();
+    const tempId = Date.now(); // simple numeric tempId
 
-    const msg: UnifiedTelegramMessage = {
+    const nowISO = new Date().toISOString();
+
+    const optimistic: UnifiedTelegramMessage = {
       platform: "telegram",
-
       accountId,
       chatId: String(peerId),
-
-      /** local temporary id */
-      tempId: now,
-      messageId: now, // temporary messageId = tempId
-
-      /** status of sending */
-      status: "pending",
-
-      text: value,
+      messageId: tempId, // TEMPORARY — real will replace later
+      tempId,
+      text,
       date: nowISO,
       isOutgoing: true,
-
-      from: {
-        id: accountId,
-        name: "You",
-      },
-
+      from: { id: accountId, name: "Me" },
       type: "text",
+      status: "pending",
     };
 
-    addOrUpdateMessage(chatKey, msg);
+    // push optimistic bubble into chat
+    addOrUpdateMessage(chatKey, optimistic);
+
+    // update dialogs sidebar
+    applyOptimisticOutgoing(chatKey, optimistic);
+
+    // send message to backend with tempId
+    sendTelegramMessage({
+      accountId,
+      chatId: String(peerId),
+      text,
+      tempId,
+      peerType,
+      accessHash: accessHash ?? undefined,
+    });
+
     setValue("");
-
-    // TODO: call backend API to actually send the message
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    handleSend();
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ px: 1.5, py: 1 }}>
+    <Box
+      sx={{
+        display: "flex",
+        gap: 1,
+        alignItems: "center",
+        padding: "8px",
+        borderTop: "1px solid rgba(255,255,255,0.1)",
+      }}
+    >
+      <IconButton>
+        <AttachFileIcon />
+      </IconButton>
+
       <TextField
         fullWidth
-        multiline
-        minRows={1}
-        maxRows={4}
-        placeholder="Type a message…"
+        size="small"
+        placeholder="Write a message..."
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        size="small"
-        sx={{
-          "& .MuiOutlinedInput-root": {
-            borderRadius: 3,
-            bgcolor: "background.paper",
-            boxShadow: (t) => `0 1px 8px ${t.palette.action.hover}`,
-            px: 0.5,
-          },
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+          }
         }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <IconButton size="small">
-                <AttachFileIcon fontSize="small" />
-              </IconButton>
-            </InputAdornment>
-          ),
-          endAdornment: (
-            <InputAdornment position="end">
-              <IconButton
-                size="small"
-                color={canSend ? "primary" : "default"}
-                disabled={!canSend}
-                type="submit"
-              >
-                <SendIcon fontSize="small" />
-              </IconButton>
-            </InputAdornment>
-          ),
-        }}
+        multiline
+        maxRows={6}
+        autoComplete="off"
       />
+
+      <IconButton color="primary" onClick={handleSend}>
+        <SendIcon />
+      </IconButton>
     </Box>
   );
 }

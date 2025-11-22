@@ -76,6 +76,13 @@ export interface TelegramErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
+export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
+  chatId: string;
+  tempId: string;
+  realMessageId: string;
+  date: string;
+}
+
 // ────────────────────────────────────────────────
 // Server → Client events
 // ────────────────────────────────────────────────
@@ -92,6 +99,7 @@ export interface ServerToClientEvents {
   "telegram:account_status": (data: TelegramAccountStatusPayload) => void;
   "telegram:message_views": (data: TelegramMessageViewPayload) => void;
   "telegram:pinned_messages": (data: TelegramPinnedMessagesPayload) => void;
+  "telegram:message_confirmed": (data: TelegramMessageConfirmedPayload) => void;
 
   "system:error": (data: TelegramErrorPayload) => void;
 }
@@ -104,6 +112,7 @@ export interface TelegramSendMessagePayload {
   accountId: string;
   chatId: string;
   text: string;
+  tempId: string | number;
   peerType?: "user" | "chat" | "channel";
   accessHash?: string;
 }

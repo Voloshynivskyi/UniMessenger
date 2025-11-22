@@ -15,6 +15,7 @@ import {
   telegramUpdateHandlers,
 } from "../../realtime/telegramUpdateHandlers";
 import { TelegramMessageIndexService } from "./telegramMessageIndexService";
+import { outgoingTempStore } from "../../realtime/outgoingTempStore";
 
 const API_ID = process.env.TELEGRAM_API_ID
   ? Number(process.env.TELEGRAM_API_ID)
@@ -573,18 +574,37 @@ export class TelegramClientManager {
     accountId: string,
     chatId: string,
     text: string,
+    tempId: string | number,
     peerType: "user" | "chat" | "channel" = "chat",
     accessHash?: string
   ) {
     const client = await this.ensureClient(accountId);
+    console.log("-----[TG SEND] Incoming data-----");
+    console.log("accountId =", accountId);
+    console.log("peerType  =", peerType);
+    console.log("chatId    =", chatId);
+    console.log("accessHash =", accessHash);
+    console.log("text =", text);
+
     const peer = resolveTelegramPeer(peerType, chatId, accessHash);
 
-    await client.invoke(
-      new Api.messages.SendMessage({
-        peer,
-        message: text,
-      })
-    );
+    console.log("-----[TG SEND] Resolved Peer-----");
+    console.log(peer);
+
+    // store outgoing optimistic
+    outgoingTempStore.set(accountId, tempId, text, chatId);
+
+    // Send the message
+    try {
+      console.log("[MTProto] Invoking SendMessage RPC...");
+      const result = await client.invoke(
+        new Api.messages.SendMessage({ peer, message: text })
+      );
+      console.log("[MTProto] RPC RESULT:", result);
+    } catch (err) {
+      console.error("[MTProto] RPC FAILED:", err);
+      throw err;
+    }
   }
 
   // Delete messages

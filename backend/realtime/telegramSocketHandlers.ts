@@ -21,10 +21,13 @@ export const telegramSocketHandlers = {
   // ────────────────────────────────────────────────
   async sendMessage(socket: TypedSocket, data: TelegramSendMessagePayload) {
     try {
+      logger.info("[BACKEND] ⬅️ Received telegram:send_message");
+      logger.info(JSON.stringify(data, null, 2));
       await telegramClientManager.sendMessage(
         data.accountId,
         data.chatId,
         data.text,
+        data.tempId,
         data.peerType ?? "chat",
         data.accessHash
       );
@@ -99,7 +102,6 @@ export const telegramSocketHandlers = {
         data.peerType ?? "chat",
         data.accessHash
       );
-
     } catch (err: any) {
       logger.error(
         `[Socket] telegram:typing_start failed for ${data.accountId}: ${err.message}`
@@ -118,7 +120,6 @@ export const telegramSocketHandlers = {
         data.peerType ?? "chat",
         data.accessHash
       );
-
     } catch (err: any) {
       logger.error(
         `[Socket] telegram:typing_stop failed for ${data.accountId}: ${err.message}`
