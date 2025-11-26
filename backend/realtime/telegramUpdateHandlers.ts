@@ -1,11 +1,9 @@
 // backend/realtime/telegramUpdateHandlers.ts
 
 import type {
-  TelegramNewMessagePayload,
   TelegramTypingPayload,
   TelegramAccountStatusPayload,
   TelegramMessageDeletedPayload,
-  TelegramMessageEditedPayload,
   TelegramReadUpdatesPayload,
   TelegramMessageViewPayload,
   TelegramPinnedMessagesPayload,
@@ -16,28 +14,19 @@ import { Api } from "telegram";
 import { telegramPeerToChatId } from "../utils/telegramPeerToChatId";
 import { logger } from "../utils/logger";
 import telegramClientManager from "../services/telegram/telegramClientManager";
-import { extractUserId } from "../utils/extractUserId";
 import { TelegramMessageIndexService } from "../services/telegram/telegramMessageIndexService";
 import { TelegramUserResolverService } from "../services/telegram/telegramUserResolverService";
 import bigInt from "big-integer";
 import { outgoingTempStore } from "../realtime/outgoingTempStore";
-export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
-  return key in telegramUpdateHandlers;
-}
 
 export type TelegramUpdateType =
-  | "UpdateShortMessage"
-  | "UpdateShortChatMessage"
   | "UpdateUserTyping"
   | "UpdateChatUserTyping"
   | "UpdateUserStatus"
   | "UpdateDeleteMessages"
-  | "UpdateEditMessage"
   | "UpdateReadHistoryInbox"
   | "UpdateReadHistoryOutbox"
   | "UpdateConnectionState"
-  | "UpdateNewChannelMessage"
-  | "UpdateEditChannelMessage"
   | "UpdateDeleteChannelMessages"
   | "UpdateReadChannelInbox"
   | "UpdateReadChannelOutbox"
@@ -55,6 +44,11 @@ interface HandlerContext {
 }
 
 type TelegramUpdateHandler = (ctx: HandlerContext) => Promise<void> | void;
+
+export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
+  return key in telegramUpdateHandlers;
+}
+
 // -----------------------------------------------------------------------------
 // Helper: reconstruct peer from index record
 // -----------------------------------------------------------------------------
@@ -84,9 +78,22 @@ function buildPeerFromRecord(record: any) {
   return null;
 }
 
-// -----------------------------------------------------------------------------
-// Helper: resolve chatId using update.peer OR index lookup if peer is missing
-// -----------------------------------------------------------------------------
+/**
+ * Resolves the chat ID from various sources with fallback mechanisms
+ *
+ * This function attempts to determine the chat ID using multiple strategies:
+ * 1. Direct extraction from the update's peer object
+ * 2. Database lookup using message ID (with read-after-write protection)
+ * 3. Peer reconstruction from cached database record
+ *
+ * The function implements retry logic to handle race conditions where messages
+ * may not yet be indexed when the update arrives.
+ *
+ * @param rawPeer - The peer object from the Telegram update
+ * @param accountId - The Telegram account ID
+ * @param messageId - Optional message ID for database lookup
+ * @returns Resolved chat ID or "unknown" if resolution fails
+ */
 async function resolveChatId(
   rawPeer: any,
   accountId: string,
@@ -143,9 +150,18 @@ async function resolveChatId(
   return reconstructedChatId || "unknown";
 }
 
-// -----------------------------------------------------------------------------
-// Helper: resolve sender name via DB cache + Telegram RPC (through UserResolver)
-// -----------------------------------------------------------------------------
+/**
+ * Resolves the sender's display name from user ID
+ *
+ * This function retrieves the sender's name by:
+ * 1. Checking the local database cache (TelegramUserCache)
+ * 2. Fetching from Telegram API via UserResolverService if not cached
+ * 3. Falling back to the user ID if resolution fails
+ *
+ * @param accountId - The Telegram account ID
+ * @param fromUserId - The sender's Telegram user ID
+ * @returns The sender's display name or user ID as fallback
+ */
 async function resolveSenderName(
   accountId: string,
   fromUserId: string | null | undefined
@@ -177,93 +193,19 @@ async function resolveSenderName(
   }
 }
 
-// -----------------------------------------------------------------------------
-// MAIN UPDATE HANDLERS
-// -----------------------------------------------------------------------------
+/**
+ * Main Telegram update handlers registry
+ *
+ * This object maps each Telegram update type to its corresponding handler function.
+ * These handlers process raw MTProto updates that don't represent full message events
+ * (e.g., typing indicators, read receipts, deletions, status changes).
+ *
+ * Full message events (new/edited messages) are handled separately by dedicated handlers.
+ */
 export const telegramUpdateHandlers: Record<
   TelegramUpdateType,
   TelegramUpdateHandler
 > = {
-  /* ------------------------------------------------------------
-     NEW PRIVATE MESSAGE
-  ------------------------------------------------------------ */
-  UpdateShortMessage: async ({ update, accountId, userId }) => {
-    const msg = update;
-    const fromUserId = msg.userId?.toString() ?? "";
-
-    const senderName = await resolveSenderName(accountId, fromUserId);
-
-    const payload: TelegramNewMessagePayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      // In private messages, chatId is the same as fromUserId
-      chatId: fromUserId,
-      message: {
-        id: msg.id.toString(),
-        text: msg.message ?? "",
-        date: new Date(msg.date * 1000).toISOString(),
-        from: { id: fromUserId, name: senderName },
-        isOutgoing: msg.out ?? false,
-      },
-    };
-
-    // Save to message index
-    await TelegramMessageIndexService.addIndex(
-      accountId,
-      payload.message.id,
-      payload.chatId,
-      new Date(msg.date * 1000),
-      {
-        rawPeerType: "user",
-        rawPeerId: fromUserId,
-        rawAccessHash: null,
-      }
-    );
-
-    getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
-  },
-
-  /* ------------------------------------------------------------
-     NEW GROUP MESSAGE
-  ------------------------------------------------------------ */
-  UpdateShortChatMessage: async ({ update, accountId, userId }) => {
-    const msg = update;
-    const fromUserId = extractUserId(msg.fromId) ?? "";
-
-    const senderName = await resolveSenderName(accountId, fromUserId);
-
-    const chatId = msg.chatId?.toString() ?? "unknown";
-
-    const payload: TelegramNewMessagePayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      message: {
-        id: msg.id.toString(),
-        text: msg.message ?? "",
-        date: new Date(msg.date * 1000).toISOString(),
-        from: { id: fromUserId, name: senderName },
-        isOutgoing: msg.out ?? false,
-      },
-    };
-
-    await TelegramMessageIndexService.addIndex(
-      accountId,
-      payload.message.id,
-      payload.chatId,
-      new Date(msg.date * 1000),
-      {
-        rawPeerType: "user",
-        rawPeerId: fromUserId,
-        rawAccessHash: null,
-      }
-    );
-
-    getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
-  },
-
   /* ------------------------------------------------------------
      TYPING: PRIVATE
   ------------------------------------------------------------ */
@@ -277,6 +219,58 @@ export const telegramUpdateHandlers: Record<
       accountId,
       timestamp: new Date().toISOString(),
       chatId: fromUserId,
+      userId: fromUserId,
+      username,
+      isTyping: true,
+    };
+
+    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
+  },
+
+  /* ------------------------------------------------------------
+     GROUP TYPING
+  ------------------------------------------------------------ */
+  UpdateChatUserTyping: async ({ update, accountId, userId }) => {
+    const chatId = update.chatId?.toString() ?? "unknown";
+
+    const fromUserId =
+      update.fromId?.className === "PeerUser"
+        ? update.fromId.userId?.toString()
+        : "";
+
+    const username = await resolveSenderName(accountId, fromUserId);
+
+    const payload: TelegramTypingPayload = {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
+      userId: fromUserId,
+      username,
+      isTyping: true,
+    };
+
+    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
+  },
+
+  // ------------------------------------------------------------
+  // CHANNEL TYPING
+  // ------------------------------------------------------------
+  UpdateChannelUserTyping: async ({ update, accountId, userId }) => {
+    const chatId = update.channelId?.toString() ?? "unknown";
+
+    const fromUserId =
+      update.fromId?.className === "PeerUser"
+        ? update.fromId.userId?.toString()
+        : "";
+
+    const username = await resolveSenderName(accountId, fromUserId);
+
+    const payload: TelegramTypingPayload = {
+      platform: "telegram",
+      accountId,
+      timestamp: new Date().toISOString(),
+      chatId,
       userId: fromUserId,
       username,
       isTyping: true,
@@ -315,6 +309,7 @@ export const telegramUpdateHandlers: Record<
     // Resolve chatId using peer OR index
     const chatId = await resolveChatId(update.peer, accountId, messageIds[0]);
     console.log("Resolved chatId for deleted messages:", chatId);
+
     const payload: TelegramMessageDeletedPayload = {
       platform: "telegram",
       accountId,
@@ -327,163 +322,6 @@ export const telegramUpdateHandlers: Record<
     await TelegramMessageIndexService.markDeleted(accountId, messageIds);
 
     getSocketGateway().emitToUser(userId, "telegram:message_deleted", payload);
-  },
-
-  /* ------------------------------------------------------------
-     EDIT MESSAGE (PRIVATE / GROUP)
-  ------------------------------------------------------------ */
-  UpdateEditMessage: async ({ update, accountId, userId }) => {
-    const msg = update.message as Api.Message;
-
-    const messageId = String(msg.id);
-
-    // Resolve chatId from peer or index
-    const chatId = await resolveChatId(msg.peerId, accountId, messageId);
-
-    const fromUserId =
-      msg.fromId instanceof Api.PeerUser ? String(msg.fromId.userId) : "";
-
-    const senderName = await resolveSenderName(accountId, fromUserId);
-
-    const payload: TelegramMessageEditedPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      messageId,
-      newText: msg.message ?? "",
-      from: { id: fromUserId, name: senderName },
-    };
-
-    // Do not create index for edits
-    getSocketGateway().emitToUser(userId, "telegram:message_edited", payload);
-  },
-
-  /* ------------------------------------------------------------
-     GROUP TYPING
-  ------------------------------------------------------------ */
-  UpdateChatUserTyping: async ({ update, accountId, userId }) => {
-    const chatId = update.chatId?.toString() ?? "unknown";
-
-    const fromUserId =
-      update.fromId?.className === "PeerUser"
-        ? update.fromId.userId?.toString()
-        : "";
-
-    const username = await resolveSenderName(accountId, fromUserId);
-
-    const payload: TelegramTypingPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      userId: fromUserId,
-      username,
-      isTyping: true,
-    };
-
-    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
-  },
-  // ------------------------------------------------------------
-  // CHANNEL TYPING
-  // ------------------------------------------------------------
-  UpdateChannelUserTyping: async ({ update, accountId, userId }) => {
-    const chatId = update.channelId?.toString() ?? "unknown";
-
-    const fromUserId =
-      update.fromId?.className === "PeerUser"
-        ? update.fromId.userId?.toString()
-        : "";
-
-    const username = await resolveSenderName(accountId, fromUserId);
-
-    const payload: TelegramTypingPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      userId: fromUserId,
-      username,
-      isTyping: true,
-    };
-
-    getSocketGateway().emitToUser(userId, "telegram:typing", payload);
-  },
-
-  /* ------------------------------------------------------------
-     NEW CHANNEL MESSAGE
-  ------------------------------------------------------------ */
-  UpdateNewChannelMessage: async ({ update, accountId, userId }) => {
-    const msg = update.message as Api.Message;
-
-    const messageId = msg.id.toString();
-
-    const fromUserId = extractUserId(msg.fromId);
-
-    const senderName = await resolveSenderName(accountId, fromUserId ?? "");
-
-    const chatId =
-      (msg.peerId && telegramPeerToChatId(msg.peerId)) ||
-      update.channelId?.toString() ||
-      "unknown";
-
-    const payload: TelegramNewMessagePayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      message: {
-        id: messageId,
-        text: msg.message ?? "",
-        date: new Date(msg.date * 1000).toISOString(),
-        from: fromUserId
-          ? { id: fromUserId, name: senderName }
-          : { id: "", name: "" },
-        isOutgoing: !!msg.out,
-      },
-    };
-
-    await TelegramMessageIndexService.addIndex(
-      accountId,
-      payload.message.id,
-      payload.chatId,
-      new Date(msg.date * 1000),
-      {
-        rawPeerType: "user",
-        rawPeerId: fromUserId!,
-        rawAccessHash: null,
-      }
-    );
-
-    getSocketGateway().emitToUser(userId, "telegram:new_message", payload);
-  },
-
-  /* ------------------------------------------------------------
-     EDIT CHANNEL MESSAGE
-  ------------------------------------------------------------ */
-  UpdateEditChannelMessage: async ({ update, accountId, userId }) => {
-    const msg = update.message as Api.Message;
-
-    const messageId = msg.id.toString();
-
-    const chatId = await resolveChatId(msg.peerId, accountId, messageId);
-
-    const fromUserId = msg.fromId ? msg.fromId.toString() : "";
-
-    const senderName = await resolveSenderName(accountId, fromUserId);
-
-    const payload: TelegramMessageEditedPayload = {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      messageId,
-      newText: msg.message ?? "",
-      from: { id: fromUserId, name: senderName },
-    };
-
-    // Do not create index for edits
-    getSocketGateway().emitToUser(userId, "telegram:message_edited", payload);
   },
 
   /* ------------------------------------------------------------
@@ -621,23 +459,25 @@ export const telegramUpdateHandlers: Record<
   /* ------------------------------------------------------------
      CONNECTION STATE
   ------------------------------------------------------------ */
-  UpdateConnectionState: ({ update, accountId, userId }) => {
+  UpdateConnectionState: ({ update, accountId }) => {
     const state = update.state === 1 ? "Connected" : "Disconnected";
+    logger.info(
+      `[Telegram] Connection state for account ${accountId}: ${state}`
+    );
   },
+
   // ------------------------------------------------------------
   // SENT MESSAGE CONFIRMATION
   // ------------------------------------------------------------
   UpdateShortSentMessage: async ({ update, accountId, userId }) => {
     const realMessageId = update.id.toString();
-    const pts = update.pts;
     const date = update.date;
 
-    // In GramJS UpdateShortSentMessage doesn't contain tempId
-    // but the order corresponds to FIFO → take the FIRST pending outgoing
+    // Get first pending outgoing message (FIFO)
     const pending = outgoingTempStore.peek(accountId);
     if (!pending) return;
 
-    const { tempId, chatId, text } = pending;
+    const { tempId, chatId } = pending;
 
     // Confirm
     outgoingTempStore.remove(accountId, tempId);
@@ -665,21 +505,31 @@ export const telegramUpdateHandlers: Record<
   },
 };
 
-// Validate that all handlers exist (for main types)
+/**
+ * Validates that all expected handlers are defined
+ *
+ * This validation function checks at startup that all critical update types
+ * have registered handlers, logging warnings for any missing implementations.
+ */
 (function validateHandlers() {
   const defined = Object.keys(telegramUpdateHandlers);
   const expected: TelegramUpdateType[] = [
-    "UpdateShortMessage",
-    "UpdateShortChatMessage",
     "UpdateUserTyping",
     "UpdateChatUserTyping",
+    "UpdateChannelUserTyping",
     "UpdateUserStatus",
     "UpdateDeleteMessages",
-    "UpdateEditMessage",
+    "UpdateDeleteChannelMessages",
     "UpdateReadHistoryInbox",
     "UpdateReadHistoryOutbox",
-    "UpdateConnectionState",
+    "UpdateReadChannelInbox",
+    "UpdateReadChannelOutbox",
+    "UpdateChannelMessageViews",
+    "UpdatePinnedMessages",
+    "UpdatePinnedChannelMessages",
     "UpdateShortSentMessage",
+    "UpdateConnectionState",
+    "UpdateChannelTooLong",
   ];
 
   const missing = expected.filter((e) => !defined.includes(e));

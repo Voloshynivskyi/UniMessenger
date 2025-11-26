@@ -440,7 +440,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         chatId: String(p.chatId),
 
         /** real id from backend */
-        messageId: Number(raw.id),
+        messageId: String(raw.id),
 
         /** backend data → message is guaranteed to be sent */
         status: "sent",

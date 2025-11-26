@@ -117,6 +117,22 @@ export interface TelegramGetDialogsResult {
 export interface UnifiedTelegramMessage extends BaseUnifiedMessage {
   platform: "telegram";
 
+  /** Who owns this message */
+  accountId: string;
+
+  /** Peer (chat) info */
+  peerType?: "user" | "chat" | "channel";
+  peerId?: string;
+  accessHash?: string | null;
+
+  /** Message identity */
+  messageId: string;
+  date: string; // ISO
+
+  /** Sender identity */
+  senderId?: string | null;
+
+  /** Content */
   type:
     | "text"
     | "photo"
@@ -126,15 +142,6 @@ export interface UnifiedTelegramMessage extends BaseUnifiedMessage {
     | "sticker"
     | "service"
     | "unknown";
-
-  media?: {
-    photo?: {
-      id: string;
-      accessHash: string;
-      dcId: number;
-      width: number;
-      height: number;
-      size: number | null;
-    };
-  };
+  text?: string;
+  media?: any;
 }

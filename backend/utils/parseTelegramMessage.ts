@@ -1,165 +1,274 @@
+// backend/utils/parseTelegramMessage.ts
+
 import { Api } from "telegram";
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
 
-/* ============================================================
-   MAIN PARSER FUNCTION
-   ============================================================ */
-
+/**
+ * Main unified message parser for Telegram MTProto messages
+ *
+ * This function converts raw Telegram API message objects into a unified message format
+ * that can be consistently handled throughout the application. It handles different
+ * message types including normal messages, service messages, and empty messages.
+ *
+ * @param msg - Raw Telegram API message object (TypeMessage)
+ * @param accountId - The Telegram account ID that owns this message
+ * @returns Unified Telegram message object with standardized structure
+ */
 export function parseTelegramMessage(
   msg: Api.TypeMessage,
   accountId: string
 ): UnifiedTelegramMessage {
-  // MESSAGE EMPTY → treat as unknown
   if (msg instanceof Api.MessageEmpty) {
-    return {
-      platform: "telegram",
-      accountId,
-      messageId: Number(msg.id),
-      chatId: "unknown",
-      type: "unknown",
-      text: "",
-      date: 0,
-      isOutgoing: false,
-      from: { id: "0", name: "Unknown" },
-    };
+    return makeUnknown(accountId, msg.id);
   }
 
-  // SERVICE
   if (msg instanceof Api.MessageService) {
-    return parseServiceMessage(msg, accountId);
+    return parseService(msg, accountId);
   }
 
-  // NORMAL
   if (msg instanceof Api.Message) {
-    return parseNormalMessage(msg, accountId);
+    return parseNormal(msg, accountId);
   }
 
-  // FALLBACK
-  return {
-    platform: "telegram",
-    accountId,
-    messageId: Date.now(),
-    chatId: "unknown",
-    type: "unknown",
-    text: "",
-    date: 0,
-    isOutgoing: false,
-    from: { id: "0", name: "Unknown" },
-  };
+  return makeUnknown(accountId, Date.now());
 }
 
-/* ============================================================
+/* ========================================================================
    NORMAL MESSAGE
-   ============================================================ */
+   ======================================================================== */
 
-function parseNormalMessage(
+/**
+ * Parses a normal Telegram message (text, media, etc.)
+ *
+ * Extracts all relevant information from a standard message including:
+ * - Peer and sender information
+ * - Message content (text, media)
+ * - Timestamps and delivery status
+ * - Media handling (photos, documents, etc.)
+ *
+ * @param msg - Telegram API Message object
+ * @param accountId - The Telegram account ID
+ * @returns Unified message object with full message details
+ */
+function parseNormal(
   msg: Api.Message,
   accountId: string
 ): UnifiedTelegramMessage {
-  const base = {
-    platform: "telegram" as const,
+  const { peerType, peerId, accessHash } = extractPeer(msg.peerId);
+  const senderId = extractSenderId(msg.fromId);
+
+  const base: UnifiedTelegramMessage = {
+    platform: "telegram",
     accountId,
-    messageId: Number(msg.id),
-    chatId: extractChatId(msg.peerId),
-    text: msg.message || "",
-    date: msg.date * 1000,
+
+    messageId: String(msg.id),
+    chatId: peerId,
+
+    peerType,
+    peerId,
+    accessHash: accessHash ?? null,
+
+    senderId,
+
+    date: new Date(msg.date * 1000).toISOString(),
     isOutgoing: msg.out ?? false,
-    from: extractSender(msg.fromId),
+
+    status: "sent",
+
+    from: {
+      id: senderId ?? "0",
+      name: senderId ? "User" : "Unknown",
+    },
+
+    type: "text",
+    text: msg.message || "",
   };
 
-  // TEXT
-  if (!msg.media) {
-    return { ...base, type: "text" };
-  }
+  // no media
+  if (!msg.media) return base;
 
-  const media = msg.media;
-
-  // PHOTO
+  // photo
   if (
-    media instanceof Api.MessageMediaPhoto &&
-    media.photo instanceof Api.Photo
+    msg.media instanceof Api.MessageMediaPhoto &&
+    msg.media.photo instanceof Api.Photo
   ) {
-    const photo = media.photo;
+    const photo = msg.media.photo;
     const best = selectBestPhotoSize(photo.sizes);
 
     return {
       ...base,
       type: "photo",
       media: {
-        photo: {
-          id: String(photo.id),
-          accessHash: String(photo.accessHash),
-          dcId: photo.dcId,
-          width: best.w,
-          height: best.h,
-          size: best.size,
-        },
+        id: String(photo.id),
+        accessHash: String(photo.accessHash),
+        dcId: photo.dcId,
+        width: best.w,
+        height: best.h,
+        size: best.size,
       },
     };
   }
 
-  // Other media types later…
-  return { ...base, type: "unknown" };
-}
-
-/* ============================================================
-   SERVICE MESSAGE
-   ============================================================ */
-
-function parseServiceMessage(
-  msg: Api.MessageService,
-  accountId: string
-): UnifiedTelegramMessage {
+  // unknown media
   return {
-    platform: "telegram",
-    accountId,
-    messageId: Number(msg.id),
-    chatId: extractChatId(msg.peerId),
-    type: "service",
-    text: msg.action?.className || "Service message",
-    date: msg.date * 1000,
-    isOutgoing: msg.out ?? false,
-    from: extractSender(msg.fromId),
+    ...base,
+    type: "unknown",
   };
 }
 
-/* ============================================================
-   EXTRACT SENDER
-   ============================================================ */
+/* ========================================================================
+   SERVICE MESSAGE
+   ======================================================================== */
 
-function extractSender(peer: Api.TypePeer | null | undefined) {
-  if (!peer) return { id: "0", name: "Unknown" };
+/**
+ * Parses a Telegram service message
+ *
+ * Service messages represent system events in chats such as:
+ * - User joined/left
+ * - Chat title changed
+ * - Pinned messages
+ * - Voice chat events
+ *
+ * @param msg - Telegram API MessageService object
+ * @param accountId - The Telegram account ID
+ * @returns Unified message object marked as service type
+ */
+function parseService(
+  msg: Api.MessageService,
+  accountId: string
+): UnifiedTelegramMessage {
+  const { peerType, peerId, accessHash } = extractPeer(msg.peerId);
+  const senderId = extractSenderId(msg.fromId);
 
-  if (peer instanceof Api.PeerUser)
-    return { id: String(peer.userId), name: "User" };
+  return {
+    platform: "telegram",
+    accountId,
 
-  if (peer instanceof Api.PeerChat)
-    return { id: String(peer.chatId), name: "Chat" };
+    messageId: String(msg.id),
+    chatId: peerId,
 
-  if (peer instanceof Api.PeerChannel)
-    return { id: String(peer.channelId), name: "Channel" };
+    peerType,
+    peerId,
+    accessHash: accessHash ?? null,
 
-  return { id: "0", name: "Unknown" };
+    senderId,
+
+    date: new Date(msg.date * 1000).toISOString(),
+    isOutgoing: msg.out ?? false,
+
+    status: "sent",
+
+    from: {
+      id: senderId ?? "0",
+      name: senderId ? "User" : "Unknown",
+    },
+
+    type: "service",
+    text: msg.action?.className || "Service message",
+  };
 }
 
-/* ============================================================
-   CHAT ID
-   ============================================================ */
+/* ========================================================================
+   UNKNOWN / FALLBACK
+   ======================================================================== */
 
-function extractChatId(peer: Api.TypePeer | null | undefined): string {
-  if (!peer) return "unknown";
+function makeUnknown(accountId: string, id: number): UnifiedTelegramMessage {
+  return {
+    platform: "telegram",
+    accountId,
 
+    messageId: String(id),
+    chatId: "0",
+
+    peerType: "chat",
+    peerId: "0",
+    accessHash: null,
+
+    senderId: null,
+
+    date: new Date().toISOString(),
+    isOutgoing: false,
+
+    status: "failed",
+
+    from: {
+      id: "0",
+      name: "Unknown",
+    },
+
+    type: "unknown",
+    text: "",
+  };
+}
+
+/* ========================================================================
+   HELPERS
+   ======================================================================== */
+
+/**
+ * Extracts sender user ID from a Telegram peer object
+ *
+ * @param peer - Telegram peer object (PeerUser, PeerChat, or PeerChannel)
+ * @returns String user ID or null if not extractable
+ */
+function extractSenderId(peer: Api.TypePeer | null | undefined): string | null {
+  if (!peer) return null;
   if (peer instanceof Api.PeerUser) return String(peer.userId);
   if (peer instanceof Api.PeerChat) return String(peer.chatId);
   if (peer instanceof Api.PeerChannel) return String(peer.channelId);
-
-  return "unknown";
+  return null;
 }
 
-/* ============================================================
-   BEST PHOTO SIZE
-   ============================================================ */
+/**
+ * Extracts peer information (type, ID, access hash) from Telegram peer object
+ *
+ * Determines the peer type (user, chat, channel) and extracts the corresponding ID.
+ * Access hashes are not available at this level and are set to null.
+ *
+ * @param peer - Telegram peer object
+ * @returns Object containing peerType, peerId, and accessHash
+ */
+function extractPeer(peer: Api.TypePeer | null | undefined) {
+  if (!peer)
+    return {
+      peerType: "chat" as const,
+      peerId: "0",
+      accessHash: null,
+    };
 
+  if (peer instanceof Api.PeerUser)
+    return {
+      peerType: "user" as const,
+      peerId: String(peer.userId),
+      accessHash: null,
+    };
+
+  if (peer instanceof Api.PeerChat)
+    return {
+      peerType: "chat" as const,
+      peerId: String(peer.chatId),
+      accessHash: null,
+    };
+
+  if (peer instanceof Api.PeerChannel)
+    return {
+      peerType: "channel" as const,
+      peerId: String(peer.channelId),
+      accessHash: null,
+    };
+
+  return { peerType: "chat" as const, peerId: "0", accessHash: null };
+}
+
+/**
+ * Selects the best quality photo size from available sizes
+ *
+ * Prioritizes progressive photo sizes (which support streaming) and falls back
+ * to selecting the largest available size based on width × height dimensions.
+ *
+ * @param sizes - Array of available photo sizes from Telegram
+ * @returns Object containing width, height, and size in bytes
+ */
 function selectBestPhotoSize(sizes: Api.TypePhotoSize[]) {
   if (!sizes || sizes.length === 0) {
     return { w: 0, h: 0, size: null };
@@ -177,7 +286,7 @@ function selectBestPhotoSize(sizes: Api.TypePhotoSize[]) {
     };
   }
 
-  let best = sizes[0] as any;
+  let best: any = sizes[0];
 
   for (const s of sizes) {
     if ("w" in s && "h" in s) {
