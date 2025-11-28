@@ -1,4 +1,7 @@
 // frontend/src/realtime/events.ts
+
+import type { UnifiedTelegramMessage } from "../types/telegram.types";
+
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -7,68 +10,72 @@ export interface BaseRealtimePayload {
   timestamp: string; // ISO8601
 }
 
-// ────────────────────────────────────────────────
-// Telegram: Base payloads
-// ────────────────────────────────────────────────
+/* ========================================================================
+   Telegram unified realtime payloads
+   ======================================================================== */
 
+// NEW MESSAGE
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
   chatId: string;
-  message: {
-    id: string;
-    text: string;
-    date: string;
-    from: {
-      id: string;
-      name: string;
-    };
-    isOutgoing: boolean;
-  };
+  message: UnifiedTelegramMessage;
 }
 
-export interface TelegramTypingPayload extends BaseRealtimePayload {
-  chatId: string;
-  userId: string;
-  username: string; // added username field
-  isTyping: boolean;
-}
-
+// EDITED MESSAGE
 export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
   chatId: string;
   messageId: string;
   newText: string;
+
   from: {
     id: string;
     name: string;
+    username?: string | null;
   };
+
+  updated?: UnifiedTelegramMessage;
 }
 
+// TYPING
+export interface TelegramTypingPayload extends BaseRealtimePayload {
+  chatId: string;
+  userId: string;
+  username: string;
+  isTyping: boolean;
+}
+
+// DELETED
 export interface TelegramMessageDeletedPayload extends BaseRealtimePayload {
   chatId: string;
   messageIds: string[];
 }
 
+// READ UPDATED
 export interface TelegramReadUpdatesPayload extends BaseRealtimePayload {
   chatId: string;
   lastReadMessageId: string;
   direction?: "inbox" | "outbox";
 }
 
+// ACCOUNT STATUS
 export interface TelegramAccountStatusPayload extends BaseRealtimePayload {
   status: "online" | "offline" | "away" | "recently" | "hidden";
 }
 
+// VIEWS
 export interface TelegramMessageViewPayload extends BaseRealtimePayload {
   chatId: string;
   messageId: string;
   views: number;
 }
 
+// PINNED
 export interface TelegramPinnedMessagesPayload extends BaseRealtimePayload {
   chatId: string;
   messageIds: string[];
   pinned: boolean;
 }
 
+// ERROR
 export interface TelegramErrorPayload extends BaseRealtimePayload {
   code: number;
   message: string;
@@ -76,6 +83,7 @@ export interface TelegramErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
+// MESSAGE CONFIRMED (optimistic → real)
 export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   chatId: string;
   tempId: string;
@@ -83,9 +91,9 @@ export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   date: string;
 }
 
-// ────────────────────────────────────────────────
-// Server → Client events
-// ────────────────────────────────────────────────
+/* ========================================================================
+   Server → Client events
+   ======================================================================== */
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
@@ -104,9 +112,9 @@ export interface ServerToClientEvents {
   "system:error": (data: TelegramErrorPayload) => void;
 }
 
-// ────────────────────────────────────────────────
-// Client → Server events
-// ────────────────────────────────────────────────
+/* ========================================================================
+   Client → Server events (unchanged)
+   ======================================================================== */
 
 export interface TelegramSendMessagePayload {
   accountId: string;

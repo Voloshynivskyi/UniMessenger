@@ -14,6 +14,7 @@ import {
   getMessageHistory,
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
+import { getTelegramMedia } from "../controllers/mediaController";
 
 const router = Router();
 
@@ -65,4 +66,10 @@ router.get("/dialogs", requireAuth, getDialogs);
  * @access Private
  */
 router.get("/history", requireAuth, getMessageHistory);
+
+/** * @route GET /media/telegram/:accountId/:fileId
+ * @desc Stream Telegram media files (photos, videos, documents, etc.)
+ * @access Private
+ */
+router.get("/media/:accountId/:fileId", requireAuth, getTelegramMedia);
 export default router;

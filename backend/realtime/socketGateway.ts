@@ -5,6 +5,8 @@
 
 import type { Server } from "socket.io";
 import { logger } from "../utils/logger";
+import { appendFile } from "fs";
+import { appendLog } from "../utils/debugLogger";
 
 /**
  * Class representing the Socket Gateway
@@ -19,6 +21,10 @@ export class SocketGateway {
   /** Send an event to a specific user */
   emitToUser(userId: string, event: string, payload: any) {
     this.io.to(userId).emit(event, payload);
+    appendLog(
+      "TEST",
+      `[SocketGateway] Emitted event="${event}" to userId=${userId}\n`
+    );
   }
 
   /** Send an event to a specific room */

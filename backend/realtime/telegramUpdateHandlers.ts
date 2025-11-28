@@ -461,9 +461,9 @@ export const telegramUpdateHandlers: Record<
   ------------------------------------------------------------ */
   UpdateConnectionState: ({ update, accountId }) => {
     const state = update.state === 1 ? "Connected" : "Disconnected";
-    logger.info(
-      `[Telegram] Connection state for account ${accountId}: ${state}`
-    );
+    // logger.info(
+    //   `[Telegram] Connection state for account ${accountId}: ${state}`
+    // );
   },
 
   // ------------------------------------------------------------

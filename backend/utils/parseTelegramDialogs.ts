@@ -84,12 +84,11 @@ export function parseTelegramDialogs(
   dialogs: UnifiedTelegramChat[];
   nextOffset?: any;
 } {
-  appendLog("parseTelegramDialogs input", dialogs);
+  // appendLog("parseTelegramDialogs input", dialogs);
   if (!isFullDialog(dialogs)) {
-    logger.warn(
-      "[parseTelegramDialogs] Unsupported dialog type:",
-      { type: dialogs.constructor.name }
-    );
+    logger.warn("[parseTelegramDialogs] Unsupported dialog type:", {
+      type: dialogs.constructor.name,
+    });
     return { dialogs: [] };
   }
 
@@ -273,6 +272,6 @@ export function parseTelegramDialogs(
       };
     }
   }
-  appendLog("parseTelegramDialogs output", parsed);
+  // appendLog("parseTelegramDialogs output", parsed);
   return { dialogs: parsed, nextOffset };
 }

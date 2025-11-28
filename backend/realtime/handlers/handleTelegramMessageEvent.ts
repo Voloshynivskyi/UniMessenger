@@ -5,19 +5,12 @@ import { logger } from "../../utils/logger";
 import { getSocketGateway } from "../../realtime/socketGateway";
 import { TelegramMessageIndexService } from "../../services/telegram/telegramMessageIndexService";
 
+import { extractMediaFromMessage } from "../../utils/telegramMedia";
+
+import type { UnifiedTelegramMessage } from "../../types/telegram.types";
+
 /**
- * Handles Telegram message events (new or edited messages)
- *
- * This function processes incoming Telegram messages and emits them to connected clients via WebSocket.
- * It resolves the chat ID, extracts sender information, indexes new messages in the database,
- * and constructs the appropriate payload for real-time delivery.
- *
- * @param kind - Type of message event: "NEW" for new messages, "EDIT" for edited messages
- * @param msg - Telegram API Message object containing the message data
- * @param accountId - The Telegram account ID that received this message
- * @param userId - The UniMessenger user ID who owns the account
- * @param resolvedChatId - Pre-resolved chat ID from the message peer
- * @param resolvedAccessHash - Pre-resolved access hash for the chat (used for API calls)
+ * Handle NEW or EDIT Telegram Message and emit unified payload to frontend.
  */
 export async function handleTelegramMessageEvent({
   kind,
@@ -36,95 +29,159 @@ export async function handleTelegramMessageEvent({
 }) {
   try {
     logger.info("=== [handleTelegramMessageEvent] FIRED ===");
+
     if (!msg) return;
 
     const socket = getSocketGateway();
 
-    // ------------------------------------------------------
-    // 1) Extract chatId ONLY from resolvedChatId
-    // ------------------------------------------------------
+    // ----------------------------------------------
+    // 1) Chat ID
+    // ----------------------------------------------
     const chatId = resolvedChatId ?? "unknown";
 
-    // ------------------------------------------------------
-    // 2) sender
-    // ------------------------------------------------------
-    let senderUserId: string | null = null;
+    // ----------------------------------------------
+    // 2) Sender resolve
+    // ----------------------------------------------
+    let senderId: string | null = null;
 
     if (msg.fromId instanceof Api.PeerUser) {
-      senderUserId = String(msg.fromId.userId);
+      senderId = String(msg.fromId.userId);
     } else if (msg.peerId instanceof Api.PeerUser) {
-      senderUserId = String(msg.peerId.userId);
+      senderId = String(msg.peerId.userId);
     }
 
-    // ------------------------------------------------------
-    // 3) text
-    // ------------------------------------------------------
-    const text = msg.message ?? "";
-
-    // ------------------------------------------------------
-    // 4) date
-    // ------------------------------------------------------
-    const dateIso = new Date(msg.date * 1000).toISOString();
-
-    // ------------------------------------------------------
-    // 5) "from" object
-    // ------------------------------------------------------
     const from = {
-      id: senderUserId ?? "0",
-      name: `User ${senderUserId ?? "unknown"}`,
+      id: senderId ?? "0",
+      name: `User ${senderId ?? "unknown"}`,
+      username: null as string | null, // strict-safe
     };
 
-    // ------------------------------------------------------
-    // 6) Index (NEW only)
-    // ------------------------------------------------------
+    // ----------------------------------------------
+    // 3) Text (caption or message)
+    // ----------------------------------------------
+    const text = msg.message ?? "";
+
+    // ----------------------------------------------
+    // 4) Date
+    // ----------------------------------------------
+    const dateIso = new Date(msg.date * 1000).toISOString();
+
+    // ----------------------------------------------
+    // 5) Unified media
+    // ----------------------------------------------
+    const mediaInfo = extractMediaFromMessage(msg);
+
+    // ----------------------------------------------
+    // 6) Peer type detection
+    // ----------------------------------------------
+    let peerType: "user" | "chat" | "channel" | null = null;
+
+    if (msg.peerId instanceof Api.PeerUser) {
+      peerType = "user";
+    } else if (msg.peerId instanceof Api.PeerChat) {
+      peerType = "chat";
+    } else if (msg.peerId instanceof Api.PeerChannel) {
+      peerType = "channel";
+    }
+
+    // ----------------------------------------------
+    // 7) Build UnifiedTelegramMessage
+    // ----------------------------------------------
+    const unifiedMessage: UnifiedTelegramMessage = {
+      platform: "telegram",
+
+      accountId,
+      chatId,
+
+      messageId: String(msg.id),
+      date: dateIso,
+      isOutgoing: msg.out ?? false,
+      status: "sent",
+
+      text,
+      from,
+
+      senderId,
+
+      // Додаємо peerType тільки якщо він є
+      ...(peerType !== null ? { peerType } : {}),
+
+      peerId: chatId,
+      accessHash: resolvedAccessHash ?? null,
+
+      type: mediaInfo.type,
+      media: mediaInfo.media,
+    };
+
+    // ----------------------------------------------
+    // 8) Index NEW messages
+    // ----------------------------------------------
     if (kind === "NEW") {
+      const peerMeta: {
+        rawPeerType?: string;
+        rawPeerId?: string;
+        rawAccessHash?: string | null;
+      } = {
+        rawPeerId: chatId,
+        rawAccessHash: resolvedAccessHash ?? null,
+      };
+
+      if (peerType !== null) {
+        peerMeta.rawPeerType = peerType;
+      }
+
       await TelegramMessageIndexService.addIndex(
         accountId,
-        String(msg.id),
+        unifiedMessage.messageId,
         chatId,
         new Date(msg.date * 1000),
-        {
-          rawPeerType: "dialog",
-          rawPeerId: chatId,
-          rawAccessHash: resolvedAccessHash ?? null,
-        }
+        peerMeta
       );
     }
 
-    // ------------------------------------------------------
-    // 7) Payload
-    // ------------------------------------------------------
-    const payload = {
+    // ----------------------------------------------
+    // 9) Base payload meta
+    // ----------------------------------------------
+    const baseMeta = {
       platform: "telegram" as const,
       accountId,
       timestamp: new Date().toISOString(),
-      chatId,
-      message: {
-        id: String(msg.id),
-        text,
-        date: dateIso,
-        from,
-        isOutgoing: msg.out ?? false,
-      },
     };
 
-    // ------------------------------------------------------
-    // 8) Emit
-    // ------------------------------------------------------
+    // ----------------------------------------------
+    // 10) Emit NEW message
+    // ----------------------------------------------
     if (kind === "NEW") {
+      const payload = {
+        ...baseMeta,
+        chatId,
+        message: unifiedMessage,
+      };
+
       logger.info(
         `[handleTelegramMessageEvent] Emitting telegram:new_message → chatId=${chatId}, msgId=${msg.id}`
       );
+
       socket.emitToUser(userId, "telegram:new_message", payload);
-    } else {
+    }
+    // ----------------------------------------------
+    // 11) Emit EDIT message
+    // ----------------------------------------------
+    else {
+      const payload = {
+        ...baseMeta,
+        chatId,
+        messageId: unifiedMessage.messageId,
+        newText: unifiedMessage.text ?? "",
+        from: unifiedMessage.from,
+        updated: unifiedMessage,
+      };
+
       logger.info(
         `[handleTelegramMessageEvent] Emitting telegram:message_edited → chatId=${chatId}, msgId=${msg.id}`
       );
-      socket.emitToUser(userId, "telegram:message_edited", {
-        ...payload,
-        messageId: String(msg.id),
-        newText: text,
-      });
+
+      socket.emitToUser(userId, "telegram:message_edited", payload);
     }
 
     logger.info("[handleTelegramMessageEvent] DONE");

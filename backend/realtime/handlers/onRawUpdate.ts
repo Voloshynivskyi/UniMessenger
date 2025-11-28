@@ -28,10 +28,10 @@ export async function onRawUpdate(
     const className =
       raw?.className ?? raw?.constructor?.name ?? "UNKNOWN_RAW_TYPE";
 
-    logger.info("=== [onRawUpdate] RAW EVENT ===");
-    logger.info(`accountId=${accountId}, userId=${userId}`);
-    logger.info(`[onRawUpdate] raw class = ${className}`);
-    logger.info("[onRawUpdate] keys:", Object.keys(raw || {}));
+    // logger.info("=== [onRawUpdate] RAW EVENT ===");
+    // logger.info(`accountId=${accountId}, userId=${userId}`);
+    // logger.info(`[onRawUpdate] raw class = ${className}`);
+    // logger.info("[onRawUpdate] keys:", Object.keys(raw || {}));
 
     if (!className || !isTelegramUpdateType(className)) {
       // This is a raw update we don't handle yet (can be safely ignored)

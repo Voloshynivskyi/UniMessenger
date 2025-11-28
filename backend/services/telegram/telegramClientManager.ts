@@ -294,7 +294,7 @@ export class TelegramClientManager {
     client.addEventHandler(async (event) => {
       const raw = event?.update ?? event;
       const name = raw?.className ?? raw?.constructor?.name;
-      console.log("[RAW] Incoming Raw update:", name);
+      // console.log("[RAW] Incoming Raw update:", name);
 
       try {
         await onRawUpdate(event, accountId, userId);

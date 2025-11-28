@@ -1,5 +1,6 @@
 // backend/types/unifiedMessage.types.ts
 import type { UnifiedTelegramMessage } from "./telegram.types";
+
 /**
  * Base structure for any unified message across all platforms.
  * Every specific provider (Telegram, Discord, Slack) must extend this type.
@@ -7,6 +8,7 @@ import type { UnifiedTelegramMessage } from "./telegram.types";
 
 export type MessageStatus = "pending" | "sent" | "delivered" | "failed";
 export type UnifiedMessagePlatform = "telegram" | "discord" | "slack";
+
 export interface BaseUnifiedMessage {
   platform: UnifiedMessagePlatform;
 
@@ -30,6 +32,7 @@ export interface BaseUnifiedMessage {
     username?: string | null;
   };
 }
+
 /**
  * Union type for all unified message types.
  * Frontend components should rely on this type.

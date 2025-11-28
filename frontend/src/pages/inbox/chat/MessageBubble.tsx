@@ -8,14 +8,18 @@ interface Props {
 
 export default function MessageBubble({ message, isSelf }: Props) {
   const dateObj = new Date(message.date as any);
-  const valid = !isNaN(dateObj.getTime());
+  const timeText = !isNaN(dateObj.getTime())
+    ? dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "--:--";
 
   const bubbleBg = isSelf ? "primary.main" : "background.paper";
   const bubbleColor = isSelf ? "primary.contrastText" : "text.primary";
 
-  const timeText = valid
-    ? dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "--:--";
+  const media = message.media;
+  const mediaUrl =
+    media && message.accountId
+      ? `/media/telegram/${message.accountId}/${media.id}`
+      : null;
 
   return (
     <Box
@@ -35,33 +39,21 @@ export default function MessageBubble({ message, isSelf }: Props) {
           boxShadow: (t) => `0 2px 10px ${t.palette.action.hover}`,
           position: "relative",
           pr: 6,
-          transition: "transform 120ms ease, box-shadow 120ms ease",
-          "&:hover": {
-            transform: "translateY(-1px)",
-            boxShadow: (t) => `0 4px 14px ${t.palette.action.hover}`,
-          },
         }}
       >
-        {/* TEXT */}
+        {/* ----- TEXT ----- */}
         {message.type === "text" && (
-          <Typography
-            variant="body2"
-            sx={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              lineHeight: 1.45,
-            }}
-          >
+          <Typography sx={{ whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
             {message.text}
           </Typography>
         )}
 
-        {/* PHOTO */}
-        {message.type === "photo" && message.media?.photo && (
+        {/* ----- PHOTO ----- */}
+        {message.type === "photo" && mediaUrl && (
           <Box>
             <Box
               component="img"
-              src={`/api/telegram/photo/${message.media.photo.id}`}
+              src={mediaUrl}
               alt="photo"
               sx={{
                 display: "block",
@@ -70,18 +62,49 @@ export default function MessageBubble({ message, isSelf }: Props) {
               }}
             />
             {message.text && (
-              <Typography
-                variant="body2"
-                sx={{
-                  mt: 0.75,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
+              <Typography sx={{ mt: 0.75, whiteSpace: "pre-wrap" }}>
                 {message.text}
               </Typography>
             )}
           </Box>
+        )}
+
+        {/* ----- VIDEO ----- */}
+        {message.type === "video" && mediaUrl && (
+          <video
+            src={mediaUrl}
+            controls
+            style={{ maxWidth: "100%", borderRadius: "8px", marginTop: "4px" }}
+          />
+        )}
+
+        {/* ----- DOCUMENT / FILE ----- */}
+        {message.type === "file" && mediaUrl && (
+          <a
+            href={mediaUrl}
+            download={message.media?.fileName ?? "file"}
+            style={{ color: bubbleColor }}
+          >
+            📎 {message.media?.fileName ?? "Download file"}
+          </a>
+        )}
+
+        {/* ----- AUDIO ----- */}
+        {(message.type === "voice" || message.type === "audio") && mediaUrl && (
+          <audio controls src={mediaUrl} style={{ width: "100%" }} />
+        )}
+
+        {/* ----- STICKER ----- */}
+        {message.type === "sticker" && mediaUrl && (
+          <img
+            src={mediaUrl}
+            alt="sticker"
+            style={{
+              maxWidth: "180px",
+              maxHeight: "180px",
+              display: "block",
+            }}
+          />
         )}
 
         {/* TIME */}

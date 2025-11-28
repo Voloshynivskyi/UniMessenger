@@ -427,38 +427,37 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   useEffect(() => {
     if (!socketClient) return;
 
+    /* ==========================================================
+     NEW MESSAGE
+     ========================================================== */
     const handleNewMessage = (p: TelegramNewMessagePayload) => {
       if (p.platform !== "telegram") return;
 
       const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
-      const raw = p.message;
-      const tempId = (p as any).tempId ?? (raw as any).tempId ?? null;
-      const msg: UnifiedTelegramMessage = {
-        platform: "telegram",
 
+      // backend already sends unified message
+      const raw: UnifiedTelegramMessage = p.message;
+
+      const msg: UnifiedTelegramMessage = {
+        ...raw,
+        platform: "telegram",
         accountId: p.accountId,
         chatId: String(p.chatId),
 
-        /** real id from backend */
-        messageId: String(raw.id),
-
-        /** backend data → message is guaranteed to be sent */
-        status: "sent",
-
-        /** when the real message arrives — tempId is no longer needed */
-        tempId,
-
-        text: raw.text ?? "",
+        // ensure correct formats
+        messageId: String(raw.messageId),
         date: normalizeDateToISO(raw.date),
-        isOutgoing: raw.isOutgoing,
 
-        from: raw.from,
-        type: "text",
+        status: raw.status ?? "sent",
+        tempId: raw.tempId ?? null,
       };
 
       addOrUpdateMessage(chatKey, msg);
     };
 
+    /* ==========================================================
+     EDITED MESSAGE
+     ========================================================== */
     const handleEdited = (p: TelegramMessageEditedPayload) => {
       if (p.platform !== "telegram") return;
 
@@ -466,44 +465,50 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       const target = String(p.messageId);
 
       setMessagesByChat((prev) => {
-        const cur = prev[chatKey];
-        if (!cur) return prev;
+        const list = prev[chatKey];
+        if (!list) return prev;
 
         return {
           ...prev,
-          [chatKey]: cur.map((m) =>
+          [chatKey]: list.map((m) =>
             String(m.messageId) === target ? { ...m, text: p.newText } : m
           ),
         };
       });
     };
 
+    /* ==========================================================
+     DELETED MESSAGE
+     ========================================================== */
     const handleDeleted = (p: TelegramMessageDeletedPayload) => {
       if (p.platform !== "telegram") return;
 
       const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
-      const ids = new Set(p.messageIds.map((x) => String(x)));
+      const ids = new Set(p.messageIds.map(String));
 
       setMessagesByChat((prev) => {
-        const cur = prev[chatKey];
-        if (!cur) return prev;
+        const list = prev[chatKey];
+        if (!list) return prev;
 
         return {
           ...prev,
-          [chatKey]: cur.filter((m) => !ids.has(String(m.messageId))),
+          [chatKey]: list.filter((m) => !ids.has(String(m.messageId))),
         };
       });
     };
 
+    /* ==========================================================
+     SOCKET BINDINGS
+     ========================================================== */
     socketClient.on("telegram:new_message", handleNewMessage);
-    socketClient.on("telegram:message_edited", handleEdited);
     socketClient.on("telegram:message_confirmed", handleNewMessage as any);
+    socketClient.on("telegram:message_edited", handleEdited);
     socketClient.on("telegram:message_deleted", handleDeleted);
 
     return () => {
       socketClient.off("telegram:new_message", handleNewMessage);
-      socketClient.off("telegram:message_edited", handleEdited);
       socketClient.off("telegram:message_confirmed", handleNewMessage as any);
+      socketClient.off("telegram:message_edited", handleEdited);
       socketClient.off("telegram:message_deleted", handleDeleted);
     };
   }, [addOrUpdateMessage]);
