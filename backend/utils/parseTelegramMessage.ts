@@ -2,6 +2,7 @@
 
 import { Api } from "telegram";
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
+import { extractMediaFromMessage } from "./telegramMedia";
 
 /**
  * Main unified message parser for Telegram MTProto messages
@@ -57,6 +58,7 @@ function parseNormal(
   const { peerType, peerId, accessHash } = extractPeer(msg.peerId);
   const senderId = extractSenderId(msg.fromId);
 
+  // Базова частина повідомлення (текст, метадані)
   const base: UnifiedTelegramMessage = {
     platform: "telegram",
     accountId,
@@ -77,42 +79,22 @@ function parseNormal(
 
     from: {
       id: senderId ?? "0",
+      // TODO: тут потім можна підтягувати ім'я з кешу юзерів
       name: senderId ? "User" : "Unknown",
     },
 
+    // текст / caption
     type: "text",
     text: msg.message || "",
   };
 
-  // no media
-  if (!msg.media) return base;
+  // 🔥 ЄДИНА ТОЧКА ПРАВДИ ДЛЯ МЕДІА — extractMediaFromMessage
+  const { type, media } = extractMediaFromMessage(msg);
 
-  // photo
-  if (
-    msg.media instanceof Api.MessageMediaPhoto &&
-    msg.media.photo instanceof Api.Photo
-  ) {
-    const photo = msg.media.photo;
-    const best = selectBestPhotoSize(photo.sizes);
-
-    return {
-      ...base,
-      type: "photo",
-      media: {
-        id: String(photo.id),
-        accessHash: String(photo.accessHash),
-        dcId: photo.dcId,
-        width: best.w,
-        height: best.h,
-        size: best.size,
-      },
-    };
-  }
-
-  // unknown media
   return {
     ...base,
-    type: "unknown",
+    type,
+    media,
   };
 }
 
@@ -258,47 +240,4 @@ function extractPeer(peer: Api.TypePeer | null | undefined) {
     };
 
   return { peerType: "chat" as const, peerId: "0", accessHash: null };
-}
-
-/**
- * Selects the best quality photo size from available sizes
- *
- * Prioritizes progressive photo sizes (which support streaming) and falls back
- * to selecting the largest available size based on width × height dimensions.
- *
- * @param sizes - Array of available photo sizes from Telegram
- * @returns Object containing width, height, and size in bytes
- */
-function selectBestPhotoSize(sizes: Api.TypePhotoSize[]) {
-  if (!sizes || sizes.length === 0) {
-    return { w: 0, h: 0, size: null };
-  }
-
-  const progressive = sizes.find(
-    (s) => s instanceof Api.PhotoSizeProgressive
-  ) as Api.PhotoSizeProgressive | undefined;
-
-  if (progressive) {
-    return {
-      w: progressive.w,
-      h: progressive.h,
-      size: progressive.sizes?.[progressive.sizes.length - 1] ?? null,
-    };
-  }
-
-  let best: any = sizes[0];
-
-  for (const s of sizes) {
-    if ("w" in s && "h" in s) {
-      if ((s.w ?? 0) * (s.h ?? 0) > (best.w ?? 0) * (best.h ?? 0)) {
-        best = s;
-      }
-    }
-  }
-
-  return {
-    w: best.w ?? 0,
-    h: best.h ?? 0,
-    size: (best as any).size ?? null,
-  };
 }

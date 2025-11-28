@@ -1,7 +1,6 @@
 // backend/services/telegram/TelegramService.ts
 import dotenv from "dotenv";
 dotenv.config();
-
 import { Api, Logger, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { computeCheck } from "telegram/Password";
@@ -22,6 +21,7 @@ import bigInt from "big-integer";
 import telegramClientManager from "./telegramClientManager";
 import { logger } from "../../utils/logger";
 import { parseTelegramMessage } from "../../utils/parseTelegramMessage";
+import { appendLog } from "../../utils/debugLogger";
 
 const API_ID = Number(process.env.TELEGRAM_API_ID);
 const API_HASH = process.env.TELEGRAM_API_HASH!;
@@ -288,10 +288,11 @@ export class TelegramService {
     });
 
     // Parse messages → always returns UnifiedTelegramMessage
+    appendLog("[TelegramService:getChatHistory] Parsing,", rawMessages);
     const parsedMessages = rawMessages.map((msg) =>
       parseTelegramMessage(msg, accountId)
     );
-
+    appendLog("[TelegramService:getChatHistory] Parsed,", parsedMessages);
     const lastMessage = rawMessages.length
       ? rawMessages[rawMessages.length - 1]
       : null;

@@ -28,7 +28,22 @@ export async function getTelegramMedia(req: Request, res: Response) {
     const { accountId, fileId } = req.params;
     const messageId = fileId;
 
+    const debugFlag = req.query.debug;
+    const debug =
+      debugFlag === "1" ||
+      debugFlag === "true" ||
+      debugFlag === "yes" ||
+      debugFlag === "debug";
+
+    logger.info("[MEDIA] Incoming GET /media", {
+      accountId,
+      messageId,
+      query: req.query,
+    });
+
     if (!accountId || !messageId) {
+      const payload = { error: "Invalid parameters", accountId, messageId };
+      if (debug) return res.status(400).json(payload);
       return res.status(400).json({ error: "Invalid parameters" });
     }
 
@@ -46,6 +61,16 @@ export async function getTelegramMedia(req: Request, res: Response) {
 
     if (cachedPath && fs.existsSync(cachedPath)) {
       logger.info(`[MEDIA] Cache hit → ${cachedPath}`);
+
+      if (debug) {
+        return res.json({
+          mode: "cache",
+          accountId,
+          messageId,
+          cachedPath,
+        });
+      }
+
       return streamFile(req, res, cachedPath);
     }
 
@@ -61,8 +86,18 @@ export async function getTelegramMedia(req: Request, res: Response) {
     });
 
     if (!index) {
-      return res.status(404).json({ error: "Media index not found" });
+      logger.warn("[MEDIA] Media index NOT FOUND", { accountId, messageId });
+
+      const payload = {
+        error: "Media index not found",
+        accountId,
+        messageId,
+      };
+
+      return res.status(404).json(debug ? payload : { error: payload.error });
     }
+
+    logger.info("[MEDIA] Index record found", index);
 
     const rawPeerType = index.rawPeerType as
       | "user"
@@ -79,16 +114,25 @@ export async function getTelegramMedia(req: Request, res: Response) {
     const accessHash = index.rawAccessHash ?? undefined;
 
     if (!peerId) {
-      return res.status(500).json({ error: "Media index missing peerId" });
+      const payload = {
+        error: "Media index missing peerId",
+        index,
+      };
+      return res.status(500).json(debug ? payload : { error: payload.error });
     }
 
     /** 3) Get Telegram client */
     let client = telegramClientManager.getClient(accountId);
     if (!client) {
+      logger.warn("[MEDIA] No active client, attaching...", { accountId });
       await telegramClientManager.attachAccount(accountId);
       client = telegramClientManager.getClient(accountId);
       if (!client) {
-        return res.status(500).json({ error: "Telegram client not available" });
+        const payload = {
+          error: "Telegram client not available",
+          accountId,
+        };
+        return res.status(500).json(debug ? payload : { error: payload.error });
       }
     }
 
@@ -97,7 +141,8 @@ export async function getTelegramMedia(req: Request, res: Response) {
 
     const msgIdNum = parseInt(messageId, 10);
     if (Number.isNaN(msgIdNum)) {
-      return res.status(400).json({ error: "Invalid messageId" });
+      const payload = { error: "Invalid messageId", messageId };
+      return res.status(400).json(debug ? payload : { error: payload.error });
     }
 
     /** 5) Fetch message */
@@ -105,11 +150,23 @@ export async function getTelegramMedia(req: Request, res: Response) {
     const message = Array.isArray(messages) ? messages[0] : messages;
 
     if (!message || !(message instanceof Api.Message)) {
-      return res.status(404).json({ error: "Message not found" });
+      const payload = {
+        error: "Message not found",
+        accountId,
+        messageId,
+        peerType,
+        peerId,
+      };
+      return res.status(404).json(debug ? payload : { error: payload.error });
     }
 
     if (!message.media) {
-      return res.status(404).json({ error: "Message has no media" });
+      const payload = {
+        error: "Message has no media",
+        accountId,
+        messageId,
+      };
+      return res.status(404).json(debug ? payload : { error: payload.error });
     }
 
     /** 6) Detect MIME */
@@ -122,11 +179,23 @@ export async function getTelegramMedia(req: Request, res: Response) {
     const buffer = await client.downloadMedia(message.media);
 
     if (!buffer) {
-      return res.status(404).json({ error: "Media download failed" });
+      const payload = { error: "Media download failed" };
+      return res.status(404).json(debug ? payload : { error: payload.error });
     }
 
     fs.writeFileSync(filePath, buffer);
     logger.info(`[MEDIA] Cached → ${filePath}`);
+
+    if (debug) {
+      return res.json({
+        mode: "downloaded",
+        accountId,
+        messageId,
+        peer: { peerType, peerId, accessHash },
+        filePath,
+        mimeType,
+      });
+    }
 
     return streamFile(
       req,
@@ -136,7 +205,10 @@ export async function getTelegramMedia(req: Request, res: Response) {
     );
   } catch (err: any) {
     logger.error("[MEDIA] ERROR:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({
+      error: err.message,
+      ...(req.query.debug ? { stack: err.stack } : {}),
+    });
   }
 }
 

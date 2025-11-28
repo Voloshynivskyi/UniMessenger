@@ -23,8 +23,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
   appendLog("MEDIA_RAW_INPUT", {
     msgId: msg.id,
     className: rawMedia?.constructor?.name,
-    groupedId: mediaGroupId,
-    raw: rawMedia,
+    raw: JSON.stringify(rawMedia, null, 2),
   });
 
   // ───────────────────────────────────────────────

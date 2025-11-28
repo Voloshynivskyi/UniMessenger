@@ -71,5 +71,5 @@ router.get("/history", requireAuth, getMessageHistory);
  * @desc Stream Telegram media files (photos, videos, documents, etc.)
  * @access Private
  */
-router.get("/media/:accountId/:fileId", requireAuth, getTelegramMedia);
+router.get("/media/:accountId/:fileId"/*, requireAuth*/, getTelegramMedia);
 export default router;
