@@ -1,6 +1,7 @@
+// frontend/src/pages/inbox/chat/MessageBubble.tsx
 import { Box, Typography } from "@mui/material";
-import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
 import MediaRenderer from "./MediaRenderer";
+import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
 
 interface Props {
   message: UnifiedTelegramMessage;
@@ -8,62 +9,33 @@ interface Props {
 }
 
 export default function MessageBubble({ message, isSelf }: Props) {
-  const dateObj = new Date(message.date as any);
-
-  const fileUrl =
-    message.type !== "text" && message.media
-      ? `/api/telegram/media/${message.accountId}/${message.messageId}`
-      : null;
-  console.log("BUBBLE:", {
-    id: message.messageId,
-    type: message.type,
-    media: message.media,
-  });
+  const hasMedia = !!message.media && message.type !== "text";
+  const hasText = !!message.text?.trim();
 
   return (
     <Box
       sx={{
-        display: "flex",
-        justifyContent: isSelf ? "flex-end" : "flex-start",
+        p: 1.25,
+        borderRadius: 3,
+        bgcolor: isSelf ? "primary.main" : "background.paper",
+        color: isSelf ? "primary.contrastText" : "text.primary",
+        boxShadow: 1,
       }}
     >
-      <Box
-        sx={{
-          maxWidth: "68%",
-          px: 1.75,
-          py: 1.15,
-          borderRadius: 2.5,
-          bgcolor: isSelf ? "primary.main" : "background.paper",
-          color: isSelf ? "primary.contrastText" : "text.primary",
-          position: "relative",
-          pr: 6,
-        }}
-      >
-        {/* MEDIA */}
-        {message.type !== "text" && message.media && (
-          <MediaRenderer message={message} />
-        )}
+      {hasMedia && <MediaRenderer message={message} />}
 
-        {/* TEXT ONLY */}
-        {message.type === "text" && (
-          <Typography
-            variant="body2"
-            sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-          >
-            {message.text}
-          </Typography>
-        )}
-
+      {hasText && (
         <Typography
-          variant="caption"
-          sx={{ position: "absolute", bottom: 4, right: 8, opacity: 0.75 }}
+          variant="body2"
+          sx={{
+            mt: hasMedia ? 1 : 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
         >
-          {dateObj.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {message.text}
         </Typography>
-      </Box>
+      )}
     </Box>
   );
 }

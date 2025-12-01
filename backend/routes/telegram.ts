@@ -15,6 +15,7 @@ import {
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
 import { getTelegramMedia } from "../controllers/mediaController";
+import { uploadTelegramMedia } from "../controllers/mediaController";
 
 const router = Router();
 
@@ -71,5 +72,12 @@ router.get("/history", requireAuth, getMessageHistory);
  * @desc Stream Telegram media files (photos, videos, documents, etc.)
  * @access Private
  */
-router.get("/media/:accountId/:fileId"/*, requireAuth*/, getTelegramMedia);
+router.get("/media/:accountId/:fileId", requireAuth, getTelegramMedia);
+
+/** * @route POST /media/telegram/upload
+ * @desc Upload media to Telegram servers
+ * @access Private
+ */
+
+router.post("/media/telegram/upload", requireAuth, uploadTelegramMedia);
 export default router;

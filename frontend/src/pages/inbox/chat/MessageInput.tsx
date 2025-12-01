@@ -41,7 +41,7 @@ export default function MessageInput({
       platform: "telegram",
       accountId,
       chatId: String(peerId),
-      messageId: tempId, // TEMPORARY — real will replace later
+      messageId: String(tempId), // TEMPORARY — real will replace later
       tempId,
       text,
       date: nowISO,

@@ -8,7 +8,7 @@ import telegramClientManager from "../services/telegram/telegramClientManager";
 import { prisma } from "../lib/prisma";
 import { resolveTelegramPeer } from "../utils/resolveTelegramPeer";
 import { logger } from "../utils/logger";
-
+import multer from "multer";
 /** Cache base folder */
 const MEDIA_ROOT = path.join(process.cwd(), "stored-media", "telegram");
 
@@ -16,6 +16,97 @@ function ensureDir(accountId: string) {
   const dir = path.join(MEDIA_ROOT, accountId);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+// ────────────────────────────────────────────────
+// POST /media/telegram/upload
+// ────────────────────────────────────────────────
+
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+export const uploadTelegramMedia = [
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    try {
+      const { accountId, chatId, peerType, accessHash } = req.body;
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({ error: "Missing file" });
+      }
+      if (!accountId || !chatId) {
+        return res.status(400).json({ error: "Missing accountId or chatId" });
+      }
+
+      // ensure folder
+      const outDir = path.join(
+        process.cwd(),
+        "stored-media",
+        "telegram-outgoing",
+        accountId
+      );
+      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+      // generate fileId (we use timestamp + random)
+      const fileId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      // detect extension from MIME
+      const mime = file.mimetype;
+      const ext = detectUploadExt(mime);
+
+      const finalName = ext ? `${fileId}${ext}` : fileId;
+      const finalPath = path.join(outDir, finalName);
+
+      // write file to disk
+      fs.writeFileSync(finalPath, file.buffer);
+
+      // determine media kind
+      const kind = detectUploadKind(mime);
+
+      return res.json({
+        ok: true,
+        fileId,
+        mime,
+        kind,
+        originalName: file.originalname,
+        size: file.size,
+        peerType: peerType ?? "chat",
+        accessHash: accessHash ?? null,
+      });
+    } catch (err: any) {
+      console.error("[UPLOAD ERROR]", err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+];
+
+// Detect extension for uploaded file
+function detectUploadExt(mime: string): string {
+  if (mime.startsWith("image/jpeg")) return ".jpg";
+  if (mime.startsWith("image/png")) return ".png";
+  if (mime.startsWith("image/webp")) return ".webp";
+  if (mime.startsWith("image/gif")) return ".gif";
+  if (mime.startsWith("video/mp4")) return ".mp4";
+  if (mime.startsWith("audio/ogg")) return ".ogg";
+  if (mime.startsWith("audio/mpeg")) return ".mp3";
+  if (mime.startsWith("application/pdf")) return ".pdf";
+  return "";
+}
+
+// Determine telegram media type
+function detectUploadKind(
+  mime: string
+): "photo" | "video" | "voice" | "round_video" | "gif" | "document" {
+  if (mime.startsWith("image/")) {
+    if (mime === "image/gif") return "gif";
+    return "photo";
+  }
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/ogg")) return "voice"; // voice messages
+  if (mime.startsWith("audio/")) return "voice";
+
+  return "document";
 }
 
 /**
