@@ -79,16 +79,16 @@ function parseNormal(
 
     from: {
       id: senderId ?? "0",
-      // TODO: тут потім можна підтягувати ім'я з кешу юзерів
+      // User name can be resolved from cache in future implementation
       name: senderId ? "User" : "Unknown",
     },
 
-    // текст / caption
+    // Text or caption
     type: "text",
     text: msg.message || "",
   };
 
-  // 🔥 ЄДИНА ТОЧКА ПРАВДИ ДЛЯ МЕДІА — extractMediaFromMessage
+  // Extract media using unified media parser
   const { type, media } = extractMediaFromMessage(msg);
 
   return {

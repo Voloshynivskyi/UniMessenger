@@ -170,7 +170,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
   }
 
   // ───────────────────────────────────────────────
-  // WEB PAGE PREVIEW → тимчасово тип "file"
+  // WEB PAGE PREVIEW - treated as file type
   // ───────────────────────────────────────────────
   if (
     rawMedia instanceof Api.MessageMediaWebPage &&
@@ -196,10 +196,11 @@ export function extractMediaFromMessage(msg: Api.Message): {
     });
 
     // Поки що в UnifiedTelegramMessageType немає "webpage" → мапимо як "file"
+    // WEBPAGE НЕ є media → показуємо як текст
     return {
-      type: "file",
-      media,
-      mediaGroupId,
+      type: "text",
+      media: null,
+      mediaGroupId: null,
     };
   }
 

@@ -103,7 +103,7 @@ export async function handleTelegramMessageEvent({
 
       senderId,
 
-      // Додаємо peerType тільки якщо він є
+      // Add peerType only if available
       ...(peerType !== null ? { peerType } : {}),
 
       peerId: chatId,
