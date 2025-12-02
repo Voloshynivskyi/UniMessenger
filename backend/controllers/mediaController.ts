@@ -1,175 +1,148 @@
 // backend/controllers/mediaController.ts
-
+import { sendOk, sendError } from "./telegramController";
 import type { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+import multer from "multer";
 import { Api } from "telegram";
+
 import telegramClientManager from "../services/telegram/telegramClientManager";
 import { prisma } from "../lib/prisma";
 import { resolveTelegramPeer } from "../utils/resolveTelegramPeer";
 import { logger } from "../utils/logger";
-import multer from "multer";
-/** Cache base folder */
-const MEDIA_ROOT = path.join(process.cwd(), "stored-media", "telegram");
+import { log } from "console";
 
-function ensureDir(accountId: string) {
-  const dir = path.join(MEDIA_ROOT, accountId);
+/* ========================================================================
+   CONSTANTS & HELPERS (folders)
+   ======================================================================== */
+
+const INCOMING_ROOT = path.join(process.cwd(), "stored-media", "telegram");
+const OUTGOING_ROOT = path.join(
+  process.cwd(),
+  "stored-media",
+  "telegram-outgoing"
+);
+
+function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
-// ────────────────────────────────────────────────
-// POST /media/telegram/upload
-// ────────────────────────────────────────────────
-
+/* ========================================================================
+   MULTER (UPLOAD)
+   ======================================================================== */
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+/* ========================================================================
+   UPLOAD OUTGOING MEDIA
+   POST /api/telegram/media/:accountId/upload
+   ======================================================================== */
 export const uploadTelegramMedia = [
   upload.single("file"),
   async (req: Request, res: Response) => {
     try {
-      const { accountId, chatId, peerType, accessHash } = req.body;
+      const accountId = req.params.accountId;
+      const chatId = req.body.chatId;
       const file = req.file;
 
-      if (!file) {
-        return res.status(400).json({ error: "Missing file" });
-      }
+      logger.info("[MEDIA][UPLOAD] Incoming request", {
+        accountId,
+        chatId,
+        hasFile: !!file,
+        body: req.body,
+      });
+
       if (!accountId || !chatId) {
-        return res.status(400).json({ error: "Missing accountId or chatId" });
+        return sendError(
+          res,
+          "BAD_REQUEST",
+          "Missing accountId or chatId",
+          400
+        );
       }
 
-      // ensure folder
-      const outDir = path.join(
-        process.cwd(),
-        "stored-media",
-        "telegram-outgoing",
-        accountId
-      );
-      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+      if (!file) {
+        return sendError(res, "BAD_REQUEST", "No file uploaded", 400);
+      }
 
-      // generate fileId (we use timestamp + random)
-      const fileId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const outDir = path.join(OUTGOING_ROOT, accountId);
+      ensureDir(outDir);
 
-      // detect extension from MIME
-      const mime = file.mimetype;
-      const ext = detectUploadExt(mime);
+      const fileId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-      const finalName = ext ? `${fileId}${ext}` : fileId;
+      // Визначаємо оригінальне розширення
+      let originalExt = path.extname(file.originalname);
+      if (!originalExt) {
+        originalExt = detectUploadExt(file.mimetype) || ".bin";
+      }
+
+      // Ім'я без розширення
+      const baseName = path.basename(file.originalname, originalExt);
+
+      // Фінальне ім'я файла: random + originalName + originalExt
+      const finalName = `${fileId}_${baseName}${originalExt}`;
+
       const finalPath = path.join(outDir, finalName);
 
-      // write file to disk
+      logger.info("[MEDIA][UPLOAD] Saving file", {
+        originalName: file.originalname,
+        mime: file.mimetype,
+        size: file.size,
+        finalName,
+        finalPath,
+      });
+
       fs.writeFileSync(finalPath, file.buffer);
 
-      // determine media kind
-      const kind = detectUploadKind(mime);
+      const kind = detectUploadKind(file.mimetype);
 
-      return res.json({
+      const responsePayload = {
         ok: true,
         fileId,
-        mime,
+        fileName: finalName,
+        mime: file.mimetype,
         kind,
-        originalName: file.originalname,
         size: file.size,
-        peerType: peerType ?? "chat",
-        accessHash: accessHash ?? null,
-      });
+        originalName: file.originalname, // ← важливо!
+        chatId,
+      };
+
+      logger.info("[MEDIA][UPLOAD] Response payload", responsePayload);
+      return sendOk(res, responsePayload);
     } catch (err: any) {
-      console.error("[UPLOAD ERROR]", err);
-      return res.status(500).json({ error: err.message });
+      logger.error("[MEDIA][UPLOAD] ERROR", { error: err });
+      return sendError(
+        res,
+        "UNEXPECTED",
+        err?.message ?? "Failed to upload media",
+        500
+      );
     }
   },
 ];
 
-// Detect extension for uploaded file
-function detectUploadExt(mime: string): string {
-  if (mime.startsWith("image/jpeg")) return ".jpg";
-  if (mime.startsWith("image/png")) return ".png";
-  if (mime.startsWith("image/webp")) return ".webp";
-  if (mime.startsWith("image/gif")) return ".gif";
-  if (mime.startsWith("video/mp4")) return ".mp4";
-  if (mime.startsWith("audio/ogg")) return ".ogg";
-  if (mime.startsWith("audio/mpeg")) return ".mp3";
-  if (mime.startsWith("application/pdf")) return ".pdf";
-  return "";
-}
+/* ========================================================================
+   GET INCOMING MEDIA
+   GET /media/telegram/:accountId/:fileId
+   ======================================================================== */
 
-// Determine telegram media type
-function detectUploadKind(
-  mime: string
-): "photo" | "video" | "voice" | "round_video" | "gif" | "document" {
-  if (mime.startsWith("image/")) {
-    if (mime === "image/gif") return "gif";
-    return "photo";
-  }
-  if (mime.startsWith("video/")) return "video";
-  if (mime.startsWith("audio/ogg")) return "voice"; // voice messages
-  if (mime.startsWith("audio/")) return "voice";
-
-  return "document";
-}
-
-/**
- * GET /media/telegram/:accountId/:fileId
- *
- * fileId = messageId
- */
 export async function getTelegramMedia(req: Request, res: Response) {
   try {
     const { accountId, fileId } = req.params;
     const messageId = fileId;
-
-    const debugFlag = req.query.debug;
-    const debug =
-      debugFlag === "1" ||
-      debugFlag === "true" ||
-      debugFlag === "yes" ||
-      debugFlag === "debug";
-
-    logger.info("[MEDIA] Incoming GET /media", {
-      accountId,
-      messageId,
-      query: req.query,
-    });
-
+    logger.info("[MEDIA GET] Incoming request", { accountId, messageId });
     if (!accountId || !messageId) {
-      const payload = { error: "Invalid parameters", accountId, messageId };
-      if (debug) return res.status(400).json(payload);
       return res.status(400).json({ error: "Invalid parameters" });
     }
 
-    const dir = ensureDir(accountId);
+    const chatDir = path.join(INCOMING_ROOT, accountId);
+    ensureDir(chatDir);
 
-    /** 1) Check cache */
-    let cachedPath: string | null = null;
-    if (fs.existsSync(dir)) {
-      const files = fs.readdirSync(dir);
-      const found = files.find(
-        (name) => name === messageId || name.startsWith(`${messageId}.`)
-      );
-      if (found) cachedPath = path.join(dir, found);
-    }
-
-    if (cachedPath && fs.existsSync(cachedPath)) {
-      logger.info(`[MEDIA] Cache hit → ${cachedPath}`);
-
-      if (debug) {
-        return res.json({
-          mode: "cache",
-          accountId,
-          messageId,
-          cachedPath,
-        });
-      }
-
-      return streamFile(req, res, cachedPath);
-    }
-
-    logger.info(
-      `[MEDIA] Cache miss → downloading messageId=${messageId}, account=${accountId}`
-    );
-
-    /** 2) Look up peer info in DB */
+    // STEP 1: Try cache
+    const cachedPath = findCachedFile(chatDir, messageId);
+    if (cachedPath) return streamFile(req, res, cachedPath);
+    logger.info("[MEDIA GET] Cache miss, need to download from Telegram");
+    // STEP 2: Download via Telegram
     const index = await prisma.telegramMessageIndex.findUnique({
       where: {
         accountId_messageId: { accountId, messageId },
@@ -177,133 +150,66 @@ export async function getTelegramMedia(req: Request, res: Response) {
     });
 
     if (!index) {
-      logger.warn("[MEDIA] Media index NOT FOUND", { accountId, messageId });
-
-      const payload = {
-        error: "Media index not found",
-        accountId,
-        messageId,
-      };
-
-      return res.status(404).json(debug ? payload : { error: payload.error });
+      return res.status(404).json({ error: "Media index not found" });
     }
 
-    logger.info("[MEDIA] Index record found", index);
-
-    const rawPeerType = index.rawPeerType as
-      | "user"
-      | "chat"
-      | "channel"
-      | "dialog"
-      | null;
-
-    let peerType: "user" | "chat" | "channel" = "chat";
-    if (rawPeerType === "user") peerType = "user";
-    else if (rawPeerType === "channel") peerType = "channel";
+    const peerType =
+      index.rawPeerType === "user"
+        ? "user"
+        : index.rawPeerType === "channel"
+        ? "channel"
+        : "chat";
 
     const peerId = index.rawPeerId ?? index.chatId;
     const accessHash = index.rawAccessHash ?? undefined;
+    logger.info("[MEDIA GET] Resolved peer info", {
+      peerType,
+      peerId,
+      accessHash,
+    });
+    if (!peerId) return res.status(500).json({ error: "Missing peerId" });
 
-    if (!peerId) {
-      const payload = {
-        error: "Media index missing peerId",
-        index,
-      };
-      return res.status(500).json(debug ? payload : { error: payload.error });
-    }
-
-    /** 3) Get Telegram client */
     let client = telegramClientManager.getClient(accountId);
     if (!client) {
-      logger.warn("[MEDIA] No active client, attaching...", { accountId });
       await telegramClientManager.attachAccount(accountId);
       client = telegramClientManager.getClient(accountId);
-      if (!client) {
-        const payload = {
-          error: "Telegram client not available",
-          accountId,
-        };
-        return res.status(500).json(debug ? payload : { error: payload.error });
-      }
+      if (!client) return res.status(500).json({ error: "Client unavailable" });
     }
 
-    /** 4) Build input peer */
     const peer = resolveTelegramPeer(peerType, peerId, accessHash);
+    const msgId = parseInt(messageId, 10);
 
-    const msgIdNum = parseInt(messageId, 10);
-    if (Number.isNaN(msgIdNum)) {
-      const payload = { error: "Invalid messageId", messageId };
-      return res.status(400).json(debug ? payload : { error: payload.error });
-    }
-
-    /** 5) Fetch message */
-    const messages = await client.getMessages(peer, { ids: msgIdNum });
+    const messages = await client.getMessages(peer, { ids: msgId });
     const message = Array.isArray(messages) ? messages[0] : messages;
 
-    if (!message || !(message instanceof Api.Message)) {
-      const payload = {
-        error: "Message not found",
-        accountId,
-        messageId,
-        peerType,
-        peerId,
-      };
-      return res.status(404).json(debug ? payload : { error: payload.error });
+    logger.info("[MEDIA GET] Retrieved message", { message });
+
+    if (!(message instanceof Api.Message) || !message.media) {
+      return res.status(404).json({ error: "Message or media not found" });
     }
 
-    if (!message.media) {
-      const payload = {
-        error: "Message has no media",
-        accountId,
-        messageId,
-      };
-      return res.status(404).json(debug ? payload : { error: payload.error });
-    }
-
-    /** 6) Detect MIME */
-    const mimeType = detectMime(message.media);
-    const ext = getExt(mimeType);
-
-    const filePath = path.join(dir, ext ? `${messageId}${ext}` : messageId);
-
-    /** 7) Download */
-    const buffer = await client.downloadMedia(message.media);
-
-    if (!buffer) {
-      const payload = { error: "Media download failed" };
-      return res.status(404).json(debug ? payload : { error: payload.error });
-    }
-
-    fs.writeFileSync(filePath, buffer);
-    logger.info(`[MEDIA] Cached → ${filePath}`);
-
-    if (debug) {
-      return res.json({
-        mode: "downloaded",
-        accountId,
-        messageId,
-        peer: { peerType, peerId, accessHash },
-        filePath,
-        mimeType,
-      });
-    }
-
-    return streamFile(
-      req,
-      res,
-      filePath,
-      mimeType ?? "application/octet-stream"
+    const mime = detectMime(message.media);
+    const ext = getExt(mime);
+    const finalPath = path.join(
+      chatDir,
+      ext ? `${messageId}${ext}` : messageId
     );
+
+    const buffer = await client.downloadMedia(message.media);
+    if (!buffer) return res.status(404).json({ error: "Download failed" });
+    logger.info("[MEDIA GET] Downloaded media, saving to", { finalPath });
+    fs.writeFileSync(finalPath, buffer);
+    return streamFile(req, res, finalPath);
   } catch (err: any) {
-    logger.error("[MEDIA] ERROR:", err);
-    return res.status(500).json({
-      error: err.message,
-      ...(req.query.debug ? { stack: err.stack } : {}),
-    });
+    logger.error("[MEDIA GET ERROR]", err);
+    return res.status(500).json({ error: err.message });
   }
 }
 
-/** Stream with Range */
+/* ========================================================================
+   STREAMING (supports Range for videos)
+   ======================================================================== */
+
 function streamFile(
   req: Request,
   res: Response,
@@ -317,20 +223,19 @@ function streamFile(
   const range = req.headers.range;
 
   if (range) {
-    const [startStr = "0", endStr] = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(startStr, 10);
+    const [startStr, endStr] = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(startStr!, 10);
     const end = endStr ? parseInt(endStr, 10) : total - 1;
-
     const chunkSize = end - start + 1;
+
     const file = fs.createReadStream(filePath, { start, end });
 
     res.writeHead(206, {
       "Content-Range": `bytes ${start}-${end}/${total}`,
-      "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
+      "Accept-Ranges": "bytes",
       "Content-Type": mime,
     });
-
     file.pipe(res);
     return;
   }
@@ -339,11 +244,44 @@ function streamFile(
     "Content-Length": total,
     "Content-Type": mime,
   });
-
-  return fs.createReadStream(filePath).pipe(res);
+  fs.createReadStream(filePath).pipe(res);
 }
 
-/** Detect MIME */
+/* ========================================================================
+   MIME DETECTION HELPERS
+   Incoming (Telegram) + Outgoing (Upload)
+   ======================================================================== */
+
+function detectUploadExt(mime: string): string {
+  if (mime.startsWith("image/jpeg")) return ".jpg";
+  if (mime.startsWith("image/png")) return ".png";
+  if (mime.startsWith("image/webp")) return ".webp";
+  if (mime.startsWith("image/gif")) return ".gif";
+
+  if (mime.startsWith("video/mp4")) return ".mp4";
+
+  if (mime.startsWith("audio/ogg")) return ".ogg";
+  if (mime.startsWith("audio/mpeg")) return ".mp3";
+
+  if (mime === "application/pdf") return ".pdf";
+
+  return "";
+}
+
+function detectUploadKind(
+  mime: string
+): "photo" | "video" | "voice" | "round_video" | "gif" | "document" {
+  if (mime.startsWith("image/")) {
+    if (mime === "image/gif") return "gif";
+    if (mime === "image/webp") return "document";
+
+    return "photo";
+  }
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "voice";
+  return "document";
+}
+
 function detectMime(media: Api.TypeMessageMedia): string {
   if (media instanceof Api.MessageMediaPhoto) return "image/jpeg";
   if (
@@ -355,28 +293,39 @@ function detectMime(media: Api.TypeMessageMedia): string {
   return "application/octet-stream";
 }
 
-/** MIME → EXT */
 function getExt(mime: string): string {
-  if (mime === "image/jpeg") return ".jpg";
-  if (mime === "image/png") return ".png";
-  if (mime === "image/webp") return ".webp";
-  if (mime === "image/gif") return ".gif";
-  if (mime === "video/mp4") return ".mp4";
-  if (mime === "application/pdf") return ".pdf";
-  if (mime === "audio/mpeg") return ".mp3";
-  if (mime === "audio/ogg") return ".ogg";
+  if (mime.includes("jpeg")) return ".jpg";
+  if (mime.includes("png")) return ".png";
+  if (mime.includes("webp")) return ".webp";
+  if (mime.includes("gif")) return ".gif";
+  if (mime.includes("mp4")) return ".mp4";
+  if (mime.includes("pdf")) return ".pdf";
+  if (mime.includes("mpeg")) return ".mp3";
+  if (mime.includes("ogg")) return ".ogg";
   return "";
 }
 
-/** Fallback MIME detection */
 function guessMime(file: string): string {
-  if (file.endsWith(".mp4")) return "video/mp4";
   if (file.endsWith(".jpg")) return "image/jpeg";
   if (file.endsWith(".png")) return "image/png";
   if (file.endsWith(".webp")) return "image/webp";
   if (file.endsWith(".gif")) return "image/gif";
-  if (file.endsWith(".pdf")) return "application/pdf";
+  if (file.endsWith(".mp4")) return "video/mp4";
   if (file.endsWith(".mp3")) return "audio/mpeg";
   if (file.endsWith(".ogg")) return "audio/ogg";
   return "application/octet-stream";
+}
+
+/* ========================================================================
+   UTIL — find cached file
+   ======================================================================== */
+
+function findCachedFile(dir: string, id: string): string | null {
+  if (!fs.existsSync(dir)) return null;
+
+  const file = fs
+    .readdirSync(dir)
+    .find((name) => name === id || name.startsWith(`${id}.`));
+
+  return file ? path.join(dir, file) : null;
 }

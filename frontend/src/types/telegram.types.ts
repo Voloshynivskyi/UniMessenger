@@ -3,6 +3,16 @@
 import type { BaseUnifiedChat } from "./unifiedChat.types";
 import type { BaseUnifiedMessage } from "./unifiedMessage.types";
 
+export interface NextOffset {
+  offsetDate: number;
+  offsetId: number;
+  offsetPeer?: {
+    id: number;
+    type: "user" | "chat" | "channel";
+    accessHash?: string;
+  };
+}
+
 /** Project-wide account info shape for Telegram accounts (DB selection). */
 export interface TelegramAccountInfo {
   id: string; // Unique identifier for the account
@@ -87,7 +97,7 @@ export type UnifiedTelegramMessageType =
   | "unknown";
 
 export interface TelegramMedia {
-  id: string;
+  id?: string;
   accessHash?: string | null;
   dcId?: number;
   size?: number | null;
@@ -105,6 +115,9 @@ export interface TelegramMedia {
 
   waveform?: number[] | undefined;
   groupId?: string | null;
+
+  /** Frontend-only optimistic preview URL */
+  localPreviewUrl?: string;
 }
 
 /**

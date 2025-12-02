@@ -1,7 +1,9 @@
 // frontend/src/realtime/events.ts
 
-import type { UnifiedTelegramMessage } from "../types/telegram.types";
-
+import type {
+  UnifiedTelegramMessage,
+  UnifiedTelegramMessageType,
+} from "../types/telegram.types";
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -116,13 +118,24 @@ export interface ServerToClientEvents {
    Client → Server events (unchanged)
    ======================================================================== */
 
+export interface TelegramOutgoingMedia {
+  fileId: string;
+  type: UnifiedTelegramMessageType;
+  mime: string;
+  fileName?: string;
+  size?: number;
+  originalName: string;
+}
+
 export interface TelegramSendMessagePayload {
   accountId: string;
   chatId: string;
-  text: string;
   tempId: string | number;
+  text?: string;
+  media?: TelegramOutgoingMedia;
   peerType?: "user" | "chat" | "channel";
   accessHash?: string;
+  replyToMessageId?: string;
 }
 
 export interface TelegramTypingStartPayload {

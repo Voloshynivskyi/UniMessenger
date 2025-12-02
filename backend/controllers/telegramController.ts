@@ -58,7 +58,7 @@ interface ApiSuccessResponse<T = unknown> {
 /**
  * Helper: send a uniform error response.
  */
-function sendError(
+export function sendError(
   res: Response,
   code: ApiErrorResponse["code"],
   message: string,
@@ -77,7 +77,7 @@ function sendError(
 /**
  * Helper: send a uniform success response.
  */
-function sendOk<T>(res: Response, data: T, http = 200) {
+export function sendOk<T>(res: Response, data: T, http = 200) {
   const body: ApiSuccessResponse<T> = { status: "ok", data };
   return res.status(http).json(body);
 }

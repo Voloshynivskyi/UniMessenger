@@ -12,7 +12,7 @@ import type {
   TelegramMarkAsReadPayload,
 } from "./events";
 import { logger } from "../utils/logger";
-
+import type { TelegramOutgoingMedia } from "./events";
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 export const telegramSocketHandlers = {
@@ -23,13 +23,43 @@ export const telegramSocketHandlers = {
     try {
       logger.info("[BACKEND] ⬅️ Received telegram:send_message");
       logger.info(JSON.stringify(data, null, 2));
-      await telegramClientManager.sendMessage(
+
+      const payload: {
+        text?: string;
+        media?: TelegramOutgoingMedia;
+        peerType?: "user" | "chat" | "channel";
+        accessHash?: string;
+        replyToMessageId?: string;
+      } = {};
+      logger.info("Preparing payload for sending message");
+      // Add fields only when they are defined, to avoid `undefined` values
+      if (typeof data.text === "string") {
+        payload.text = data.text;
+      }
+
+      if (data.media) {
+        payload.media = data.media;
+      }
+
+      if (data.peerType) {
+        payload.peerType = data.peerType;
+      }
+
+      if (typeof data.accessHash === "string") {
+        payload.accessHash = data.accessHash;
+      }
+
+      if (typeof data.replyToMessageId === "string") {
+        payload.replyToMessageId = data.replyToMessageId;
+      }
+      logger.info(
+        `[Socket] Sending message for account ${data.accountId}, chat ${data.chatId}`
+      );
+      await telegramClientManager.sendMessageOrMedia(
         data.accountId,
         data.chatId,
-        data.text,
         data.tempId,
-        data.peerType ?? "chat",
-        data.accessHash
+        payload
       );
 
       logger.info(

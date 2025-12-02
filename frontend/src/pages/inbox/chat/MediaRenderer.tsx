@@ -17,32 +17,79 @@ export default function MediaRenderer({ message }: Props) {
   const { token } = useAuth();
   const { media, type } = message;
 
-  if (!media) return null;
-
-  // Always declared hooks (IMPORTANT)
+  // ХУКИ — завжди зверху, без умов
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // audio-specific state (must also be declared unconditionally)
   const [isPlaying, setIsPlaying] = useState(false);
-
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerType, setViewerType] = useState<"image" | "video" | null>(null);
 
-  const protectedUrl = `/api/telegram/media/${message.accountId}/${message.messageId}`;
+  // Якщо медіа немає — нічого не рендеримо
+  if (!media) return null;
+  console.log("[MediaRenderer] message", {
+    id: message.messageId,
+    tempId: message.tempId,
+    type: message.type,
+    hasMedia: !!media,
+    hasLocalPreview: (media as any)?.localPreviewUrl,
+  });
 
-  // === MEDIA FETCH ===
+  // ------------- КЛЮЧОВА ЛОГІКА ДЖЕРЕЛА БЛОБУ ------------- //
+
+  // 1) Якщо це оптимістичне повідомлення з локальним preview → використовуємо його
+  const hasLocalPreview =
+    typeof (media as any).localPreviewUrl === "string" &&
+    (media as any).localPreviewUrl.length > 0;
+
+  // 2) Якщо є реальний messageId (без tempId і без localPreview) → можна тягнути з бекенда
+  const realMessageId =
+    !message.tempId && !hasLocalPreview && message.messageId
+      ? String(message.messageId)
+      : null;
+
+  const protectedUrl =
+    realMessageId != null
+      ? `/api/telegram/media/${message.accountId}/${realMessageId}`
+      : null;
+
+  // === MEDIA FETCH / ВИБІР ДЖЕРЕЛА ===
   useEffect(() => {
     let active = true;
 
+    // Випадок 1: локальний preview (оптимістичний кейс) — БЕКЕНД НЕ ЧІПАЄМО
+    if (hasLocalPreview) {
+      const localUrl = (media as any).localPreviewUrl as string;
+      setBlobUrl(localUrl);
+      setIsLoading(false);
+
+      return () => {
+        active = false;
+        // localPreviewUrl створювався в MessageInput через URL.createObjectURL
+        // і його треба буде звільнити там, коли меседж зникне, а не тут
+      };
+    }
+
+    // Випадок 2: немає ні localPreview, ні реального messageId → нічого грузити
+    if (!protectedUrl) {
+      setIsLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    // Випадок 3: реальне повідомлення з Telegram → качаємо з бекенда
     const load = async () => {
       try {
         const res = await fetch(protectedUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!res.ok) throw new Error("fetch failed");
+        if (!res.ok) {
+          throw new Error(
+            `[MediaRenderer] fetch failed: ${res.status} ${res.statusText}`
+          );
+        }
 
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -52,7 +99,7 @@ export default function MediaRenderer({ message }: Props) {
           setIsLoading(false);
         }
       } catch (err) {
-        console.error("Media load error:", err);
+        console.error("[MediaRenderer] Media load error:", err);
         if (active) setIsLoading(false);
       }
     };
@@ -61,11 +108,14 @@ export default function MediaRenderer({ message }: Props) {
 
     return () => {
       active = false;
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (!hasLocalPreview && blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
     };
-  }, [token, protectedUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, protectedUrl, hasLocalPreview, media]);
 
-  // If blob is not loaded yet
+  // Якщо ще нічого не завантажено — показуємо спінер
   if (!blobUrl) {
     return (
       <Box
@@ -82,16 +132,20 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
+  // --------------------------------------------------------- //
+  // Далі — те саме, що в тебе було: визначення типів і рендер //
+  // --------------------------------------------------------- //
+
   const isPhoto = type === "photo";
   const isGif = type === "animation";
   const isVideo = type === "video";
   const isAudio = type === "audio" || type === "voice";
   const isSticker = type === "sticker";
-  const isVideoNote = type === "video_note" || media.isRoundVideo;
+  const isVideoNote = type === "video_note" || (media as any).isRoundVideo;
 
-  const fileName = media.fileName ?? "file";
-  const fileSize = media.size;
-  const duration = media.duration ?? 0;
+  const fileName = (media as any).fileName ?? "file";
+  const fileSize = (media as any).size;
+  const duration = (media as any).duration ?? 0;
 
   const formatBytes = (bytes?: number) => {
     if (!bytes) return "";
@@ -322,7 +376,7 @@ export default function MediaRenderer({ message }: Props) {
         </Box>
 
         <Box sx={{ textAlign: "right", minWidth: 50 }}>
-          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+          <Typography variant="caption" sx={{ opacity: 0.7, mr: 0.5 }}>
             {formatDuration(duration)}
           </Typography>
           {fileSize && (
@@ -342,7 +396,7 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // FILE
+  // FILE (документи та ін.)
   return (
     <Card>
       <Box sx={{ p: 1.25 }}>

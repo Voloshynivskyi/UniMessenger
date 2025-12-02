@@ -214,4 +214,27 @@ export const telegramApi = {
     console.log("API response:", handleApiResponse(response));
     return handleApiResponse(response);
   },
+  /** Upload media file to be sent via Telegram
+   *
+   * @param accountId - TelegramAccount.id associated with the user
+   * @param chatId - Target chat ID
+   * @param file - File object to upload
+   */
+  /** Upload media file to be sent via Telegram */
+  async uploadMedia(accountId: string, chatId: string, file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("chatId", chatId); // хто отримає
+    // accountId в URL → не треба в form
+
+    const response = await apiClient.post(
+      `/api/telegram/media/${accountId}/upload`,
+      form,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      }
+    );
+
+    return handleApiResponse(response);
+  },
 };

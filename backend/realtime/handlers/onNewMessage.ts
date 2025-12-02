@@ -4,7 +4,8 @@ import { Api } from "telegram";
 import { logger } from "../../utils/logger";
 import { handleTelegramMessageEvent } from "./handleTelegramMessageEvent";
 import { telegramPeerToChatId } from "../../utils/telegramPeerToChatId";
-import { appendLog } from "../../utils/debugLogger";
+import { outgoingTempStore } from "../outgoingTempStore";
+import { getSocketGateway } from "../socketGateway";
 
 export async function onNewMessage(
   event: any,
@@ -21,16 +22,12 @@ export async function onNewMessage(
 
     const msg = event.message as Api.Message;
 
-    // ----------------------------------------------
-    // FIX: ensure senderId exists for private chats
-    // ----------------------------------------------
+    // Ensure fromId exists on private chats
     if (!msg.fromId && msg.peerId instanceof Api.PeerUser) {
       msg.fromId = msg.peerId;
     }
 
-    // ----------------------------------------------
     // Resolve chat
-    // ----------------------------------------------
     let resolvedChat: any = null;
     let resolvedChatId: string | null = null;
     let resolvedAccessHash: string | null = null;
@@ -49,6 +46,30 @@ export async function onNewMessage(
       resolvedChatId = telegramPeerToChatId(msg.peerId);
     }
 
+    // 🔥 OUTGOING CONFIRMATION LOGIC -----------------------------------------
+    if (msg.out && resolvedChatId) {
+      const pending = outgoingTempStore.shift(accountId, resolvedChatId);
+
+      if (pending) {
+        logger.info(
+          `[CONFIRMATION] Matched tempId=${pending.tempId} → realId=${msg.id}`
+        );
+
+        getSocketGateway().emitToUser(accountId, "telegram:message_confirmed", {
+          platform: "telegram",
+          accountId,
+          timestamp: new Date().toISOString(),
+          chatId: resolvedChatId,
+          tempId: pending.tempId,
+          realMessageId: String(msg.id),
+          date: msg.date
+            ? new Date(msg.date * 1000).toISOString()
+            : new Date().toISOString(),
+        });
+      }
+    }
+
+    // 🔥 continue with normal unified message handling
     await handleTelegramMessageEvent({
       kind: "NEW",
       msg,

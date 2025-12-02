@@ -79,5 +79,6 @@ router.get("/media/:accountId/:fileId", requireAuth, getTelegramMedia);
  * @access Private
  */
 
-router.post("/media/telegram/upload", requireAuth, uploadTelegramMedia);
+router.post("/media/:accountId/upload", requireAuth, uploadTelegramMedia);
+
 export default router;

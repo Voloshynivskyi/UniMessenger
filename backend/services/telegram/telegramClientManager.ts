@@ -8,16 +8,19 @@ import bigInt from "big-integer";
 import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
 import { resolveTelegramPeer } from "../../utils/resolveTelegramPeer";
 import type { TelegramGetDialogsResult } from "../../types/telegram.types";
-
+import fs from "fs";
+import path from "path";
 import { Raw } from "telegram/events/Raw";
 import { EditedMessage } from "telegram/events/EditedMessage";
 import { NewMessage } from "telegram/events/NewMessage";
-
+import type { UnifiedTelegramMessageType } from "../../types/telegram.types";
 import { onNewMessage } from "../../realtime/handlers/onNewMessage";
 import { onRawUpdate } from "../../realtime/handlers/onRawUpdate";
 import { onEditedMessage } from "../../realtime/handlers/onEditedMessage";
 import { TelegramMessageIndexService } from "./telegramMessageIndexService";
 import { outgoingTempStore } from "../../realtime/outgoingTempStore";
+import { CustomFile } from "telegram/client/uploads";
+import type { TelegramOutgoingMedia } from "../../realtime/events";
 
 const API_ID = process.env.TELEGRAM_API_ID
   ? Number(process.env.TELEGRAM_API_ID)
@@ -28,6 +31,122 @@ if (!API_ID || !API_HASH) {
   logger.warn(
     "[TelegramClientManager] TELEGRAM_API_ID or TELEGRAM_API_HASH is not set. Telegram clients will not work correctly."
   );
+}
+// helper
+function buildInputMediaForOutgoing(
+  mediaMeta: TelegramOutgoingMedia,
+  uploaded: Api.TypeInputFile
+): Api.TypeInputMedia {
+  const mime = mediaMeta.mime || "application/octet-stream";
+
+  const isImage = mime.startsWith("image/");
+  const isGif = mime === "image/gif";
+  const isVideo = mime.startsWith("video/");
+  const isAudio = mime.startsWith("audio/");
+  const isPdf = mime === "application/pdf";
+
+  const isJpeg =
+    mime === "image/jpeg" || mime === "image/jpg" || mime === "image/pjpeg";
+  const isPng = mime === "image/png";
+  const isClassicPhoto = isJpeg || isPng; // тільки ці формати шлемо як photo
+
+  const fileNameForUser =
+    mediaMeta.originalName || mediaMeta.fileName || mediaMeta.fileId;
+
+  // 1) PHOTO → справжнє фото-бабл у Telegram (тільки JPEG / PNG)
+  if (mediaMeta.type === "photo" && isImage && !isGif && isClassicPhoto) {
+    return new Api.InputMediaUploadedPhoto({
+      file: uploaded,
+    });
+  }
+
+  // 2) VIDEO
+  if (mediaMeta.type === "video") {
+    const attributes: Api.TypeDocumentAttribute[] = [
+      new Api.DocumentAttributeVideo({
+        duration: 0,
+        w: 0,
+        h: 0,
+        supportsStreaming: true,
+      }),
+      new Api.DocumentAttributeFilename({
+        fileName: fileNameForUser,
+      }),
+    ];
+
+    return new Api.InputMediaUploadedDocument({
+      file: uploaded,
+      mimeType: mime,
+      attributes,
+    });
+  }
+
+  // 3) VOICE
+  if (mediaMeta.type === "voice") {
+    const attributes: Api.TypeDocumentAttribute[] = [
+      new Api.DocumentAttributeAudio({
+        duration: 0,
+        voice: true,
+      }),
+      new Api.DocumentAttributeFilename({
+        fileName: fileNameForUser,
+      }),
+    ];
+
+    return new Api.InputMediaUploadedDocument({
+      file: uploaded,
+      mimeType: mime || "audio/ogg",
+      attributes,
+    });
+  }
+
+  // 4) AUDIO
+  if (mediaMeta.type === "audio") {
+    const attributes: Api.TypeDocumentAttribute[] = [
+      new Api.DocumentAttributeAudio({
+        duration: 0,
+        voice: false,
+      }),
+      new Api.DocumentAttributeFilename({
+        fileName: fileNameForUser,
+      }),
+    ];
+
+    return new Api.InputMediaUploadedDocument({
+      file: uploaded,
+      mimeType: mime,
+      attributes,
+    });
+  }
+
+  // 5) ANIMATION / GIF
+  if (mediaMeta.type === "animation" || isGif) {
+    const attributes: Api.TypeDocumentAttribute[] = [
+      new Api.DocumentAttributeAnimated(),
+      new Api.DocumentAttributeFilename({
+        fileName: fileNameForUser,
+      }),
+    ];
+
+    return new Api.InputMediaUploadedDocument({
+      file: uploaded,
+      mimeType: mime || "image/gif",
+      attributes,
+    });
+  }
+
+  // 6) ВСЕ ІНШЕ → DOCUMENT (PDF, WEBP, ZIP, VBP, PY, DOCX, …)
+  const attributes: Api.TypeDocumentAttribute[] = [
+    new Api.DocumentAttributeFilename({
+      fileName: fileNameForUser,
+    }),
+  ];
+
+  return new Api.InputMediaUploadedDocument({
+    file: uploaded,
+    mimeType: mime || (isPdf ? "application/pdf" : "application/octet-stream"),
+    attributes,
+  });
 }
 
 export class TelegramClientManager {
@@ -539,27 +658,134 @@ export class TelegramClientManager {
 
     return rawMessages as Api.TypeMessage[];
   }
-
-  async sendMessage(
+  async sendMessageOrMedia(
     accountId: string,
     chatId: string,
-    text: string,
     tempId: string | number,
-    peerType: "user" | "chat" | "channel" = "chat",
-    accessHash?: string
-  ) {
+    payload: {
+      text?: string;
+      media?: TelegramOutgoingMedia;
+      peerType?: "user" | "chat" | "channel";
+      accessHash?: string;
+      replyToMessageId?: string;
+    }
+  ): Promise<void> {
     const client = await this.ensureClient(accountId);
 
-    const peer = resolveTelegramPeer(peerType, chatId, accessHash);
+    // ─────────────────────────────────────────────
+    // Resolve peer
+    // ─────────────────────────────────────────────
+    const peer = resolveTelegramPeer(
+      payload.peerType ?? "chat",
+      chatId,
+      payload.accessHash
+    );
 
-    outgoingTempStore.set(accountId, tempId, text, chatId);
+    // ─────────────────────────────────────────────
+    // Register temp message (optimistic UI)
+    // ─────────────────────────────────────────────
+    outgoingTempStore.push(accountId, chatId, {
+      tempId,
+      chatId,
+      createdAt: Date.now(),
+    });
+
+    logger.info(
+      `[ClientManager] Outgoing temp registered: acc=${accountId}, chat=${chatId}, tempId=${tempId}`
+    );
+
+    // ─────────────────────────────────────────────
+    // TEXT-ONLY MESSAGE
+    // ─────────────────────────────────────────────
+    if (!payload.media) {
+      const msgParams: any = {
+        message: payload.text ?? "",
+      };
+
+      if (payload.replyToMessageId) {
+        msgParams.replyTo = Number(payload.replyToMessageId);
+      }
+
+      await client.sendMessage(peer, msgParams);
+
+      logger.info(
+        `[ClientManager] Sent TEXT: acc=${accountId} chat=${chatId} tempId=${tempId}`
+      );
+      return;
+    }
+
+    // ─────────────────────────────────────────────
+    // MEDIA MESSAGE
+    // ─────────────────────────────────────────────
+    const mediaMeta = payload.media;
+
+    // ВАЖЛИВО: для диска використовуємо ТІЛЬКИ технічне імʼя,
+    // яке повернув upload endpoint (stored-media/telegram-outgoing/...).
+    const storedFileName = mediaMeta.fileName ?? mediaMeta.fileId;
+
+    const mediaPath = path.join(
+      process.cwd(),
+      "stored-media",
+      "telegram-outgoing",
+      accountId,
+      storedFileName
+    );
+
+    if (!fs.existsSync(mediaPath)) {
+      logger.error(
+        `[ClientManager] MEDIA NOT FOUND at ${mediaPath} (acc=${accountId}, chat=${chatId}, tempId=${tempId})`
+      );
+      throw new Error("Local media file not found");
+    }
+
+    const fileBuffer = fs.readFileSync(mediaPath);
+    const fileSize = fileBuffer.length;
+
+    logger.info(
+      `[ClientManager] Uploading file via MTProto → ${storedFileName}, mime=${mediaMeta.mime}, type=${mediaMeta.type}`
+    );
+
+    // 1) Upload через client.uploadFile
+    const uploaded = await client.uploadFile({
+      file: new CustomFile(storedFileName, fileSize, "", fileBuffer),
+      workers: 1,
+    });
+    // uploaded: Api.TypeInputFile
+
+    // 2) Будуємо InputMedia, виходячи тільки з mime + type + originalName
+    const inputMedia = buildInputMediaForOutgoing(mediaMeta, uploaded);
+
+    // 3) Формуємо аргументи для Api.messages.SendMedia
+    const randomId = bigInt(
+      Math.floor(Math.random() * Number.MAX_SAFE_INTEGER).toString()
+    );
+
+    const sendArgs: any = {
+      peer,
+      media: inputMedia,
+      message: payload.text ?? "",
+      randomId,
+    };
+
+    if (payload.replyToMessageId) {
+      sendArgs.replyTo = new Api.InputReplyToMessage({
+        replyToMsgId: Number(payload.replyToMessageId),
+      });
+    }
+
+    logger.info("[ClientManager] Calling Api.messages.SendMedia…");
 
     try {
-      await client.invoke(
-        new Api.messages.SendMessage({ peer, message: text })
+      await client.invoke(new Api.messages.SendMedia(sendArgs));
+
+      logger.info(
+        `[ClientManager] Sent MEDIA OK: acc=${accountId}, chat=${chatId}, tempId=${tempId}`
       );
-    } catch (err) {
-      console.error("[MTProto] RPC FAILED:", err);
+    } catch (err: any) {
+      logger.error(
+        `[ClientManager] SendMedia FAILED: acc=${accountId}, chat=${chatId}, tempId=${tempId}`,
+        { error: String(err) }
+      );
       throw err;
     }
   }

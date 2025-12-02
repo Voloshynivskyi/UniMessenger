@@ -132,7 +132,7 @@ export interface TelegramMedia {
 
   mimeType?: string;
   fileName?: string;
-  
+
   width?: number;
   height?: number;
   duration?: number;

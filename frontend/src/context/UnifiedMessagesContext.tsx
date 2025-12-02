@@ -14,7 +14,7 @@ import {
   type TelegramMessageEditedPayload,
   type TelegramMessageDeletedPayload,
 } from "../realtime/events";
-
+import type { TelegramSendMessagePayload } from "../realtime/events";
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
 import type { MessageStatus } from "../types/unifiedMessage.types";
 
@@ -49,14 +49,8 @@ interface UnifiedMessagesContextValue {
     chatKey: string,
     message: UnifiedTelegramMessage
   ) => void;
-  sendTelegramMessage: (data: {
-    accountId: string;
-    chatId: string;
-    text: string;
-    tempId: string | number;
-    peerType?: "user" | "chat" | "channel";
-    accessHash?: string | number | bigint | null;
-  }) => void;
+  sendTelegramMessage(data: TelegramSendMessagePayload): void;
+
   removeMessage: (chatKey: string, id: string | number) => void;
 
   clearChatState: (chatKey: string) => void;
@@ -316,7 +310,6 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   /* ---------------------------------------------------------------------- */
   /* Insert new or update existing */
   /* ---------------------------------------------------------------------- */
-
   const addOrUpdateMessage = useCallback(
     (chatKey: string, msg: UnifiedTelegramMessage) => {
       const normalizedMsg = {
@@ -327,45 +320,57 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       setMessagesByChat((prev) => {
         const current = prev[chatKey] ?? [];
 
-        // if there is a tempId → find and replace by tempId
-        if (normalizedMsg.tempId) {
+        // 1️⃣ Якщо це оптимістик → замінюємо по tempId
+        if (msg.tempId) {
           const updated = current.map((m) =>
-            m.tempId && m.tempId === normalizedMsg.tempId ? normalizedMsg : m
+            m.tempId === msg.tempId ? normalizedMsg : m
           );
-          const merged = dedupe([...updated, normalizedMsg]).sort(sortAsc);
-          return { ...prev, [chatKey]: merged };
+
+          return {
+            ...prev,
+            [chatKey]: dedupe(updated).sort(sortAsc),
+          };
         }
 
-        // if real message exists replace messageId
-        const merged = dedupe([...current, normalizedMsg]).sort(sortAsc);
+        // 2️⃣ Якщо вже є повідомлення із тим messageId → замінюємо
+        const updated = current.map((m) =>
+          String(m.messageId) === String(msg.messageId) ? normalizedMsg : m
+        );
+
+        // 3️⃣ Якщо немає — додаємо
+        const merged = dedupe([...updated, normalizedMsg]).sort(sortAsc);
+
         return { ...prev, [chatKey]: merged };
       });
     },
     []
   );
+
   /* ---------------------------------------------------------------------- */
   /* Send message to backend (tempId is used for optimistic matching) */
   /* ---------------------------------------------------------------------- */
 
   const sendTelegramMessage = useCallback(
-    (data: {
-      accountId: string;
-      chatId: string;
-      text: string;
-      tempId: string | number;
-      peerType?: "user" | "chat" | "channel";
-      accessHash?: string | number | bigint | null;
-    }) => {
+    (data: TelegramSendMessagePayload) => {
       if (!socketClient) return;
+
+      // Ensure accessHash is ALWAYS a string or undefined
+      const payload: TelegramSendMessagePayload = {
+        ...data,
+        accessHash:
+          data.accessHash != null ? String(data.accessHash) : undefined,
+      };
+
       console.log(
         "[FRONT] ➡️ Emitting telegram:send_message",
-        JSON.stringify(data, null, 2)
+        JSON.stringify(payload, null, 2)
       );
 
-      socketClient.emit("telegram:send_message", data as any);
+      socketClient.emit("telegram:send_message", payload);
     },
     []
   );
+
   /* ---------------------------------------------------------------------- */
   /* Remove message */
   /* ---------------------------------------------------------------------- */
@@ -435,8 +440,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
       const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
 
-      // backend already sends unified message
-      const raw: UnifiedTelegramMessage = p.message;
+      const raw = p.message;
 
       const msg: UnifiedTelegramMessage = {
         ...raw,
@@ -444,12 +448,11 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         accountId: p.accountId,
         chatId: String(p.chatId),
 
-        // ensure correct formats
         messageId: String(raw.messageId),
-        date: normalizeDateToISO(raw.date),
+        tempId: null, // 1️⃣ ВАЖЛИВО: видаляємо tempId
+        status: "sent",
 
-        status: raw.status ?? "sent",
-        tempId: raw.tempId ?? null,
+        date: normalizeDateToISO(raw.date),
       };
 
       addOrUpdateMessage(chatKey, msg);
