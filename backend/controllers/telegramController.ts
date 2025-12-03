@@ -10,6 +10,7 @@ import { TelegramService } from "../services/telegram/telegramService";
 import { prisma } from "../lib/prisma";
 import { isValidPhone } from "../utils/validation";
 import { logger } from "../utils/logger";
+import { getSocketGateway } from "../realtime/socketGateway";
 
 const telegramService = new TelegramService();
 
@@ -550,3 +551,67 @@ export const getMessageHistory = async (req: Request, res: Response) => {
     );
   }
 };
+export async function sendMessage(req: Request, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { accountId, peerType, peerId, accessHash, text, tempId } = req.body;
+
+    const file = req.file;
+
+    if (!text && !file) {
+      return sendError(res, "BAD_REQUEST", "Message must have text or file");
+    }
+
+    // ───────────────────────────────────────────────
+    // SEND MESSAGE THROUGH TELEGRAM SERVICE
+    // ───────────────────────────────────────────────
+    let sent;
+
+    if (file) {
+      sent = await telegramService.sendUnified({
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text,
+        fileBuffer: file.buffer,
+        fileName: file.originalname,
+      });
+    } else {
+      sent = await telegramService.sendUnified({
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text,
+      });
+    }
+
+    // ───────────────────────────────────────────────
+    // SEND SOCKET CONFIRMATION TO FRONTEND
+    // ───────────────────────────────────────────────
+    const gateway = getSocketGateway();
+
+    gateway.emitToUser(userId, "telegram:message_confirmed", {
+      platform: "telegram",
+      accountId,
+      chatId: String(peerId),
+      tempId: tempId ? String(tempId) : null,
+      realMessageId: String(sent.id),
+      date: sent.date,
+      status: "sent",
+    });
+
+    // ───────────────────────────────────────────────
+    // RETURN REST RESPONSE AS WELL
+    // (frontend may ignore or use)
+    // ───────────────────────────────────────────────
+    return sendOk(res, {
+      tempId,
+      realMessageId: sent.id,
+      date: sent.date,
+    });
+  } catch (err: any) {
+    return sendError(res, "UNEXPECTED", err.message);
+  }
+}

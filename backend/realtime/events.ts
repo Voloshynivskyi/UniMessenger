@@ -118,26 +118,6 @@ export interface ServerToClientEvents {
    Client → Server events (unchanged)
    ======================================================================== */
 
-export interface TelegramOutgoingMedia {
-  fileId: string;
-  type: UnifiedTelegramMessageType;
-  mime: string;
-  fileName?: string;
-  size?: number;
-  originalName: string;
-}
-
-export interface TelegramSendMessagePayload {
-  accountId: string;
-  chatId: string;
-  tempId: string | number;
-  text?: string;
-  media?: TelegramOutgoingMedia;
-  peerType?: "user" | "chat" | "channel";
-  accessHash?: string;
-  replyToMessageId?: string;
-}
-
 export interface TelegramTypingStartPayload {
   accountId: string;
   chatId: string;
@@ -160,29 +140,10 @@ export interface TelegramMarkAsReadPayload {
   accessHash?: string;
 }
 
-export interface TelegramEditMessagePayload {
-  accountId: string;
-  chatId: string;
-  messageId: string;
-  newText: string;
-  peerType?: "user" | "chat" | "channel";
-  accessHash?: string;
-}
-
-export interface TelegramDeleteMessagePayload {
-  accountId: string;
-  chatId: string;
-  messageIds: string[];
-  peerType?: "user" | "chat" | "channel";
-  accessHash?: string;
-}
 
 export interface ClientToServerEvents {
   "system:ping": () => void;
-  "telegram:send_message": (data: TelegramSendMessagePayload) => void;
   "telegram:typing_start": (data: TelegramTypingStartPayload) => void;
   "telegram:typing_stop": (data: TelegramTypingStopPayload) => void;
   "telegram:mark_as_read": (data: TelegramMarkAsReadPayload) => void;
-  "telegram:edit_message": (data: TelegramEditMessagePayload) => void;
-  "telegram:delete_message": (data: TelegramDeleteMessagePayload) => void;
 }

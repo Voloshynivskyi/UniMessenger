@@ -12,10 +12,11 @@ import {
   getTelegramAccounts,
   getDialogs,
   getMessageHistory,
+  sendMessage,
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
 import { getTelegramMedia } from "../controllers/mediaController";
-import { uploadTelegramMedia } from "../controllers/mediaController";
+import multer from "multer";
 
 const router = Router();
 
@@ -74,11 +75,14 @@ router.get("/history", requireAuth, getMessageHistory);
  */
 router.get("/media/:accountId/:fileId", requireAuth, getTelegramMedia);
 
-/** * @route POST /media/telegram/upload
- * @desc Upload media to Telegram servers
+// Multer setup for handling file uploads in sendMessage
+const upload = multer({ storage: multer.memoryStorage() });
+
+/**
+ * @route POST /telegram/sendMessage
+ * @desc Send a message (with optional media) via Telegram MTProto
  * @access Private
  */
-
-router.post("/media/:accountId/upload", requireAuth, uploadTelegramMedia);
+router.post("/sendMessage", requireAuth, upload.single("file"), sendMessage);
 
 export default router;

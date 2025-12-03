@@ -4,126 +4,15 @@ import telegramClientManager from "../services/telegram/telegramClientManager";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
-  TelegramSendMessagePayload,
-  TelegramEditMessagePayload,
-  TelegramDeleteMessagePayload,
   TelegramTypingStartPayload,
   TelegramTypingStopPayload,
   TelegramMarkAsReadPayload,
 } from "./events";
 import { logger } from "../utils/logger";
-import type { TelegramOutgoingMedia } from "./events";
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 export const telegramSocketHandlers = {
-  // ────────────────────────────────────────────────
-  // SEND MESSAGE
-  // ────────────────────────────────────────────────
-  async sendMessage(socket: TypedSocket, data: TelegramSendMessagePayload) {
-    try {
-      logger.info("[BACKEND] ⬅️ Received telegram:send_message");
-      logger.info(JSON.stringify(data, null, 2));
-
-      const payload: {
-        text?: string;
-        media?: TelegramOutgoingMedia;
-        peerType?: "user" | "chat" | "channel";
-        accessHash?: string;
-        replyToMessageId?: string;
-      } = {};
-      logger.info("Preparing payload for sending message");
-      // Add fields only when they are defined, to avoid `undefined` values
-      if (typeof data.text === "string") {
-        payload.text = data.text;
-      }
-
-      if (data.media) {
-        payload.media = data.media;
-      }
-
-      if (data.peerType) {
-        payload.peerType = data.peerType;
-      }
-
-      if (typeof data.accessHash === "string") {
-        payload.accessHash = data.accessHash;
-      }
-
-      if (typeof data.replyToMessageId === "string") {
-        payload.replyToMessageId = data.replyToMessageId;
-      }
-      logger.info(
-        `[Socket] Sending message for account ${data.accountId}, chat ${data.chatId}`
-      );
-      await telegramClientManager.sendMessageOrMedia(
-        data.accountId,
-        data.chatId,
-        data.tempId,
-        payload
-      );
-
-      logger.info(
-        `[Socket] Message sent for account ${data.accountId}, chat ${data.chatId}`
-      );
-    } catch (err: any) {
-      logger.error(
-        `[Socket] telegram:send_message failed for ${data.accountId}: ${err.message}`
-      );
-    }
-  },
-
-  // ────────────────────────────────────────────────
-  // EDIT MESSAGE
-  // ────────────────────────────────────────────────
-  async editMessage(socket: TypedSocket, data: TelegramEditMessagePayload) {
-    try {
-      await telegramClientManager.editMessage(
-        data.accountId,
-        data.chatId,
-        data.messageId,
-        data.newText,
-        data.peerType ?? "chat",
-        data.accessHash
-      );
-
-      logger.info(
-        `[Socket] Edited message ${data.messageId} for account ${data.accountId}`
-      );
-    } catch (err: any) {
-      logger.error(
-        `[Socket] telegram:edit_message failed for ${data.accountId}: ${err.message}`
-      );
-    }
-  },
-
-  // ────────────────────────────────────────────────
-  // DELETE MESSAGE(S)
-  // ────────────────────────────────────────────────
-  async deleteMessage(socket: TypedSocket, data: TelegramDeleteMessagePayload) {
-    try {
-      await telegramClientManager.deleteMessages(
-        data.accountId,
-        data.chatId,
-        data.messageIds,
-        data.peerType ?? "chat",
-        data.accessHash
-      );
-
-      logger.info(
-        `[Socket] Deleted messages [${data.messageIds.join(
-          ", "
-        )}] for account ${data.accountId}`
-      );
-    } catch (err: any) {
-      logger.error(
-        `[Socket] telegram:delete_message failed for ${data.accountId}: ${err.message}`
-      );
-    }
-  },
-
-  // ────────────────────────────────────────────────
-  // TYPING START
-  // ────────────────────────────────────────────────
+  // Typing start event
   async typingStart(socket: TypedSocket, data: TelegramTypingStartPayload) {
     try {
       await telegramClientManager.startTyping(
@@ -139,9 +28,7 @@ export const telegramSocketHandlers = {
     }
   },
 
-  // ────────────────────────────────────────────────
-  // TYPING STOP
-  // ────────────────────────────────────────────────
+  // Typing stop event
   async typingStop(socket: TypedSocket, data: TelegramTypingStopPayload) {
     try {
       await telegramClientManager.stopTyping(
@@ -157,9 +44,7 @@ export const telegramSocketHandlers = {
     }
   },
 
-  // ────────────────────────────────────────────────
-  // MARK AS READ
-  // ────────────────────────────────────────────────
+  // Mark messages as read
   async markAsRead(socket: TypedSocket, data: TelegramMarkAsReadPayload) {
     try {
       await telegramClientManager.markAsRead(

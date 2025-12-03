@@ -32,7 +32,7 @@ app.use(express.json());
  * @access Public
  */
 app.get("/", (_: Request, res: Response) => {
-  res.json({ status: "ok", message: "🚀 UniMessenger API running" });
+  res.json({ status: "ok", message: "UniMessenger API running" });
 });
 
 /**

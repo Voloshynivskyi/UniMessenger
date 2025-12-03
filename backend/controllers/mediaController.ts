@@ -32,95 +32,6 @@ function ensureDir(dir: string) {
    ======================================================================== */
 
 const upload = multer({ storage: multer.memoryStorage() });
-
-/* ========================================================================
-   UPLOAD OUTGOING MEDIA
-   POST /api/telegram/media/:accountId/upload
-   ======================================================================== */
-export const uploadTelegramMedia = [
-  upload.single("file"),
-  async (req: Request, res: Response) => {
-    try {
-      const accountId = req.params.accountId;
-      const chatId = req.body.chatId;
-      const file = req.file;
-
-      logger.info("[MEDIA][UPLOAD] Incoming request", {
-        accountId,
-        chatId,
-        hasFile: !!file,
-        body: req.body,
-      });
-
-      if (!accountId || !chatId) {
-        return sendError(
-          res,
-          "BAD_REQUEST",
-          "Missing accountId or chatId",
-          400
-        );
-      }
-
-      if (!file) {
-        return sendError(res, "BAD_REQUEST", "No file uploaded", 400);
-      }
-
-      const outDir = path.join(OUTGOING_ROOT, accountId);
-      ensureDir(outDir);
-
-      const fileId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-
-      // Визначаємо оригінальне розширення
-      let originalExt = path.extname(file.originalname);
-      if (!originalExt) {
-        originalExt = detectUploadExt(file.mimetype) || ".bin";
-      }
-
-      // Ім'я без розширення
-      const baseName = path.basename(file.originalname, originalExt);
-
-      // Фінальне ім'я файла: random + originalName + originalExt
-      const finalName = `${fileId}_${baseName}${originalExt}`;
-
-      const finalPath = path.join(outDir, finalName);
-
-      logger.info("[MEDIA][UPLOAD] Saving file", {
-        originalName: file.originalname,
-        mime: file.mimetype,
-        size: file.size,
-        finalName,
-        finalPath,
-      });
-
-      fs.writeFileSync(finalPath, file.buffer);
-
-      const kind = detectUploadKind(file.mimetype);
-
-      const responsePayload = {
-        ok: true,
-        fileId,
-        fileName: finalName,
-        mime: file.mimetype,
-        kind,
-        size: file.size,
-        originalName: file.originalname, // ← важливо!
-        chatId,
-      };
-
-      logger.info("[MEDIA][UPLOAD] Response payload", responsePayload);
-      return sendOk(res, responsePayload);
-    } catch (err: any) {
-      logger.error("[MEDIA][UPLOAD] ERROR", { error: err });
-      return sendError(
-        res,
-        "UNEXPECTED",
-        err?.message ?? "Failed to upload media",
-        500
-      );
-    }
-  },
-];
-
 /* ========================================================================
    GET INCOMING MEDIA
    GET /media/telegram/:accountId/:fileId
@@ -267,18 +178,25 @@ function detectUploadExt(mime: string): string {
 
   return "";
 }
-
 function detectUploadKind(
   mime: string
-): "photo" | "video" | "voice" | "round_video" | "gif" | "document" {
-  if (mime.startsWith("image/")) {
-    if (mime === "image/gif") return "gif";
-    if (mime === "image/webp") return "document";
+): "photo" | "video" | "voice" | "gif" | "document" {
+  if (!mime) return "document";
 
+  // реальні фото, які Telegram дозволяє шити як photo
+  if (mime === "image/jpeg" || mime === "image/jpg" || mime === "image/png") {
     return "photo";
   }
+
+  // gif = animation
+  if (mime === "image/gif") return "gif";
+
+  // ВСІ ІНШІ зображення (jfif, webp, bmp, heic...) → документ
+  if (mime.startsWith("image/")) return "document";
+
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "voice";
+
   return "document";
 }
 

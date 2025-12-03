@@ -17,7 +17,6 @@ import telegramClientManager from "../services/telegram/telegramClientManager";
 import { TelegramMessageIndexService } from "../services/telegram/telegramMessageIndexService";
 import { TelegramUserResolverService } from "../services/telegram/telegramUserResolverService";
 import bigInt from "big-integer";
-import { outgoingTempStore } from "../realtime/outgoingTempStore";
 
 export type TelegramUpdateType =
   | "UpdateUserTyping"
@@ -34,8 +33,7 @@ export type TelegramUpdateType =
   | "UpdateChannelMessageViews"
   | "UpdatePinnedMessages"
   | "UpdatePinnedChannelMessages"
-  | "UpdateChannelTooLong"
-  | "UpdateShortSentMessage";
+  | "UpdateChannelTooLong";
 
 interface HandlerContext {
   update: any;
@@ -49,9 +47,7 @@ export function isTelegramUpdateType(key: string): key is TelegramUpdateType {
   return key in telegramUpdateHandlers;
 }
 
-// -----------------------------------------------------------------------------
 // Helper: reconstruct peer from index record
-// -----------------------------------------------------------------------------
 function buildPeerFromRecord(record: any) {
   const { rawPeerType, rawPeerId } = record;
 
@@ -465,46 +461,7 @@ export const telegramUpdateHandlers: Record<
     //   `[Telegram] Connection state for account ${accountId}: ${state}`
     // );
   },
-
-  // ------------------------------------------------------------
-  // SENT MESSAGE CONFIRMATION
-  // ------------------------------------------------------------
-  UpdateShortSentMessage: async ({ update, accountId, userId }) => {
-    const realMessageId = update.id.toString();
-    const date = update.date;
-
-    // Get first pending outgoing message (FIFO)
-    const pending = outgoingTempStore.peek(accountId);
-    if (!pending) return;
-
-    const { tempId, chatId } = pending;
-
-    // Confirm
-    outgoingTempStore.remove(accountId, tempId);
-    console.log("[UPDATE] ShortSentMessage received");
-    console.log(update);
-
-    getSocketGateway().emitToUser(userId, "telegram:message_confirmed", {
-      platform: "telegram",
-      accountId,
-      timestamp: new Date().toISOString(),
-      chatId,
-      tempId,
-      realMessageId,
-      date: new Date(date * 1000).toISOString(),
-    });
-
-    // add to message index
-    await TelegramMessageIndexService.addIndex(
-      accountId,
-      realMessageId,
-      chatId,
-      new Date(date * 1000),
-      { rawPeerType: "user", rawPeerId: chatId, rawAccessHash: null }
-    );
-  },
 };
-
 /**
  * Validates that all expected handlers are defined
  *
@@ -527,7 +484,6 @@ export const telegramUpdateHandlers: Record<
     "UpdateChannelMessageViews",
     "UpdatePinnedMessages",
     "UpdatePinnedChannelMessages",
-    "UpdateShortSentMessage",
     "UpdateConnectionState",
     "UpdateChannelTooLong",
   ];

@@ -1,12 +1,9 @@
 // frontend/src/realtime/telegramSocket.ts
 import { socketClient } from "./socketClient";
 import type {
-  TelegramSendMessagePayload,
   TelegramTypingStartPayload,
   TelegramTypingStopPayload,
   TelegramMarkAsReadPayload,
-  TelegramEditMessagePayload,
-  TelegramDeleteMessagePayload,
   TelegramNewMessagePayload,
   TelegramTypingPayload,
   TelegramMessageEditedPayload,
@@ -23,19 +20,6 @@ export const telegramSocket = {
   // ======================
   // EMIT (Client → Server)
   // ======================
-
-  sendMessage(data: TelegramSendMessagePayload) {
-    socketClient.emit("telegram:send_message", data);
-  },
-
-  editMessage(data: TelegramEditMessagePayload) {
-    socketClient.emit("telegram:edit_message", data);
-  },
-
-  deleteMessage(data: TelegramDeleteMessagePayload) {
-    socketClient.emit("telegram:delete_message", data);
-  },
-
   typingStart(data: TelegramTypingStartPayload) {
     socketClient.emit("telegram:typing_start", data);
   },

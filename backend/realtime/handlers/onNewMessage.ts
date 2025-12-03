@@ -4,7 +4,6 @@ import { Api } from "telegram";
 import { logger } from "../../utils/logger";
 import { handleTelegramMessageEvent } from "./handleTelegramMessageEvent";
 import { telegramPeerToChatId } from "../../utils/telegramPeerToChatId";
-import { outgoingTempStore } from "../outgoingTempStore";
 import { getSocketGateway } from "../socketGateway";
 
 export async function onNewMessage(
@@ -44,29 +43,6 @@ export async function onNewMessage(
 
     if (!resolvedChatId && msg.peerId) {
       resolvedChatId = telegramPeerToChatId(msg.peerId);
-    }
-
-    // 🔥 OUTGOING CONFIRMATION LOGIC -----------------------------------------
-    if (msg.out && resolvedChatId) {
-      const pending = outgoingTempStore.shift(accountId, resolvedChatId);
-
-      if (pending) {
-        logger.info(
-          `[CONFIRMATION] Matched tempId=${pending.tempId} → realId=${msg.id}`
-        );
-
-        getSocketGateway().emitToUser(accountId, "telegram:message_confirmed", {
-          platform: "telegram",
-          accountId,
-          timestamp: new Date().toISOString(),
-          chatId: resolvedChatId,
-          tempId: pending.tempId,
-          realMessageId: String(msg.id),
-          date: msg.date
-            ? new Date(msg.date * 1000).toISOString()
-            : new Date().toISOString(),
-        });
-      }
     }
 
     // 🔥 continue with normal unified message handling

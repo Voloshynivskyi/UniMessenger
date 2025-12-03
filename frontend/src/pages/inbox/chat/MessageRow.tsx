@@ -9,10 +9,22 @@ interface Props {
   isSelf: boolean;
 }
 
+const PURE_MEDIA_TYPES: UnifiedTelegramMessage["type"][] = [
+  "photo",
+  "animation",
+  "video",
+  "video_note",
+  "sticker",
+];
+
 export default function MessageRow({ message, isSelf }: Props) {
-  const hasMedia = !!message.media && message.type !== "text";
+  const hasMedia = !!message.media;
   const hasText = !!message.text?.trim();
-  const shouldUseBubble = !hasMedia || (hasMedia && hasText);
+
+  const isPureMedia =
+    hasMedia &&
+    PURE_MEDIA_TYPES.includes(message.type as UnifiedTelegramMessage["type"]) &&
+    !hasText;
 
   const timeStr = new Date(message.date).toLocaleTimeString([], {
     hour: "2-digit",
@@ -37,14 +49,12 @@ export default function MessageRow({ message, isSelf }: Props) {
           alignItems: isSelf ? "flex-end" : "flex-start",
         }}
       >
-        {/* Bubble or media */}
-        {shouldUseBubble ? (
-          <MessageBubble message={message} isSelf={isSelf} />
-        ) : (
+        {isPureMedia ? (
           <MediaRenderer message={message} />
+        ) : (
+          <MessageBubble message={message} isSelf={isSelf} />
         )}
 
-        {/* Time */}
         <Typography
           variant="caption"
           sx={{

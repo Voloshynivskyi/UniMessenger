@@ -109,14 +109,23 @@ export interface TelegramMedia {
   height?: number;
   duration?: number;
 
-  isSticker?: boolean | undefined;
-  isAnimated?: boolean | undefined;
-  isRoundVideo?: boolean | undefined;
+  /** Stickers / animations */
+  isSticker?: boolean;
+  isAnimated?: boolean;
 
-  waveform?: number[] | undefined;
+  /** Video circle (round video) */
+  isRoundVideo?: boolean;
+
+  /** Voice message flag */
+  isVoice?: boolean;
+
+  /** Waveform for voice messages */
+  waveform?: number[];
+
+  /** Media groups (albums) */
   groupId?: string | null;
 
-  /** Frontend-only optimistic preview URL */
+  /** Frontend-only optimistic preview */
   localPreviewUrl?: string;
 }
 

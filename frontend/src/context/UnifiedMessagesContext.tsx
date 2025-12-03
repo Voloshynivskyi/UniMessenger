@@ -1,4 +1,5 @@
 // frontend/src/context/UnifiedMessagesContext.tsx
+
 import React, {
   createContext,
   useContext,
@@ -9,17 +10,72 @@ import React, {
 } from "react";
 import { telegramApi } from "../api/telegramApi";
 import { socketClient } from "../realtime/socketClient";
+
 import {
   type TelegramNewMessagePayload,
   type TelegramMessageEditedPayload,
   type TelegramMessageDeletedPayload,
+  type TelegramMessageConfirmedPayload,
 } from "../realtime/events";
-import type { TelegramSendMessagePayload } from "../realtime/events";
+
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
 import type { MessageStatus } from "../types/unifiedMessage.types";
 
-const INITIAL_KEEP = 50;
-const PAGE_SIZE = 25;
+import { buildChatKey } from "../pages/inbox/utils/chatUtils";
+
+const INITIAL_KEEP = 40;
+const PAGE_SIZE = 20;
+
+function asUnified(m: any): UnifiedTelegramMessage {
+  return m as UnifiedTelegramMessage;
+}
+
+/* --------------------------------------------------------- */
+/* Helpers */
+/* --------------------------------------------------------- */
+
+function normalizeDateToISO(d: any): string {
+  if (!d) return new Date().toISOString();
+
+  if (typeof d === "string") {
+    const t = new Date(d).getTime();
+    return isNaN(t) ? new Date().toISOString() : d;
+  }
+
+  if (typeof d === "number") {
+    return new Date(d).toISOString();
+  }
+
+  const t = new Date(d).getTime();
+  return isNaN(t) ? new Date().toISOString() : new Date(d).toISOString();
+}
+
+function getTimestampSafe(msg: UnifiedTelegramMessage): number {
+  const t = new Date(msg.date).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function sortAsc(a: UnifiedTelegramMessage, b: UnifiedTelegramMessage) {
+  return getTimestampSafe(a) - getTimestampSafe(b);
+}
+
+function dedupe(list: UnifiedTelegramMessage[]) {
+  const seen = new Set<string>();
+  const out: UnifiedTelegramMessage[] = [];
+
+  for (const m of list) {
+    const id = String(m.messageId);
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/* --------------------------------------------------------- */
+/* Types */
+/* --------------------------------------------------------- */
 
 export interface FetchMessagesArgs {
   chatKey: string;
@@ -45,11 +101,7 @@ interface UnifiedMessagesContextValue {
   fetchMessages: (args: FetchMessagesArgs) => Promise<void>;
   fetchOlderMessages: (args: FetchMessagesArgs) => Promise<void>;
 
-  addOrUpdateMessage: (
-    chatKey: string,
-    message: UnifiedTelegramMessage
-  ) => void;
-  sendTelegramMessage(data: TelegramSendMessagePayload): void;
+  addOrUpdateMessage: (chatKey: string, msg: UnifiedTelegramMessage) => void;
 
   removeMessage: (chatKey: string, id: string | number) => void;
 
@@ -57,70 +109,17 @@ interface UnifiedMessagesContextValue {
   clearAll: () => void;
 }
 
+/* --------------------------------------------------------- */
+/* Context */
+/* --------------------------------------------------------- */
+
 const UnifiedMessagesContext = createContext<
   UnifiedMessagesContextValue | undefined
 >(undefined);
 
-/* -------------------------------------------------------------------------- */
-/* utils */
-/* -------------------------------------------------------------------------- */
-
-function buildChatKey(
-  platform: string,
-  accountId: string,
-  chatId: string | number | bigint
-) {
-  return `${platform}:${accountId}:${String(chatId)}`;
-}
-
-// Normalize any date to ISO string
-function normalizeDateToISO(d: any): string {
-  if (!d) return new Date().toISOString();
-
-  // if already ISO/string
-  if (typeof d === "string") {
-    const t = new Date(d).getTime();
-    return isNaN(t) ? new Date().toISOString() : d;
-  }
-
-  // if number (assume ms)
-  if (typeof d === "number") {
-    const t = new Date(d).getTime();
-    return isNaN(t) ? new Date().toISOString() : new Date(d).toISOString();
-  }
-
-  // fallback
-  const t = new Date(d).getTime();
-  return isNaN(t) ? new Date().toISOString() : new Date(d).toISOString();
-}
-
-function getTimestampSafe(msg: UnifiedTelegramMessage): number {
-  const t = new Date(msg.date as any).getTime();
-  return isNaN(t) ? 0 : t;
-}
-
-function sortAsc(a: UnifiedTelegramMessage, b: UnifiedTelegramMessage) {
-  return getTimestampSafe(a) - getTimestampSafe(b);
-}
-
-function dedupe(list: UnifiedTelegramMessage[]) {
-  const seen = new Set<string>();
-  const out: UnifiedTelegramMessage[] = [];
-
-  for (const m of list) {
-    const id = String(m.messageId);
-    if (!seen.has(id)) {
-      seen.add(id);
-      out.push(m);
-    }
-  }
-
-  return out;
-}
-
-/* -------------------------------------------------------------------------- */
-/* provider */
-/* -------------------------------------------------------------------------- */
+/* --------------------------------------------------------- */
+/* Provider */
+/* --------------------------------------------------------- */
 
 export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   children,
@@ -128,27 +127,32 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   const [messagesByChat, setMessagesByChat] = useState<
     Record<string, UnifiedTelegramMessage[]>
   >({});
+
   const [loadingByChat, setLoadingByChat] = useState<Record<string, boolean>>(
     {}
   );
+
   const [fetchedByChat, setFetchedByChat] = useState<Record<string, boolean>>(
     {}
   );
+
   const [fullyLoadedByChat, setFullyLoadedByChat] = useState<
     Record<string, boolean>
   >({});
+
   const [nextOffsetByChat, setNextOffsetByChat] = useState<
     Record<string, number | null>
   >({});
+
   const [error, setError] = useState<string | null>(null);
 
   const setChatLoading = useCallback((chatKey: string, flag: boolean) => {
     setLoadingByChat((prev) => ({ ...prev, [chatKey]: flag }));
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* Initial fetch */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+  /* Load newest N messages */
+  /* --------------------------------------------------------- */
 
   const fetchMessages = useCallback(
     async ({
@@ -172,7 +176,6 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
           limit: INITIAL_KEEP,
         })) as GetMessageHistoryResponse;
 
-        // Normalize dates
         const normalized = response.messages.map((m) => ({
           ...m,
           date: normalizeDateToISO(m.date),
@@ -180,17 +183,13 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
           tempId: null,
         }));
 
-        const sorted = [...normalized].sort(sortAsc);
+        const sorted = normalized.sort(sortAsc);
         const latest = sorted.slice(-INITIAL_KEEP);
 
-        setMessagesByChat((prev) => {
-          const current = prev[chatKey] ?? [];
-          const merged = dedupe([...current, ...latest]).sort(sortAsc);
-          return {
-            ...prev,
-            [chatKey]: merged,
-          };
-        });
+        setMessagesByChat((prev) => ({
+          ...prev,
+          [chatKey]: dedupe(latest).sort(sortAsc),
+        }));
 
         setNextOffsetByChat((prev) => ({
           ...prev,
@@ -206,8 +205,8 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
           ...prev,
           [chatKey]: true,
         }));
-      } catch (err: any) {
-        setError(err?.message ?? "Failed to fetch messages");
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to fetch messages");
       } finally {
         setChatLoading(chatKey, false);
       }
@@ -215,9 +214,9 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
     [loadingByChat, setChatLoading]
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Pagination: fetch older */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+  /* Pagination */
+  /* --------------------------------------------------------- */
 
   const fetchOlderMessages = useCallback(
     async ({
@@ -242,17 +241,13 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         return;
       }
 
-      const offset = nextOffsetByChat[chatKey];
-      const fallbackOffset = current[0]?.messageId;
-
-      const offsetId = offset ?? fallbackOffset;
-      if (!offsetId) {
+      const offset = nextOffsetByChat[chatKey] ?? current[0]?.messageId;
+      if (!offset) {
         setFullyLoadedByChat((prev) => ({ ...prev, [chatKey]: true }));
         return;
       }
 
       setChatLoading(chatKey, true);
-      setError(null);
 
       try {
         const response = (await telegramApi.getMessageHistory({
@@ -261,26 +256,22 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
           peerId,
           accessHash,
           limit: PAGE_SIZE,
-          offsetId: Number(offsetId),
+          offsetId: Number(offset),
         })) as GetMessageHistoryResponse;
 
-        const olderRaw = response.messages ?? [];
-        const older = olderRaw.map((m) => ({
+        const older = response.messages.map((m) => ({
           ...m,
           date: normalizeDateToISO(m.date),
         }));
 
-        if (!older.length) {
+        if (older.length === 0) {
           setFullyLoadedByChat((prev) => ({ ...prev, [chatKey]: true }));
           return;
         }
 
         const merged = dedupe([...older, ...current]).sort(sortAsc);
 
-        setMessagesByChat((prev) => ({
-          ...prev,
-          [chatKey]: merged,
-        }));
+        setMessagesByChat((prev) => ({ ...prev, [chatKey]: merged }));
 
         setNextOffsetByChat((prev) => ({
           ...prev,
@@ -291,28 +282,26 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
           ...prev,
           [chatKey]: !response.nextOffsetId,
         }));
-      } catch (err: any) {
-        setError(err?.message ?? "Failed to fetch older messages");
       } finally {
         setChatLoading(chatKey, false);
       }
     },
     [
-      fetchMessages,
       messagesByChat,
       loadingByChat,
       fullyLoadedByChat,
       nextOffsetByChat,
-      setChatLoading,
+      fetchMessages,
     ]
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Insert new or update existing */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+  /* Add or update message (optimistic OR real) */
+  /* --------------------------------------------------------- */
+
   const addOrUpdateMessage = useCallback(
     (chatKey: string, msg: UnifiedTelegramMessage) => {
-      const normalizedMsg = {
+      const normalized = {
         ...msg,
         date: normalizeDateToISO(msg.date),
       };
@@ -320,25 +309,28 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       setMessagesByChat((prev) => {
         const current = prev[chatKey] ?? [];
 
-        // 1️⃣ Якщо це оптимістик → замінюємо по tempId
+        // 1) If optimistic (tempId exists)
         if (msg.tempId) {
-          const updated = current.map((m) =>
-            m.tempId === msg.tempId ? normalizedMsg : m
-          );
+          const exists = current.some((m) => m.tempId === msg.tempId);
+          if (exists) {
+            const updated = current.map((m) =>
+              m.tempId === msg.tempId ? normalized : m
+            );
+            return {
+              ...prev,
+              [chatKey]: dedupe(updated).sort(sortAsc),
+            };
+          }
 
-          return {
-            ...prev,
-            [chatKey]: dedupe(updated).sort(sortAsc),
-          };
+          const merged = dedupe([...current, normalized]).sort(sortAsc);
+          return { ...prev, [chatKey]: merged };
         }
 
-        // 2️⃣ Якщо вже є повідомлення із тим messageId → замінюємо
+        // 2) If not optimistic → replace OR add
         const updated = current.map((m) =>
-          String(m.messageId) === String(msg.messageId) ? normalizedMsg : m
+          String(m.messageId) === String(msg.messageId) ? normalized : m
         );
-
-        // 3️⃣ Якщо немає — додаємо
-        const merged = dedupe([...updated, normalizedMsg]).sort(sortAsc);
+        const merged = dedupe([...updated, normalized]).sort(sortAsc);
 
         return { ...prev, [chatKey]: merged };
       });
@@ -346,56 +338,35 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
     []
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Send message to backend (tempId is used for optimistic matching) */
-  /* ---------------------------------------------------------------------- */
-
-  const sendTelegramMessage = useCallback(
-    (data: TelegramSendMessagePayload) => {
-      if (!socketClient) return;
-
-      // Ensure accessHash is ALWAYS a string or undefined
-      const payload: TelegramSendMessagePayload = {
-        ...data,
-        accessHash:
-          data.accessHash != null ? String(data.accessHash) : undefined,
-      };
-
-      console.log(
-        "[FRONT] ➡️ Emitting telegram:send_message",
-        JSON.stringify(payload, null, 2)
-      );
-
-      socketClient.emit("telegram:send_message", payload);
-    },
-    []
-  );
-
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
   /* Remove message */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+
   const removeMessage = useCallback((chatKey: string, id: string | number) => {
     const idStr = String(id);
     setMessagesByChat((prev) => {
       const current = prev[chatKey] ?? [];
-      const filtered = current.filter((m) => String(m.messageId) !== idStr);
-      return { ...prev, [chatKey]: filtered };
+      return {
+        ...prev,
+        [chatKey]: current.filter((m) => String(m.messageId) !== idStr),
+      };
     });
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* Cleanup per chat */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+  /* Cleanup */
+  /* --------------------------------------------------------- */
 
   const clearChatState = useCallback((chatKey: string) => {
     setMessagesByChat((prev) => {
-      const current = prev[chatKey];
-      if (!current || current.length <= INITIAL_KEEP) return prev;
+      const current = prev[chatKey] ?? [];
+      if (current.length <= INITIAL_KEEP) return prev;
 
       const sorted = [...current].sort(sortAsc);
-      const latest = sorted.slice(-INITIAL_KEEP);
-
-      return { ...prev, [chatKey]: latest };
+      return {
+        ...prev,
+        [chatKey]: sorted.slice(-INITIAL_KEEP),
+      };
     });
 
     setNextOffsetByChat((prev) => {
@@ -425,47 +396,76 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
   const loading = Object.values(loadingByChat).some(Boolean);
 
-  /* ---------------------------------------------------------------------- */
-  /* SOCKET HANDLERS */
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
+  /* SOCKET HANDLERS
+     The MOST IMPORTANT PART for stability
+  --------------------------------------------------------- */
 
   useEffect(() => {
     if (!socketClient) return;
 
-    /* ==========================================================
-     NEW MESSAGE
-     ========================================================== */
+    /* NEW MESSAGE — replaces optimistic with TRUE backend payload */
     const handleNewMessage = (p: TelegramNewMessagePayload) => {
       if (p.platform !== "telegram") return;
 
-      const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
+      const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
       const raw = p.message;
 
-      const msg: UnifiedTelegramMessage = {
+      const msg: UnifiedTelegramMessage = asUnified({
         ...raw,
         platform: "telegram",
         accountId: p.accountId,
         chatId: String(p.chatId),
-
         messageId: String(raw.messageId),
-        tempId: null, // 1️⃣ ВАЖЛИВО: видаляємо tempId
+        tempId: null,
         status: "sent",
-
         date: normalizeDateToISO(raw.date),
-      };
+      });
 
       addOrUpdateMessage(chatKey, msg);
     };
 
-    /* ==========================================================
-     EDITED MESSAGE
-     ========================================================== */
+    /* CONFIRMED — ONLY REPLACES tempId → messageId */
+    const handleConfirmed = (p: TelegramMessageConfirmedPayload) => {
+      if (p.platform !== "telegram") return;
+
+      const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
+
+      setMessagesByChat((prev) => {
+        const list = prev[chatKey];
+        if (!list) return prev;
+
+        const updated = list.map((m) => {
+          if (m.tempId != null && String(m.tempId) === String(p.tempId)) {
+            return asUnified({
+              ...m,
+
+              // Only identity change
+              messageId: String(p.realMessageId),
+              tempId: null,
+              status: "sent" as MessageStatus,
+              date: normalizeDateToISO(p.date),
+
+              // DO NOT override media/text here!!!
+              // Real content arrives via new_message afterwards
+            });
+          }
+          return m;
+        });
+
+        return {
+          ...prev,
+          [chatKey]: updated.sort(sortAsc),
+        };
+      });
+    };
+
+    /* EDITED */
     const handleEdited = (p: TelegramMessageEditedPayload) => {
       if (p.platform !== "telegram") return;
 
-      const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
-      const target = String(p.messageId);
+      const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
       setMessagesByChat((prev) => {
         const list = prev[chatKey];
@@ -474,19 +474,19 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         return {
           ...prev,
           [chatKey]: list.map((m) =>
-            String(m.messageId) === target ? { ...m, text: p.newText } : m
+            String(m.messageId) === String(p.messageId)
+              ? { ...m, text: p.newText }
+              : m
           ),
         };
       });
     };
 
-    /* ==========================================================
-     DELETED MESSAGE
-     ========================================================== */
+    /* DELETED */
     const handleDeleted = (p: TelegramMessageDeletedPayload) => {
       if (p.platform !== "telegram") return;
 
-      const chatKey = buildChatKey(p.platform, p.accountId, p.chatId);
+      const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
       const ids = new Set(p.messageIds.map(String));
 
       setMessagesByChat((prev) => {
@@ -500,23 +500,21 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       });
     };
 
-    /* ==========================================================
-     SOCKET BINDINGS
-     ========================================================== */
+    /* Bind */
     socketClient.on("telegram:new_message", handleNewMessage);
-    socketClient.on("telegram:message_confirmed", handleNewMessage as any);
+    socketClient.on("telegram:message_confirmed", handleConfirmed);
     socketClient.on("telegram:message_edited", handleEdited);
     socketClient.on("telegram:message_deleted", handleDeleted);
 
     return () => {
       socketClient.off("telegram:new_message", handleNewMessage);
-      socketClient.off("telegram:message_confirmed", handleNewMessage as any);
+      socketClient.off("telegram:message_confirmed", handleConfirmed);
       socketClient.off("telegram:message_edited", handleEdited);
       socketClient.off("telegram:message_deleted", handleDeleted);
     };
   }, [addOrUpdateMessage]);
 
-  /* ---------------------------------------------------------------------- */
+  /* --------------------------------------------------------- */
 
   return (
     <UnifiedMessagesContext.Provider
@@ -527,7 +525,6 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         fetchedByChat,
         fullyLoadedByChat,
         error,
-        sendTelegramMessage,
         fetchMessages,
         fetchOlderMessages,
         addOrUpdateMessage,
@@ -543,8 +540,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
 export const useMessages = () => {
   const ctx = useContext(UnifiedMessagesContext);
-  if (!ctx) {
+  if (!ctx)
     throw new Error("useMessages must be used inside UnifiedMessagesProvider");
-  }
   return ctx;
 };

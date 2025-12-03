@@ -1,16 +1,16 @@
 /**
  * Custom error class for handling API-level errors in the UniMessenger frontend.
  *
- * 🌐 Purpose:
+ * Purpose:
  *  - Provides a uniform structure for all server-side errors
  *  - Enables components and hooks to distinguish between validation errors,
  *    authentication issues, or integration-specific failures (e.g. Telegram FLOOD_WAIT)
  *  - Designed to scale for multiple messaging providers (Telegram, Discord, Slack)
  *
- * 🧠 Usage:
+ * Usage:
  *  throw new ApiError("BAD_CREDENTIALS", "Invalid login credentials", 401);
  *
- * 🚦 Handled in UI:
+ * Handled in UI:
  *  try { ... } catch(err) {
  *    if (err instanceof ApiError) { showToast(err.message) }
  *  }

@@ -34,7 +34,7 @@ if (!API_ID || !API_HASH) {
 }
 
 export class TelegramService {
-  /** ────────────── HELPERS ────────────── */
+  // Helper methods
   private initClient(sessionString?: string) {
     return new TelegramClient(
       new StringSession(sessionString ?? ""),
@@ -54,7 +54,7 @@ export class TelegramService {
     logger.error(`[TelegramService:${ctx}]`, err?.message || err);
   }
 
-  /** ────────────── AUTH ────────────── */
+  // Authentication methods
   async sendCode(phoneNumber: string): Promise<TelegramSendCodeResult> {
     const client = this.initClient();
     await client.connect();
@@ -172,7 +172,7 @@ export class TelegramService {
     }
   }
 
-  /** ────────────── SESSION ────────────── */
+  // Session management
   async saveSession(
     userId: string,
     sessionString: string,
@@ -220,7 +220,7 @@ export class TelegramService {
     return { status: "ok" };
   }
 
-  /** ────────────── DATA ────────────── */
+  // Data retrieval methods
   async getAccounts(userId: string): Promise<TelegramAccountInfo[]> {
     try {
       return await prisma.telegramAccount.findMany({
@@ -303,5 +303,44 @@ export class TelegramService {
       messages: parsedMessages,
       nextOffsetId: lastMessage ? Number(lastMessage.id) : null,
     };
+  }
+
+  // Message sending methods
+  async sendUnified({
+    accountId,
+    peerType,
+    peerId,
+    accessHash,
+    text,
+    fileBuffer,
+    fileName,
+  }: {
+    accountId: string;
+    peerType: "user" | "chat" | "channel";
+    peerId: string | number | bigint;
+    accessHash?: string | number | bigint | null;
+    text?: string;
+    fileBuffer?: Buffer;
+    fileName?: string;
+  }) {
+    if (fileBuffer && fileName) {
+      return telegramClientManager.sendMedia(
+        accountId,
+        peerType,
+        peerId,
+        accessHash ?? null,
+        fileBuffer,
+        fileName,
+        text || ""
+      );
+    }
+
+    return telegramClientManager.sendText(
+      accountId,
+      peerType,
+      peerId,
+      accessHash ?? null,
+      text || ""
+    );
   }
 }

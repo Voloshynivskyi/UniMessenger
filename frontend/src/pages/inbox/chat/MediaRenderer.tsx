@@ -1,5 +1,3 @@
-// frontend/src/pages/inbox/chat/MediaRenderer.tsx
-
 import { Box, Typography } from "@mui/material";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../../../context/AuthContext";
@@ -15,92 +13,69 @@ interface Props {
 
 export default function MediaRenderer({ message }: Props) {
   const { token } = useAuth();
-  const { media, type } = message;
+  const media = message.media;
 
-  // ХУКИ — завжди зверху, без умов
+  if (!message || !media) return null;
+
+  // Normalize type for image files
+  const mime = media.mimeType || "";
+  const rawType = message.type;
+
+  const type: UnifiedTelegramMessage["type"] =
+    rawType === "file" && mime.startsWith("image/") ? "photo" : rawType;
+
+  /* ------------------------------------------------------------
+     Local state
+  ------------------------------------------------------------ */
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerType, setViewerType] = useState<"image" | "video" | null>(null);
 
-  // Якщо медіа немає — нічого не рендеримо
-  if (!media) return null;
-  console.log("[MediaRenderer] message", {
-    id: message.messageId,
-    tempId: message.tempId,
-    type: message.type,
-    hasMedia: !!media,
-    hasLocalPreview: (media as any)?.localPreviewUrl,
-  });
-
-  // ------------- КЛЮЧОВА ЛОГІКА ДЖЕРЕЛА БЛОБУ ------------- //
-
-  // 1) Якщо це оптимістичне повідомлення з локальним preview → використовуємо його
+  /* ------------------------------------------------------------
+     Decide source for display
+  ------------------------------------------------------------ */
   const hasLocalPreview =
-    typeof (media as any).localPreviewUrl === "string" &&
-    (media as any).localPreviewUrl.length > 0;
+    typeof media.localPreviewUrl === "string" &&
+    media.localPreviewUrl.length > 0;
 
-  // 2) Якщо є реальний messageId (без tempId і без localPreview) → можна тягнути з бекенда
   const realMessageId =
-    !message.tempId && !hasLocalPreview && message.messageId
-      ? String(message.messageId)
-      : null;
+    !message.tempId && !hasLocalPreview ? String(message.messageId) : null;
 
   const protectedUrl =
     realMessageId != null
       ? `/api/telegram/media/${message.accountId}/${realMessageId}`
       : null;
 
-  // === MEDIA FETCH / ВИБІР ДЖЕРЕЛА ===
+  /* ------------------------------------------------------------
+     Load blob
+  ------------------------------------------------------------ */
   useEffect(() => {
     let active = true;
 
-    // Випадок 1: локальний preview (оптимістичний кейс) — БЕКЕНД НЕ ЧІПАЄМО
     if (hasLocalPreview) {
-      const localUrl = (media as any).localPreviewUrl as string;
-      setBlobUrl(localUrl);
-      setIsLoading(false);
-
-      return () => {
-        active = false;
-        // localPreviewUrl створювався в MessageInput через URL.createObjectURL
-        // і його треба буде звільнити там, коли меседж зникне, а не тут
-      };
-    }
-
-    // Випадок 2: немає ні localPreview, ні реального messageId → нічого грузити
-    if (!protectedUrl) {
-      setIsLoading(false);
+      setBlobUrl(media.localPreviewUrl!);
       return () => {
         active = false;
       };
     }
 
-    // Випадок 3: реальне повідомлення з Telegram → качаємо з бекенда
+    if (!protectedUrl) return () => void 0;
+
     const load = async () => {
       try {
         const res = await fetch(protectedUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (!res.ok) {
-          throw new Error(
-            `[MediaRenderer] fetch failed: ${res.status} ${res.statusText}`
-          );
-        }
+        if (!res.ok) throw new Error("media fetch failed");
 
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
 
-        if (active) {
-          setBlobUrl(url);
-          setIsLoading(false);
-        }
-      } catch (err) {
-        console.error("[MediaRenderer] Media load error:", err);
-        if (active) setIsLoading(false);
+        if (active) setBlobUrl(url);
+      } catch {
+        if (active) setBlobUrl(null);
       }
     };
 
@@ -108,14 +83,14 @@ export default function MediaRenderer({ message }: Props) {
 
     return () => {
       active = false;
-      if (!hasLocalPreview && blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
+      if (!hasLocalPreview && blobUrl) URL.revokeObjectURL(blobUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, protectedUrl, hasLocalPreview, media]);
+  }, [protectedUrl, token, hasLocalPreview]);
 
-  // Якщо ще нічого не завантажено — показуємо спінер
+  /* ------------------------------------------------------------
+     Loading spinner
+  ------------------------------------------------------------ */
   if (!blobUrl) {
     return (
       <Box
@@ -132,79 +107,32 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // --------------------------------------------------------- //
-  // Далі — те саме, що в тебе було: визначення типів і рендер //
-  // --------------------------------------------------------- //
-
+  /* ------------------------------------------------------------
+     Type Detection
+  ------------------------------------------------------------ */
   const isPhoto = type === "photo";
   const isGif = type === "animation";
   const isVideo = type === "video";
   const isAudio = type === "audio" || type === "voice";
   const isSticker = type === "sticker";
-  const isVideoNote = type === "video_note" || (media as any).isRoundVideo;
+  const isVideoNote = type === "video_note" || media.isRoundVideo === true;
 
-  const fileName = (media as any).fileName ?? "file";
-  const fileSize = (media as any).size;
-  const duration = (media as any).duration ?? 0;
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return "";
-    const u = ["B", "KB", "MB"];
-    let i = 0;
-    let v = bytes;
-    while (v > 1024 && i < u.length - 1) {
-      v /= 1024;
-      i++;
-    }
-    return `${v.toFixed(1)} ${u[i]}`;
-  };
-
-  const formatDuration = (s: number) => {
-    const m = Math.floor(s / 60);
-    const ss = String(Math.floor(s % 60)).padStart(2, "0");
-    return `${m}:${ss}`;
-  };
-
-  const Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <Box
-      sx={{
-        borderRadius: 3,
-        overflow: "hidden",
-        bgcolor: "background.paper",
-        border: "1px solid rgba(0,0,0,0.06)",
-        boxShadow: 1,
-        maxWidth: 360,
-        minWidth: 180,
-        position: "relative",
-      }}
-    >
-      {children}
-    </Box>
-  );
+  const duration = media.duration ?? 0;
+  const waveform = media.waveform ?? null;
+  const fileName = media.fileName ?? "File";
 
   const openViewer = (kind: "image" | "video") => {
     setViewerType(kind);
     setViewerOpen(true);
   };
 
-  // ===========================
-  // RENDERING (NO HOOKS BELOW)
-  // ===========================
-
-  // VIDEO NOTE
+  /* ------------------------------------------------------------
+     VIDEO NOTE
+  ------------------------------------------------------------ */
   if (isVideoNote) {
     return (
       <>
         <RoundVideoNote src={blobUrl} />
-
-        {message.text && (
-          <Typography
-            sx={{ mt: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-          >
-            {message.text}
-          </Typography>
-        )}
-
         <MediaViewerModal
           open={viewerOpen}
           type={viewerType}
@@ -215,31 +143,37 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // STICKER
+  /* ------------------------------------------------------------
+     STICKER
+  ------------------------------------------------------------ */
   if (isSticker) {
     return (
-      <>
-        <Box sx={{ maxWidth: 200, p: 1 }}>
-          <img
-            src={blobUrl}
-            style={{ width: "100%", height: "auto", display: "block" }}
-          />
-        </Box>
-
-        {message.text && (
-          <Typography sx={{ mt: 0.7, whiteSpace: "pre-wrap" }}>
-            {message.text}
-          </Typography>
-        )}
-      </>
+      <Box sx={{ maxWidth: 180, p: 1 }}>
+        <img
+          src={blobUrl}
+          style={{ width: "100%", height: "auto", display: "block" }}
+        />
+      </Box>
     );
   }
 
-  // PHOTO
+  /* ------------------------------------------------------------
+     PHOTO
+  ------------------------------------------------------------ */
   if (isPhoto) {
     return (
       <>
-        <Card>
+        <Box
+          sx={{
+            borderRadius: 3,
+            overflow: "hidden",
+            bgcolor: "background.paper",
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: 1,
+            maxWidth: 360,
+            minWidth: 180,
+          }}
+        >
           <img
             src={blobUrl}
             onClick={() => openViewer("image")}
@@ -248,16 +182,10 @@ export default function MediaRenderer({ message }: Props) {
               maxHeight: 420,
               objectFit: "cover",
               display: "block",
+              cursor: "pointer",
             }}
           />
-        </Card>
-
-        {message.text && (
-          <Typography sx={{ mt: 0.7, whiteSpace: "pre-wrap" }}>
-            {message.text}
-          </Typography>
-        )}
-
+        </Box>
         <MediaViewerModal
           open={viewerOpen}
           type={viewerType}
@@ -268,11 +196,23 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // VIDEO / GIF
+  /* ------------------------------------------------------------
+     VIDEO / GIF
+  ------------------------------------------------------------ */
   if (isVideo || isGif) {
     return (
       <>
-        <Card>
+        <Box
+          sx={{
+            borderRadius: 3,
+            overflow: "hidden",
+            bgcolor: "background.paper",
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: 1,
+            maxWidth: 360,
+            minWidth: 220,
+          }}
+        >
           <video
             src={blobUrl}
             controls
@@ -286,14 +226,7 @@ export default function MediaRenderer({ message }: Props) {
               cursor: "pointer",
             }}
           />
-        </Card>
-
-        {message.text && (
-          <Typography sx={{ mt: 0.7, whiteSpace: "pre-wrap" }}>
-            {message.text}
-          </Typography>
-        )}
-
+        </Box>
         <MediaViewerModal
           open={viewerOpen}
           type={viewerType}
@@ -304,14 +237,16 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // AUDIO / VOICE
+  // Audio or voice message (Telegram style, inside bubble)
   if (isAudio) {
-    const barWidth = Math.min(220, Math.max(80, duration * 12));
+    const seconds = Math.max(1, duration);
+    const timeLabel = `${Math.floor(seconds / 60)}:${String(
+      Math.floor(seconds % 60)
+    ).padStart(2, "0")}`;
 
     const togglePlay = () => {
       const a = audioRef.current;
       if (!a) return;
-
       if (a.paused) {
         a.play();
         setIsPlaying(true);
@@ -325,21 +260,16 @@ export default function MediaRenderer({ message }: Props) {
       <Box
         sx={{
           display: "flex",
+          flexDirection: "row",
           alignItems: "center",
-          gap: 1.5,
-          px: 1.5,
-          py: 1,
-          borderRadius: 3,
-          bgcolor: "background.paper",
-          border: "1px solid rgba(0,0,0,0.08)",
-          boxShadow: 1,
-          maxWidth: 360,
+          gap: 1.2,
         }}
       >
+        {/* Play button */}
         <Box
           sx={{
-            width: 44,
-            height: 44,
+            width: 42,
+            height: 42,
             borderRadius: "50%",
             bgcolor: "primary.main",
             display: "flex",
@@ -347,44 +277,36 @@ export default function MediaRenderer({ message }: Props) {
             justifyContent: "center",
             color: "white",
             cursor: "pointer",
-            fontSize: 22,
+            fontSize: 20,
+            flexShrink: 0,
           }}
           onClick={togglePlay}
         >
           {isPlaying ? "⏸" : "▶"}
         </Box>
 
-        <Box
-          sx={{
-            width: barWidth,
-            height: 32,
-            borderRadius: 2,
-            bgcolor: "rgba(0,0,0,0.08)",
-            display: "flex",
-            alignItems: "center",
-            px: 1,
-          }}
-        >
-          <Box
-            sx={{
-              width: "100%",
-              height: 2,
-              bgcolor: "rgba(0,0,0,0.25)",
-              borderRadius: 1,
-            }}
-          />
-        </Box>
-
-        <Box sx={{ textAlign: "right", minWidth: 50 }}>
-          <Typography variant="caption" sx={{ opacity: 0.7, mr: 0.5 }}>
-            {formatDuration(duration)}
-          </Typography>
-          {fileSize && (
-            <Typography variant="caption" sx={{ opacity: 0.5 }}>
-              {formatBytes(fileSize)}
-            </Typography>
+        {/* Waveform */}
+        <Box sx={{ flexGrow: 1, display: "flex", alignItems: "center" }}>
+          {waveform ? (
+            <MiniWaveform waveform={waveform} />
+          ) : (
+            <Box
+              sx={{
+                width: "100%",
+                height: 6,
+                bgcolor: "rgba(0,0,0,0.2)",
+                borderRadius: 3,
+              }}
+            />
           )}
         </Box>
+
+        {/* Duration */}
+        <Typography
+          sx={{ fontSize: 13, opacity: 0.7, minWidth: 34, textAlign: "right" }}
+        >
+          {timeLabel}
+        </Typography>
 
         <audio
           ref={audioRef}
@@ -396,29 +318,108 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // FILE (документи та ін.)
+  // File or unknown type (Telegram style, inside bubble)
   return (
-    <Card>
-      <Box sx={{ p: 1.25 }}>
-        <a
-          href={blobUrl}
-          download={fileName}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            textDecoration: "none",
-            color: "inherit",
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1.2,
+      }}
+    >
+      {/* Іконка файлу в синьому кружечку */}
+      <Box
+        sx={{
+          width: 42,
+          height: 42,
+          borderRadius: "50%",
+          bgcolor: "primary.main",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <Box
+          sx={{
+            width: 16,
+            height: 20,
+            bgcolor: "#fff",
+            borderRadius: 0.5,
+            position: "relative",
           }}
         >
-          📎 {fileName}
-        </a>
-
-        {message.text && (
-          <Typography sx={{ mt: 1, whiteSpace: "pre-wrap" }}>
-            {message.text}
-          </Typography>
-        )}
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              width: 6,
+              height: 6,
+              bgcolor: "#e0e0e0",
+              borderTopRightRadius: 2,
+            }}
+          />
+        </Box>
       </Box>
-    </Card>
+
+      <Box
+        component="a"
+        href={blobUrl}
+        download={fileName}
+        target="_blank"
+        rel="noreferrer"
+        sx={{
+          fontSize: 14,
+          fontWeight: 500,
+          textDecoration: "none",
+          color: "inherit",
+          maxWidth: 220,
+          whiteSpace: "nowrap",
+          textOverflow: "ellipsis",
+          overflow: "hidden",
+        }}
+      >
+        {fileName}
+      </Box>
+    </Box>
+  );
+}
+
+/* ------------------------------------------------------------
+   Mini waveform renderer
+------------------------------------------------------------ */
+function MiniWaveform({ waveform }: { waveform: number[] }) {
+  if (!Array.isArray(waveform) || waveform.length === 0) {
+    return null;
+  }
+
+  const normalized = waveform.map((v) => Math.max(0, Math.min(1, v / 255)));
+  const TARGET_BARS = 60;
+  const step = Math.max(1, Math.floor(normalized.length / TARGET_BARS));
+  const reduced = normalized.filter((_, i) => i % step === 0);
+
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "flex-end",
+        gap: "2px",
+        height: 28,
+        width: "100%",
+      }}
+    >
+      {reduced.map((v, i) => (
+        <Box
+          key={i}
+          sx={{
+            width: "2px",
+            height: `${6 + v * 20}px`,
+            bgcolor: "rgba(0,0,0,0.38)",
+            borderRadius: 1,
+          }}
+        />
+      ))}
+    </Box>
   );
 }

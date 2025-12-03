@@ -54,18 +54,6 @@ export function createSocketServer(app: any) {
        * Telegram event handlers (Client → Server)
        * Each handler calls the corresponding function in telegramSocketHandlers
        */
-      // Send Message
-      socket.on("telegram:send_message", (data) =>
-        telegramSocketHandlers.sendMessage(socket, data)
-      );
-      // Edit Message
-      socket.on("telegram:edit_message", (data) =>
-        telegramSocketHandlers.editMessage(socket, data)
-      );
-      // Delete Message
-      socket.on("telegram:delete_message", (data) =>
-        telegramSocketHandlers.deleteMessage(socket, data)
-      );
       // Typing Start
       socket.on("telegram:typing_start", (data) =>
         telegramSocketHandlers.typingStart(socket, data)

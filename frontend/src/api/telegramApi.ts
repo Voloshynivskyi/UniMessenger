@@ -1,12 +1,12 @@
 /**
  * Telegram Authentication API Client for UniMessenger
  *
- * 🚀 Purpose:
+ * Purpose:
  *   Provides strongly-typed wrappers around all Telegram authentication endpoints.
  *   Encapsulates axios calls and error handling for a clean and scalable frontend architecture.
  *
- * 🧠 Design goals:
- *   - Fully aligned with backend API contract (`status:ok/error`)
+ * Design goals:
+ *   - Fully aligned with backend API contract (status:ok/error)
  *   - Strict TypeScript typing
  *   - Documentation that explains WHY, not just WHAT
  *   - Ready for extension (more providers: Discord, Slack)
@@ -14,7 +14,8 @@
 
 import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
-import type { NextOffset, UnifiedTelegramChat } from "../types/telegram.types";
+import type { NextOffset } from "../types/telegram.types";
+
 /** Data returned after /sendCode */
 export interface SendCodeResult {
   phoneCodeHash: string;
@@ -73,15 +74,6 @@ export const telegramApi = {
 
   /**
    * Step 2: Verify the code sent to phone.
-   *
-   * @param phoneNumber - User's phone
-   * @param phoneCode - SMS code from Telegram
-   * @param phoneCodeHash - Hash returned from sendCode
-   * @param tempSession - Temporary session string returned from sendCode
-   *
-   * @returns {SignInResult}
-   *   - If 2FA is not required → SignInSuccessResult
-   *   - If 2FA is required → SignInNeedPasswordResult
    */
   async signIn(
     phoneNumber: string,
@@ -100,12 +92,6 @@ export const telegramApi = {
 
   /**
    * Step 3: Complete authentication using Telegram password (2FA)
-   *
-   * @param tempSession - Session obtained after code confirmation
-   * @param password - User's Telegram 2FA password
-   *
-   * @returns {SignInSuccessResult} Always successful if credentials correct.
-   * @throws {ApiError} If password is incorrect or session expired.
    */
   async verifyTwoFA(
     tempSession: string,
@@ -120,8 +106,6 @@ export const telegramApi = {
 
   /**
    * Get all connected Telegram accounts for the authenticated user.
-   *
-   * @returns Array of account objects with status and user details.
    */
   async getAccounts(): Promise<TelegramAuthAccount[]> {
     const response = await apiClient.get("/api/telegram/accounts");
@@ -142,7 +126,6 @@ export const telegramApi = {
   },
 
   // Get latest dialogs without pagination
-
   async getLatestDialogs(accountId: string) {
     const response = await apiClient.get("/api/telegram/dialogs", {
       params: {
@@ -154,7 +137,6 @@ export const telegramApi = {
   },
 
   // Get dialogs with pagination support
-
   async getDialogs(accountId: string, nextOffset?: NextOffset | null) {
     const params: any = { accountId, limit: 50 };
 
@@ -173,15 +155,9 @@ export const telegramApi = {
     const response = await apiClient.get("/api/telegram/dialogs", { params });
     return handleApiResponse(response);
   },
+
   /**
    * Fetch message history for a specific Telegram chat.
-   *
-   * @param accountId - TelegramAccount.id associated with the user
-   * @param peerType - "user" | "chat" | "channel"
-   * @param peerId - Telegram raw peer ID
-   * @param accessHash - Access hash for user/channel peers (optional for chat)
-   * @param limit - Number of messages to load
-   * @param offsetId - Pagination offset (messageId of the oldest currently loaded message)
    */
   async getMessageHistory({
     accountId,
@@ -211,30 +187,52 @@ export const telegramApi = {
         offsetId,
       },
     });
-    console.log("API response:", handleApiResponse(response));
     return handleApiResponse(response);
   },
-  /** Upload media file to be sent via Telegram
-   *
-   * @param accountId - TelegramAccount.id associated with the user
-   * @param chatId - Target chat ID
-   * @param file - File object to upload
+
+  /**
+   * Universal Telegram sender for text-only, media-only, or mixed messages.
+   * Frontend always calls ONLY this method.
+   * Sends multipart/form-data so controller receives text and optional file.
    */
-  /** Upload media file to be sent via Telegram */
-  async uploadMedia(accountId: string, chatId: string, file: File) {
+  async sendMessage(params: {
+    accountId: string;
+    peerType: "user" | "chat" | "channel";
+    peerId: string | number | bigint;
+    accessHash?: string | number | bigint | null;
+    text: string;
+    file?: File;
+    tempId?: number;
+  }) {
     const form = new FormData();
-    form.append("file", file);
-    form.append("chatId", chatId); // хто отримає
-    // accountId в URL → не треба в form
 
-    const response = await apiClient.post(
-      `/api/telegram/media/${accountId}/upload`,
-      form,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      }
-    );
+    form.append("accountId", params.accountId);
+    form.append("peerType", params.peerType);
+    form.append("peerId", String(params.peerId));
 
-    return handleApiResponse(response);
+    if (params.accessHash !== undefined && params.accessHash !== null) {
+      form.append("accessHash", String(params.accessHash));
+    }
+
+    form.append("text", params.text ?? "");
+    if (typeof params.tempId === "number") {
+      form.append("tempId", String(params.tempId));
+    }
+
+    if (params.file) {
+      form.append("file", params.file);
+    }
+
+    const response = await apiClient.post("/api/telegram/sendMessage", form, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    return handleApiResponse<{
+      tempId?: number;
+      realMessageId: number;
+      date: number;
+    }>(response);
   },
 };

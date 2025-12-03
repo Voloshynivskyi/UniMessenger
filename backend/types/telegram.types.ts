@@ -125,7 +125,7 @@ export type UnifiedTelegramMessageType =
   | "unknown";
 
 export interface TelegramMedia {
-  id: string;
+  id?: string;
   accessHash?: string | null;
   dcId?: number;
   size?: number | null;
@@ -137,12 +137,24 @@ export interface TelegramMedia {
   height?: number;
   duration?: number;
 
-  isSticker?: boolean | undefined;
-  isAnimated?: boolean | undefined;
-  isRoundVideo?: boolean | undefined;
+  /** Stickers / animations */
+  isSticker?: boolean;
+  isAnimated?: boolean;
 
-  waveform?: number[] | undefined;
+  /** Video circle (round video) */
+  isRoundVideo?: boolean;
+
+  /** Voice message flag */
+  isVoice?: boolean;
+
+  /** Waveform for voice messages */
+  waveform?: number[] | null;
+
+  /** Media groups (albums) */
   groupId?: string | null;
+
+  /** Frontend-only optimistic preview */
+  localPreviewUrl?: string;
 }
 
 /**

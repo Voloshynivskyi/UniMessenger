@@ -1,14 +1,32 @@
+// frontend/src/pages/inbox/chat/MessageInput.tsx
 import { useState, useRef } from "react";
-import { Box, IconButton, TextField, Typography } from "@mui/material";
-import SendIcon from "@mui/icons-material/Send";
+import { Box, IconButton, TextareaAutosize, Typography } from "@mui/material";
+
+import InsertEmoticonIcon from "@mui/icons-material/InsertEmoticon";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
+import SendIcon from "@mui/icons-material/Send";
+import MicIcon from "@mui/icons-material/Mic";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CloseIcon from "@mui/icons-material/Close";
 
 import { telegramApi } from "../../../api/telegramApi";
 import { useMessages } from "../../../context/UnifiedMessagesContext";
 import { useUnifiedDialogs } from "../../../context/UnifiedDialogsContext";
-
 import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import EmojiPicker from "./recorders/EmojiPicker";
+import VoiceRecorderTelegram from "./recorders/VoiceRecorderUI";
+import VideoNoteRecorderTelegram from "./recorders/VideoNoteRecorderUI";
+
+interface MessageInputProps {
+  chatKey: string;
+  accountId: string;
+  peerType: "user" | "chat" | "channel";
+  peerId: string | number;
+  accessHash?: string | number | bigint | null;
+}
+
+/** Режим запису: немає, голос, відеонота */
+type RecorderMode = "voice" | "video" | null;
 
 export default function MessageInput({
   chatKey,
@@ -16,263 +34,371 @@ export default function MessageInput({
   peerType,
   peerId,
   accessHash,
-}: {
-  chatKey: string;
-  accountId: string;
-  peerType: "user" | "chat" | "channel";
-  peerId: string | number;
-  accessHash?: string | number | bigint | null;
-}) {
-  const { addOrUpdateMessage, sendTelegramMessage } = useMessages();
-  const { applyOptimisticOutgoing } = useUnifiedDialogs();
-
+}: MessageInputProps) {
   const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [recorderMode, setRecorderMode] = useState<RecorderMode>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const { addOrUpdateMessage } = useMessages();
+  const { applyOptimisticOutgoing } = useUnifiedDialogs();
+
   /* ============================================================
-     ADD ATTACHMENT (preview in input)
-     ============================================================ */
-  const handleFileSelected = (ev: React.ChangeEvent<HTMLInputElement>) => {
+   *  HELPERS
+   * ========================================================== */
+
+  const makeBaseOptimistic = (
+    partial: Partial<UnifiedTelegramMessage>
+  ): UnifiedTelegramMessage => {
+    const tempId = Date.now();
+    const nowIso = new Date().toISOString();
+
+    return {
+      platform: "telegram",
+      accountId,
+      chatId: String(peerId),
+
+      messageId: String(tempId),
+      tempId,
+      status: "pending",
+
+      date: nowIso,
+      from: { id: "me", name: "Me" },
+      isOutgoing: true,
+
+      type: "text",
+      text: "",
+      media: null,
+
+      ...partial,
+    } as UnifiedTelegramMessage;
+  };
+
+  const determineFileMessageType = (
+    file: File
+  ): UnifiedTelegramMessage["type"] => {
+    if (file.type.startsWith("image/")) return "photo";
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "file";
+  };
+
+  /* ============================================================
+   *  TEXT / FILE SEND
+   * ========================================================== */
+
+  const sendTextOrFile = async () => {
+    const trimmed = text.trim();
+    const file = attachedFile ?? undefined;
+
+    const hasText = trimmed.length > 0;
+    const hasFile = !!file;
+
+    if (!hasText && !hasFile) return;
+
+    const tempId = Date.now();
+    const nowIso = new Date().toISOString();
+
+    let msgType: UnifiedTelegramMessage["type"] = "text";
+    let media: UnifiedTelegramMessage["media"] = null;
+
+    if (file) {
+      msgType = determineFileMessageType(file);
+      media = {
+        localPreviewUrl: URL.createObjectURL(file),
+        mimeType: file.type,
+        fileName: file.name,
+        size: file.size,
+        isRoundVideo: false,
+      };
+    }
+
+    const optimistic: UnifiedTelegramMessage = {
+      platform: "telegram",
+      accountId,
+      chatId: String(peerId),
+
+      messageId: String(tempId),
+      tempId,
+      status: "pending",
+
+      text: trimmed,
+      type: file ? msgType : "text",
+      media,
+      date: nowIso,
+      from: { id: "me", name: "Me" },
+      isOutgoing: true,
+    };
+
+    addOrUpdateMessage(chatKey, optimistic);
+    applyOptimisticOutgoing(chatKey, optimistic);
+
+    setText("");
+    setAttachedFile(null);
+
+    try {
+      await telegramApi.sendMessage({
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text: trimmed,
+        file,
+        tempId,
+      });
+    } catch (err) {
+      console.error("[MessageInput] sendTextOrFile failed:", err);
+    }
+  };
+
+  /* ============================================================
+   *  VOICE SEND
+   * ========================================================== */
+
+  const handleVoiceSend = async (file: File) => {
+    setRecorderMode(null);
+
+    const tempId = Date.now();
+    const nowIso = new Date().toISOString();
+
+    const optimistic = makeBaseOptimistic({
+      messageId: String(tempId),
+      tempId,
+      status: "pending",
+      type: "voice",
+      text: "",
+      media: {
+        localPreviewUrl: URL.createObjectURL(file),
+        mimeType: file.type,
+        fileName: file.name,
+        size: file.size,
+      },
+      date: nowIso,
+    });
+
+    addOrUpdateMessage(chatKey, optimistic);
+    applyOptimisticOutgoing(chatKey, optimistic);
+
+    try {
+      await telegramApi.sendMessage({
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text: "", // voice без тексту
+        file,
+        tempId,
+      });
+    } catch (err) {
+      console.error("[MessageInput] handleVoiceSend failed:", err);
+    }
+  };
+
+  /* ============================================================
+   *  VIDEO NOTE SEND
+   * ========================================================== */
+
+  const handleVideoNoteSend = async (file: File) => {
+    setRecorderMode(null);
+
+    const tempId = Date.now();
+    const nowIso = new Date().toISOString();
+
+    const optimistic = makeBaseOptimistic({
+      messageId: String(tempId),
+      tempId,
+      status: "pending",
+      type: "video_note",
+      text: "",
+      media: {
+        localPreviewUrl: URL.createObjectURL(file),
+        mimeType: file.type,
+        fileName: file.name,
+        size: file.size,
+        isRoundVideo: true,
+      },
+      date: nowIso,
+    });
+
+    addOrUpdateMessage(chatKey, optimistic);
+    applyOptimisticOutgoing(chatKey, optimistic);
+
+    try {
+      await telegramApi.sendMessage({
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text: "", // captions для video note не шлемо
+        file,
+        tempId,
+      });
+    } catch (err) {
+      console.error("[MessageInput] handleVideoNoteSend failed:", err);
+    }
+  };
+
+  /* ============================================================
+   *  FILE PICKER
+   * ========================================================== */
+
+  const handleFileChange = (ev: React.ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     if (!file) return;
-
-    setAttachments((prev) => [...prev, file]);
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    setAttachedFile(file);
+    // очищаємо value, щоб можна було вибрати той самий файл ще раз
+    ev.target.value = "";
   };
 
   /* ============================================================
-     SEND MESSAGE WITH OR WITHOUT FILES
-     ============================================================ */
-  const handleSend = async () => {
-    if (!text.trim() && attachments.length === 0) return;
+   *  RENDER: RECORDING MODES
+   * ========================================================== */
 
-    // CASE 1 → ONLY TEXT
-    if (attachments.length === 0) {
-      const tempId = Date.now();
-      const nowISO = new Date().toISOString();
+  if (recorderMode === "voice") {
+    return (
+      <VoiceRecorderTelegram
+        onSend={handleVoiceSend}
+        onCancel={() => setRecorderMode(null)}
+      />
+    );
+  }
 
-      const optimistic: UnifiedTelegramMessage = {
-        platform: "telegram",
-        accountId,
-        chatId: String(peerId),
+  if (recorderMode === "video") {
+    return (
+      <VideoNoteRecorderTelegram
+        onSend={handleVideoNoteSend}
+        onCancel={() => setRecorderMode(null)}
+      />
+    );
+  }
 
-        messageId: String(tempId),
-        tempId,
+  /* ============================================================
+   *  RENDER: DEFAULT INPUT
+   * ========================================================== */
 
-        text,
-        date: nowISO,
-        isOutgoing: true,
-
-        from: { id: accountId, name: "Me" },
-        type: "text",
-        status: "pending",
-      };
-
-      addOrUpdateMessage(chatKey, optimistic);
-      applyOptimisticOutgoing(chatKey, optimistic);
-
-      sendTelegramMessage({
-        accountId,
-        chatId: String(peerId),
-        text,
-        tempId,
-        peerType,
-        accessHash: accessHash != null ? String(accessHash) : undefined,
-      });
-
-      setText("");
-      return;
-    }
-
-    // CASE 2 → THERE ARE FILES (one by one)
-    for (const file of attachments) {
-      const uploaded = await telegramApi.uploadMedia(
-        accountId,
-        String(peerId),
-        file
-      );
-
-      const tempId = Date.now() + Math.random();
-      const nowISO = new Date().toISOString();
-
-      const optimistic: UnifiedTelegramMessage = {
-        platform: "telegram",
-        accountId,
-        chatId: String(peerId),
-
-        messageId: String(tempId),
-        tempId,
-
-        text: "", // no text for attachments (for now)
-        date: nowISO,
-        isOutgoing: true,
-
-        from: { id: accountId, name: "Me" },
-        type: uploaded.kind,
-        status: "pending",
-
-        media: {
-          id: "local-" + tempId,
-          localPreviewUrl: URL.createObjectURL(file),
-        } as any,
-      };
-
-      addOrUpdateMessage(chatKey, optimistic);
-      applyOptimisticOutgoing(chatKey, optimistic);
-
-      sendTelegramMessage({
-        accountId,
-        chatId: String(peerId),
-        tempId,
-        peerType,
-        accessHash: accessHash != null ? String(accessHash) : undefined,
-
-        media: {
-          fileId: uploaded.fileId,
-          type: uploaded.kind,
-          mime: uploaded.mime,
-          fileName: uploaded.fileName, // random + ext
-          originalName: uploaded.originalName, // <-- ВСЕ РІШАЄ
-        },
-      });
-    }
-
-    setAttachments([]);
-    setText("");
-  };
-
-  /* ============================================================ */
+  const hasText = text.trim().length > 0;
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        borderTop: "1px solid rgba(255,255,255,0.1)",
-        p: 1,
-        gap: 1,
-      }}
-    >
-      {/* ============================
-          ATTACHMENTS PREVIEW
-          ============================ */}
-      {attachments.length > 0 && (
+    <Box sx={{ position: "relative", p: 1, borderTop: "1px solid #ddd" }}>
+      {/* EMOJI PICKER */}
+      {showEmoji && (
         <Box
           sx={{
-            display: "flex",
-            gap: 1,
-            flexWrap: "wrap",
-            p: 1,
-            borderRadius: 2,
-            bgcolor: "rgba(255,255,255,0.05)",
+            position: "absolute",
+            bottom: "56px",
+            left: 12,
+            zIndex: 20,
+            boxShadow: 3,
           }}
         >
-          {attachments.map((file, index) => {
-            const url = URL.createObjectURL(file);
-            const isImage = file.type.startsWith("image/");
-            const isVideo = file.type.startsWith("video/");
-
-            return (
-              <Box
-                key={index}
-                sx={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 2,
-                  position: "relative",
-                  overflow: "hidden",
-                  bgcolor: "#222",
-                }}
-              >
-                {isImage ? (
-                  <img
-                    src={url}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      color: "white",
-                      width: "100%",
-                      height: "100%",
-                      fontSize: 12,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      textAlign: "center",
-                      p: 1,
-                    }}
-                  >
-                    {file.name}
-                  </Box>
-                )}
-
-                {/* remove button */}
-                <IconButton
-                  size="small"
-                  onClick={() => removeAttachment(index)}
-                  sx={{
-                    position: "absolute",
-                    top: 2,
-                    right: 2,
-                    width: 22,
-                    height: 22,
-                    bgcolor: "rgba(0,0,0,0.6)",
-                    color: "white",
-                  }}
-                >
-                  <CloseIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Box>
-            );
-          })}
+          <EmojiPicker
+            onSelect={(emoji) => {
+              setText((t) => t + emoji);
+            }}
+          />
         </Box>
       )}
 
-      {/* ============================
-          INPUT + BUTTONS
-          ============================ */}
-      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-        <input
-          type="file"
-          ref={fileInputRef}
-          style={{ display: "none" }}
-          onChange={handleFileSelected}
-        />
+      {/* Плашка з прикріпленим файлом */}
+      {attachedFile && (
+        <Box
+          sx={{
+            mb: 0.5,
+            px: 1,
+            py: 0.5,
+            borderRadius: 2,
+            bgcolor: "#f5f5f5",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: 13,
+              maxWidth: 260,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            📎 {attachedFile.name}
+          </Typography>
+          <IconButton
+            size="small"
+            onClick={() => setAttachedFile(null)}
+            sx={{ ml: "auto" }}
+          >
+            <CloseIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+      )}
 
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
+        {/* Emoji */}
+        <IconButton onClick={() => setShowEmoji((s) => !s)}>
+          <InsertEmoticonIcon />
+        </IconButton>
+
+        {/* Attach */}
         <IconButton onClick={() => fileInputRef.current?.click()}>
           <AttachFileIcon />
         </IconButton>
 
-        <TextField
-          fullWidth
-          size="small"
-          placeholder="Write a message..."
+        <input
+          ref={fileInputRef}
+          type="file"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+
+        {/* Text area */}
+        <TextareaAutosize
+          minRows={1}
+          maxRows={6}
+          placeholder="Message"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          multiline
-          maxRows={6}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              handleSend();
+              sendTextOrFile();
             }
+          }}
+          style={{
+            flexGrow: 1,
+            fontSize: "14px",
+            lineHeight: "18px",
+            padding: "8px 12px",
+            borderRadius: "12px",
+            border: "1px solid #ccc",
+            resize: "none",
+            outline: "none",
           }}
         />
 
-        <IconButton color="primary" onClick={handleSend}>
-          <SendIcon />
+        {/* Voice / Send */}
+        {!hasText && !attachedFile ? (
+          <IconButton color="primary" onClick={() => setRecorderMode("voice")}>
+            <MicIcon />
+          </IconButton>
+        ) : (
+          <IconButton color="primary" onClick={sendTextOrFile}>
+            <SendIcon />
+          </IconButton>
+        )}
+
+        {/* Video note */}
+        <IconButton color="primary" onClick={() => setRecorderMode("video")}>
+          <CameraAltIcon />
         </IconButton>
       </Box>
     </Box>
