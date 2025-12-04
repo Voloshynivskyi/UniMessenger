@@ -551,45 +551,88 @@ export const getMessageHistory = async (req: Request, res: Response) => {
     );
   }
 };
+type MediaKind = "voice" | "video_note" | "photo" | "video" | "audio" | "file";
+
 export async function sendMessage(req: Request, res: Response) {
   try {
     const userId = req.userId!;
     const { accountId, peerType, peerId, accessHash, text, tempId } = req.body;
-
     const file = req.file;
 
-    if (!text && !file) {
+    const rawMediaKind = (req.body.mediaKind || "") as string;
+    const mediaKind: MediaKind | undefined =
+      rawMediaKind === "voice" ||
+      rawMediaKind === "video_note" ||
+      rawMediaKind === "photo" ||
+      rawMediaKind === "video" ||
+      rawMediaKind === "audio" ||
+      rawMediaKind === "file"
+        ? (rawMediaKind as MediaKind)
+        : undefined;
+
+    const textLength = typeof text === "string" ? text.length : 0;
+
+    logger.info("[telegramController.sendMessage] Incoming request", {
+      body: {
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        textLength,
+        tempId,
+        mediaKind,
+      },
+      fileMeta: file
+        ? {
+            fieldname: file.fieldname,
+            originalname: file.originalname,
+            size: file.size,
+            mimetype: file.mimetype,
+          }
+        : null,
+    });
+
+    if (!textLength && !file) {
       return sendError(res, "BAD_REQUEST", "Message must have text or file");
     }
 
-    // ───────────────────────────────────────────────
-    // SEND MESSAGE THROUGH TELEGRAM SERVICE
-    // ───────────────────────────────────────────────
     let sent;
 
     if (file) {
-      sent = await telegramService.sendUnified({
+      logger.info(
+        "[telegramController.sendMessage] Going through sendUnified with FILE",
+        { mediaKind }
+      );
+
+      const payload: any = {
         accountId,
         peerType,
         peerId,
         accessHash,
-        text,
+        text: text || "",
         fileBuffer: file.buffer,
         fileName: file.originalname,
-      });
+      };
+
+      if (mediaKind !== undefined) {
+        payload.mediaKind = mediaKind;
+      }
+
+      sent = await telegramService.sendUnified(payload);
     } else {
+      logger.info(
+        "[telegramController.sendMessage] Going through sendUnified TEXT only"
+      );
+
       sent = await telegramService.sendUnified({
         accountId,
         peerType,
         peerId,
         accessHash,
-        text,
+        text: text || "",
       });
     }
 
-    // ───────────────────────────────────────────────
-    // SEND SOCKET CONFIRMATION TO FRONTEND
-    // ───────────────────────────────────────────────
     const gateway = getSocketGateway();
 
     gateway.emitToUser(userId, "telegram:message_confirmed", {
@@ -602,16 +645,20 @@ export async function sendMessage(req: Request, res: Response) {
       status: "sent",
     });
 
-    // ───────────────────────────────────────────────
-    // RETURN REST RESPONSE AS WELL
-    // (frontend may ignore or use)
-    // ───────────────────────────────────────────────
     return sendOk(res, {
       tempId,
       realMessageId: sent.id,
       date: sent.date,
     });
   } catch (err: any) {
+    logger.error("[telegramController.sendMessage] UNEXPECTED error", {
+      message: err.message,
+      name: err.name,
+      stack: err.stack,
+      telegramError: err.data?.errorMessage,
+      data: err.data,
+    });
+
     return sendError(res, "UNEXPECTED", err.message);
   }
 }

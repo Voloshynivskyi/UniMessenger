@@ -1,0 +1,30 @@
+[33ma003f5f[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Temp commit with bugs for voice round video sending
+[33m8eb3a26[m Now sending media is working(test version)
+[33m36a8294[m NOrmal UI for media in chat
+[33m0a9a347[m UI improved for media
+[33m5e3f82f[m Now media is visible in a chat, test version
+[33ma73f4d3[m Test version of media parsing
+[33m4bdd902[m[33m ([m[1;31morigin/main[m[33m)[m Restructed handler for telegram updates
+[33m7b2984d[m Sending Messages from UI now in testing mode
+[33m5a3600e[m Reworked types, preparation to sending messages from UI
+[33m4f28aa5[m Added MessageId-ChatId cache and Userid-Name cache
+[33m32f320e[m BugFix
+[33m6e95269[m Added dialogs preload for Telegram, to fullfill client cache
+[33m6144ca7[m Better chatPreviews(typing status, sender name....)
+[33mbb1bb24[m Typing indicator now available
+[33m908ee60[m UI chatPreview improvement and complete UI reconsctruction
+[33m32dad01[m Frontend reconfigured and systemized 30%
+[33mbc931f7[m Finished Initial version of functionality of realtime actions
+[33maffdfdc[m Debug version off real-time functionality
+[33mb108f33[m Added Context for real-time operations and tested it with  DebugDialog page in UI
+[33m6f3687f[m Added frontend socket bus
+[33mf6ee5bd[m Updated socket abilities
+[33mfc5ed7d[m Fully implemented socket on backend
+[33m49a1fd5[m Preparation to real-time work, testing client manager
+[33m05164f8[m Frontend BugFix
+[33m1cdc27d[m Added test version of ChatPreview(not real time)
+[33madb7775[m Test version of AccountsPage, and ProfilePage
+[33ma62d038[m Added advanced Profile Page
+[33me725656[m Upgraded telegram auth integration
+[33md41eb6d[m[33m ([m[1;31morigin/master[m[33m)[m Almost done telegram auth
+[33mb7f3c32[m Initial commit

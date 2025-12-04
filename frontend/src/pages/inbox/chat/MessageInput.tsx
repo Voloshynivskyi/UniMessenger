@@ -13,9 +13,10 @@ import { telegramApi } from "../../../api/telegramApi";
 import { useMessages } from "../../../context/UnifiedMessagesContext";
 import { useUnifiedDialogs } from "../../../context/UnifiedDialogsContext";
 import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+
 import EmojiPicker from "./recorders/EmojiPicker";
-import VoiceRecorderTelegram from "./recorders/VoiceRecorderUI";
-import VideoNoteRecorderTelegram from "./recorders/VideoNoteRecorderUI";
+import VoiceRecorderUI from "./recorders/VoiceRecorderUI";
+import VideoNoteRecorderUI from "./recorders/VideoNoteRecorderUI";
 
 interface MessageInputProps {
   chatKey: string;
@@ -25,7 +26,6 @@ interface MessageInputProps {
   accessHash?: string | number | bigint | null;
 }
 
-/** Режим запису: немає, голос, відеонота */
 type RecorderMode = "voice" | "video" | null;
 
 export default function MessageInput({
@@ -146,6 +146,7 @@ export default function MessageInput({
         accessHash,
         text: trimmed,
         file,
+        mediaKind: file ? "file" : undefined,
         tempId,
       });
     } catch (err) {
@@ -157,11 +158,12 @@ export default function MessageInput({
    *  VOICE SEND
    * ========================================================== */
 
-  const handleVoiceSend = async (file: File) => {
+  const handleVoiceSend = async (file: File, durationMs: number) => {
     setRecorderMode(null);
 
     const tempId = Date.now();
     const nowIso = new Date().toISOString();
+    const durationSec = Math.max(1, Math.round(durationMs / 1000));
 
     const optimistic = makeBaseOptimistic({
       messageId: String(tempId),
@@ -174,6 +176,8 @@ export default function MessageInput({
         mimeType: file.type,
         fileName: file.name,
         size: file.size,
+        duration: durationSec,
+        // waveform підтягнеться з реального апдейту
       },
       date: nowIso,
     });
@@ -187,12 +191,16 @@ export default function MessageInput({
         peerType,
         peerId,
         accessHash,
-        text: "", // voice без тексту
+        text: "",
         file,
+        mediaKind: "voice",
         tempId,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("[MessageInput] handleVoiceSend failed:", err);
+      if (err?.response?.data) {
+        console.log("[MessageInput] backend error payload:", err.response.data);
+      }
     }
   };
 
@@ -231,12 +239,19 @@ export default function MessageInput({
         peerType,
         peerId,
         accessHash,
-        text: "", // captions для video note не шлемо
+        text: "",
         file,
+        mediaKind: "video_note",
         tempId,
       });
-    } catch (err) {
-      console.error("[MessageInput] handleVideoNoteSend failed:", err);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error("[MessageInput] handleVoiceSend failed:", err);
+
+      if (err?.response?.data) {
+        // eslint-disable-next-line no-console
+        console.log("[MessageInput] backend error payload:", err.response.data);
+      }
     }
   };
 
@@ -248,17 +263,14 @@ export default function MessageInput({
     const file = ev.target.files?.[0];
     if (!file) return;
     setAttachedFile(file);
-    // очищаємо value, щоб можна було вибрати той самий файл ще раз
     ev.target.value = "";
   };
-
   /* ============================================================
-   *  RENDER: RECORDING MODES
+   * RECORDING UI RENDER
    * ========================================================== */
-
   if (recorderMode === "voice") {
     return (
-      <VoiceRecorderTelegram
+      <VoiceRecorderUI
         onSend={handleVoiceSend}
         onCancel={() => setRecorderMode(null)}
       />
@@ -267,7 +279,7 @@ export default function MessageInput({
 
   if (recorderMode === "video") {
     return (
-      <VideoNoteRecorderTelegram
+      <VideoNoteRecorderUI
         onSend={handleVideoNoteSend}
         onCancel={() => setRecorderMode(null)}
       />
@@ -301,7 +313,7 @@ export default function MessageInput({
         </Box>
       )}
 
-      {/* Плашка з прикріпленим файлом */}
+      {/* Прикріплений файл */}
       {attachedFile && (
         <Box
           sx={{

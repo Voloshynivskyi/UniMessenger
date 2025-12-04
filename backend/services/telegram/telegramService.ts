@@ -22,6 +22,10 @@ import telegramClientManager from "./telegramClientManager";
 import { logger } from "../../utils/logger";
 import { parseTelegramMessage } from "../../utils/parseTelegramMessage";
 import { appendLog } from "../../utils/debugLogger";
+import {
+  convertWebmVideoToMp4Note,
+  convertWebmVoiceToOgg,
+} from "../../utils/mediaConverter";
 
 const API_ID = Number(process.env.TELEGRAM_API_ID);
 const API_HASH = process.env.TELEGRAM_API_HASH!;
@@ -304,17 +308,7 @@ export class TelegramService {
       nextOffsetId: lastMessage ? Number(lastMessage.id) : null,
     };
   }
-
-  // Message sending methods
-  async sendUnified({
-    accountId,
-    peerType,
-    peerId,
-    accessHash,
-    text,
-    fileBuffer,
-    fileName,
-  }: {
+  async sendUnified(params: {
     accountId: string;
     peerType: "user" | "chat" | "channel";
     peerId: string | number | bigint;
@@ -322,25 +316,97 @@ export class TelegramService {
     text?: string;
     fileBuffer?: Buffer;
     fileName?: string;
+    mediaKind?: "file" | "voice" | "video_note";
   }) {
-    if (fileBuffer && fileName) {
-      return telegramClientManager.sendMedia(
-        accountId,
-        peerType,
-        peerId,
-        accessHash ?? null,
-        fileBuffer,
-        fileName,
-        text || ""
-      );
-    }
-
-    return telegramClientManager.sendText(
+    const {
       accountId,
       peerType,
       peerId,
-      accessHash ?? null,
-      text || ""
+      accessHash = null,
+      text = "",
+      fileBuffer,
+      fileName,
+      mediaKind,
+    } = params;
+
+    logger.info("[telegramService.sendUnified] Called", {
+      accountId,
+      peerType,
+      peerId: String(peerId),
+      hasFile: !!fileBuffer,
+      fileName,
+      mediaKind,
+      textLength: text.length,
+    });
+
+    // 1) Немає файлу → чистий текст
+    if (!fileBuffer || !fileName) {
+      logger.info("[telegramService.sendUnified] Text-only branch");
+      return telegramClientManager.sendText(
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        text
+      );
+    }
+
+    // 2) Voice: webm → ogg opus
+    if (mediaKind === "voice") {
+      logger.info(
+        "[telegramService.sendUnified] Voice branch (convert webm → ogg)"
+      );
+      const { buffer: oggBuf, fileName: oggFileName } =
+        await convertWebmVoiceToOgg(fileBuffer);
+
+      return telegramClientManager.sendVoice(
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        oggBuf,
+        oggFileName
+      );
+    }
+
+    // 3) Video note: webm → mp4 square
+    if (mediaKind === "video_note") {
+      logger.info(
+        "[telegramService.sendUnified] Video note branch (try convert webm → mp4)"
+      );
+
+      try {
+        const { buffer: mp4Buf, fileName: mp4FileName } =
+          await convertWebmVideoToMp4Note(fileBuffer);
+
+        logger.info(
+          "[telegramService.sendUnified] Video note converted successfully, sending MP4"
+        );
+
+        return telegramClientManager.sendVideoNote(
+          accountId,
+          peerType,
+          peerId,
+          accessHash,
+          mp4Buf,
+          mp4FileName
+        );
+      } catch (convErr) {
+        logger.error("[sendUnified] Video note conversion FAILED", { convErr });
+        throw convErr; // ← НІЯКОГО FALLBACK
+      }
+    }
+
+    // 4) Дефолт — звичайне медіа/файл як є
+    logger.info("[telegramService.sendUnified] Generic media branch");
+    return telegramClientManager.sendMedia(
+      accountId,
+      peerType,
+      peerId,
+      accessHash,
+      fileBuffer,
+      fileName,
+      text
     );
   }
 }

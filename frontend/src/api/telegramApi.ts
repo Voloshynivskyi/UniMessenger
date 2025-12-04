@@ -195,13 +195,14 @@ export const telegramApi = {
    * Frontend always calls ONLY this method.
    * Sends multipart/form-data so controller receives text and optional file.
    */
-  async sendMessage(params: {
+ async sendMessage(params: {
     accountId: string;
     peerType: "user" | "chat" | "channel";
     peerId: string | number | bigint;
     accessHash?: string | number | bigint | null;
     text: string;
     file?: File;
+    mediaKind?: "file" | "voice" | "video_note";
     tempId?: number;
   }) {
     const form = new FormData();
@@ -215,8 +216,13 @@ export const telegramApi = {
     }
 
     form.append("text", params.text ?? "");
+
     if (typeof params.tempId === "number") {
       form.append("tempId", String(params.tempId));
+    }
+
+    if (params.mediaKind) {
+      form.append("mediaKind", params.mediaKind);
     }
 
     if (params.file) {

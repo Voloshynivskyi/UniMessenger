@@ -71,6 +71,26 @@ export async function handleTelegramMessageEvent({
     // ----------------------------------------------
     const mediaInfo = extractMediaFromMessage(msg);
 
+    // FIX: ensure voice waveform + duration are forwarded
+    if (mediaInfo.type === "voice" && mediaInfo.media) {
+      // Витягнути waveform з сирих атрибутів документа
+      const doc = (msg.media as any)?.document;
+      if (doc?.attributes) {
+        for (const attr of doc.attributes) {
+          if (attr instanceof Api.DocumentAttributeAudio) {
+            if (attr.waveform)
+              mediaInfo.media.waveform = Array.from(attr.waveform);
+            if (attr.duration) mediaInfo.media.duration = attr.duration;
+          }
+        }
+      }
+
+      // Якщо Telegram дав пустий waveform → поставити placeholder
+      if (!mediaInfo.media.waveform) {
+        mediaInfo.media.waveform = [];
+      }
+    }
+
     // ----------------------------------------------
     // 6) Peer type detection
     // ----------------------------------------------
