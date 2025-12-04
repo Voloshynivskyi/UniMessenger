@@ -89,8 +89,7 @@ export interface TelegramErrorPayload extends BaseRealtimePayload {
 export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   chatId: string;
   tempId: string;
-  realMessageId: string;
-  date: string;
+  message: UnifiedTelegramMessage;
 }
 
 /* ========================================================================
@@ -118,8 +117,6 @@ export interface ServerToClientEvents {
    Client → Server events (unchanged)
    ======================================================================== */
 
-
-
 export interface TelegramTypingStartPayload {
   accountId: string;
   chatId: string;
@@ -141,7 +138,6 @@ export interface TelegramMarkAsReadPayload {
   peerType?: "user" | "chat" | "channel";
   accessHash?: string;
 }
-
 
 export interface ClientToServerEvents {
   "system:ping": () => void;

@@ -32,6 +32,8 @@ export default function MediaRenderer({ message }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerType, setViewerType] = useState<"image" | "video" | null>(null);
+  // MUSIC AUDIO HOOKS – must always exist
+  const [musicProgress, setMusicProgress] = useState(0);
 
   /* ------------------------------------------------------------
      Decide source for display
@@ -113,7 +115,14 @@ export default function MediaRenderer({ message }: Props) {
   const isPhoto = type === "photo";
   const isGif = type === "animation";
   const isVideo = type === "video";
-  const isAudio = type === "audio" || type === "voice";
+  const isVoiceMessage =
+    message.type === "voice" ||
+    media.isVoice === true ||
+    (Array.isArray(media.waveform) && media.waveform.length > 0);
+
+  const isMusicAudio =
+    !isVoiceMessage && media.mimeType?.startsWith("audio/") && media.fileName; // must exist
+
   const isSticker = type === "sticker";
   const isVideoNote = type === "video_note" || media.isRoundVideo === true;
 
@@ -237,8 +246,127 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // Audio or voice message (Telegram style, inside bubble)
-  if (isAudio) {
+  // ------------------------------------------------------------
+  // MUSIC AUDIO (not voice) — same bubble style as voice
+  // ------------------------------------------------------------
+  if (isMusicAudio && !message.media?.isVoice) {
+    const seconds = Math.max(1, duration);
+    const timeLabel = `${Math.floor(seconds / 60)}:${String(
+      Math.floor(seconds % 60)
+    ).padStart(2, "0")}`;
+
+    const togglePlay = () => {
+      const a = audioRef.current;
+      if (!a) return;
+
+      if (a.paused) {
+        a.play();
+        setIsPlaying(true);
+      } else {
+        a.pause();
+        setIsPlaying(false);
+      }
+    };
+
+    const onTimeUpdate = () => {
+      const a = audioRef.current;
+      if (!a || !a.duration) return;
+      setMusicProgress(a.currentTime / a.duration);
+    };
+
+    const onSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const a = audioRef.current;
+      if (!a || !a.duration) return;
+
+      const val = Number(e.target.value);
+      a.currentTime = val * a.duration;
+      setMusicProgress(val);
+    };
+
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+        {/* File name */}
+        <Typography
+          sx={{
+            fontSize: 13,
+            opacity: 0.7,
+            maxWidth: 240,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {fileName || "Audio"}
+        </Typography>
+
+        {/* Bubble same as voice */}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 1.2,
+          }}
+        >
+          {/* Play button */}
+          <Box
+            sx={{
+              width: 42,
+              height: 42,
+              borderRadius: "50%",
+              bgcolor: "primary.main",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "white",
+              cursor: "pointer",
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+            onClick={togglePlay}
+          >
+            {isPlaying ? "⏸" : "▶"}
+          </Box>
+
+          {/* Seekbar */}
+          <Box sx={{ flexGrow: 1, display: "flex", alignItems: "center" }}>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={musicProgress}
+              onChange={onSeek}
+              style={{ width: "100%", cursor: "pointer" }}
+            />
+          </Box>
+
+          {/* Duration */}
+          <Typography
+            sx={{
+              fontSize: 13,
+              opacity: 0.7,
+              minWidth: 34,
+              textAlign: "right",
+            }}
+          >
+            {timeLabel}
+          </Typography>
+
+          <audio
+            ref={audioRef}
+            src={blobUrl}
+            preload="metadata"
+            onTimeUpdate={onTimeUpdate}
+            onEnded={() => setIsPlaying(false)}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  // Voice message (Telegram style, inside bubble)
+  if (isVoiceMessage) {
     const seconds = Math.max(1, duration);
     const timeLabel = `${Math.floor(seconds / 60)}:${String(
       Math.floor(seconds % 60)

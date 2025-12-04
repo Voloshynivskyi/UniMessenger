@@ -16,7 +16,7 @@ import { onRawUpdate } from "../../realtime/handlers/onRawUpdate";
 import { onEditedMessage } from "../../realtime/handlers/onEditedMessage";
 import { TelegramMessageIndexService } from "./telegramMessageIndexService";
 import { CustomFile } from "telegram/client/uploads";
-
+import { appendLog } from "../../utils/debugLogger";
 const API_ID = process.env.TELEGRAM_API_ID
   ? Number(process.env.TELEGRAM_API_ID)
   : undefined;
@@ -537,6 +537,9 @@ export class TelegramClientManager {
 
     return rawMessages as Api.TypeMessage[];
   }
+  /* ============================================================
+     SEND TEXT
+  ============================================================ */
   public async sendText(
     accountId: string,
     peerType: "user" | "chat" | "channel",
@@ -547,7 +550,7 @@ export class TelegramClientManager {
     const client = await this.ensureClient(accountId);
     const peer = resolveTelegramPeer(peerType, peerId, accessHash);
 
-    logger.info("[telegramClientManager.sendText] Sending text", {
+    logger.info("[sendText] Sending text", {
       accountId,
       peerType,
       peerId: String(peerId),
@@ -556,14 +559,18 @@ export class TelegramClientManager {
 
     const sent = await client.sendMessage(peer, { message: text });
 
-    logger.info("[telegramClientManager.sendText] Sent", {
-      messageId: sent.id,
-      date: sent.date,
-    });
+    appendLog("SENT_TEXT_RAW", sent);
 
-    return { id: sent.id, date: sent.date * 1000 };
+    return {
+      id: sent.id,
+      date: sent.date * 1000,
+      raw: sent,
+    };
   }
 
+  /* ============================================================
+     GENERIC MEDIA
+  ============================================================ */
   public async sendMedia(
     accountId: string,
     peerType: "user" | "chat" | "channel",
@@ -576,7 +583,7 @@ export class TelegramClientManager {
     const client = await this.ensureClient(accountId);
     const peer = resolveTelegramPeer(peerType, peerId, accessHash);
 
-    logger.info("[telegramClientManager.sendMedia] Uploading generic media", {
+    logger.info("[sendMedia] Uploading file", {
       accountId,
       peerType,
       peerId: String(peerId),
@@ -587,26 +594,28 @@ export class TelegramClientManager {
 
     const uploaded = await client.uploadFile({
       workers: 1,
-      file: new CustomFile(fileName, fileBuf.length, "", fileBuf),
+      file: new CustomFile(fileName, fileBuf.length, fileName, fileBuf),
     });
 
-    logger.info(
-      "[telegramClientManager.sendMedia] Uploaded, sending via sendFile"
-    );
+    logger.info("[sendMedia] Uploaded, sending…");
 
     const sent = await client.sendFile(peer, {
       file: uploaded,
       caption: text || "",
     });
 
-    logger.info("[telegramClientManager.sendMedia] Sent", {
-      messageId: sent.id,
-      date: sent.date,
-    });
+    appendLog("SENT_MEDIA_RAW", sent);
 
-    return { id: sent.id, date: sent.date * 1000 };
+    return {
+      id: sent.id,
+      date: sent.date * 1000,
+      raw: sent,
+    };
   }
 
+  /* ============================================================
+     SEND VOICE (voice note)
+  ============================================================ */
   public async sendVoice(
     accountId: string,
     peerType: "user" | "chat" | "channel",
@@ -618,7 +627,7 @@ export class TelegramClientManager {
     const client = await this.ensureClient(accountId);
     const peer = resolveTelegramPeer(peerType, peerId, accessHash);
 
-    logger.info("[telegramClientManager.sendVoice] Uploading voice", {
+    logger.info("[sendVoice] Uploading", {
       accountId,
       peerType,
       peerId: String(peerId),
@@ -631,31 +640,25 @@ export class TelegramClientManager {
       file: new CustomFile(fileName, fileBuf.length, fileName, fileBuf),
     });
 
-    logger.info("[telegramClientManager.sendVoice] Uploaded, sending as voice");
+    logger.info("[sendVoice] Uploaded, sending as voiceNote");
 
-    try {
-      const sent = await client.sendFile(peer, {
-        file: uploaded,
-        voiceNote: true, // voice message
-      });
+    const sent = await client.sendFile(peer, {
+      file: uploaded,
+      voiceNote: true,
+    });
 
-      logger.info("[telegramClientManager.sendVoice] Sent", {
-        messageId: sent.id,
-        date: sent.date,
-      });
+    appendLog("SENT_VOICE_RAW", sent);
 
-      return { id: sent.id, date: sent.date * 1000 };
-    } catch (err: any) {
-      logger.error("[telegramClientManager.sendVoice] Telegram error", {
-        message: err?.message,
-        name: err?.name,
-        stack: err?.stack,
-        telegramError: err?.errorMessage,
-      });
-      throw err;
-    }
+    return {
+      id: sent.id,
+      date: sent.date * 1000,
+      raw: sent,
+    };
   }
 
+  /* ============================================================
+     SEND VIDEO NOTE (round video)
+  ============================================================ */
   public async sendVideoNote(
     accountId: string,
     peerType: "user" | "chat" | "channel",
@@ -667,7 +670,7 @@ export class TelegramClientManager {
     const client = await this.ensureClient(accountId);
     const peer = resolveTelegramPeer(peerType, peerId, accessHash);
 
-    logger.info("[telegramClientManager.sendVideoNote] Uploading video note", {
+    logger.info("[sendVideoNote] Uploading", {
       accountId,
       peerType,
       peerId: String(peerId),
@@ -680,31 +683,20 @@ export class TelegramClientManager {
       file: new CustomFile(fileName, fileBuf.length, fileName, fileBuf),
     });
 
-    logger.info(
-      "[telegramClientManager.sendVideoNote] Uploaded, sending as videoNote"
-    );
+    logger.info("[sendVideoNote] Uploaded, sending as round video note");
 
-    try {
-      const sent = await client.sendFile(peer, {
-        file: uploaded,
-        videoNote: true,
-      });
+    const sent = await client.sendFile(peer, {
+      file: uploaded,
+      videoNote: true,
+    });
 
-      logger.info("[telegramClientManager.sendVideoNote] Sent", {
-        messageId: sent.id,
-        date: sent.date,
-      });
+    appendLog("SENT_VIDEO_NOTE_RAW", sent);
 
-      return { id: sent.id, date: sent.date * 1000 };
-    } catch (err: any) {
-      logger.error("[telegramClientManager.sendVideoNote] Telegram error", {
-        message: err?.message,
-        name: err?.name,
-        stack: err?.stack,
-        telegramError: err?.errorMessage,
-      });
-      throw err;
-    }
+    return {
+      id: sent.id,
+      date: sent.date * 1000,
+      raw: sent,
+    };
   }
 
   async startTyping(

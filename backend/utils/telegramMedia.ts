@@ -19,11 +19,11 @@ export function extractMediaFromMessage(msg: Api.Message): {
   const mediaGroupId =
     (msg as any).groupedId != null ? String((msg as any).groupedId) : null;
 
-  appendLog("MEDIA_RAW_INPUT", {
-    msgId: msg.id,
-    className: rawMedia?.constructor?.name,
-    raw: JSON.stringify(rawMedia, null, 2),
-  });
+  // appendLog("MEDIA_RAW_INPUT", {
+  //   msgId: msg.id,
+  //   className: rawMedia?.constructor?.name,
+  //   raw: JSON.stringify(rawMedia, null, 2),
+  // });
 
   if (!rawMedia) {
     return { type: "text", media: null, mediaGroupId };
@@ -55,7 +55,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
     if (typeof (photo as any).size === "number")
       media.size = (photo as any).size;
 
-    appendLog("MEDIA_PHOTO_PARSED", media);
+    // appendLog("MEDIA_PHOTO_PARSED", media);
     return { type: "photo", media, mediaGroupId };
   }
 
@@ -90,7 +90,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
 
     if (typeof doc.size === "number") media.size = doc.size;
 
-    appendLog("MEDIA_DOCUMENT_PARSED", media);
+    // appendLog("MEDIA_DOCUMENT_PARSED", media);
 
     const unifiedType: UnifiedTelegramMessageType = parsed.isSticker
       ? "sticker"
@@ -118,11 +118,11 @@ export function extractMediaFromMessage(msg: Api.Message): {
     rawMedia instanceof Api.MessageMediaWebPage &&
     rawMedia.webpage instanceof Api.WebPage
   ) {
-    appendLog("MEDIA_WEBPAGE_PARSED", {});
+    // appendLog("MEDIA_WEBPAGE_PARSED", {});
     return { type: "text", media: null, mediaGroupId: null };
   }
 
-  appendLog("MEDIA_UNKNOWN_TYPE", { msgId: msg.id });
+  // appendLog("MEDIA_UNKNOWN_TYPE", { msgId: msg.id });
   return { type: "unknown", media: null, mediaGroupId };
 }
 

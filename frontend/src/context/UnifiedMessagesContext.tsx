@@ -426,7 +426,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       addOrUpdateMessage(chatKey, msg);
     };
 
-    /* CONFIRMED — ONLY REPLACES tempId → messageId */
+    /* CONFIRMED — FULL REPLACEMENT OF OPTIMISTIC MESSAGE */
     const handleConfirmed = (p: TelegramMessageConfirmedPayload) => {
       if (p.platform !== "telegram") return;
 
@@ -436,19 +436,15 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         const list = prev[chatKey];
         if (!list) return prev;
 
+        const real = p.message; // ← full unified parsed message
+
         const updated = list.map((m) => {
           if (m.tempId != null && String(m.tempId) === String(p.tempId)) {
             return asUnified({
-              ...m,
-
-              // Only identity change
-              messageId: String(p.realMessageId),
+              ...real,
+              status: "sent",
               tempId: null,
-              status: "sent" as MessageStatus,
-              date: normalizeDateToISO(p.date),
-
-              // DO NOT override media/text here!!!
-              // Real content arrives via new_message afterwards
+              date: normalizeDateToISO(real.date),
             });
           }
           return m;
@@ -456,7 +452,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
         return {
           ...prev,
-          [chatKey]: updated.sort(sortAsc),
+          [chatKey]: dedupe(updated).sort(sortAsc),
         };
       });
     };

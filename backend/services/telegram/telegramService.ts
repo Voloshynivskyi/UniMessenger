@@ -292,11 +292,11 @@ export class TelegramService {
     });
 
     // Parse messages → always returns UnifiedTelegramMessage
-    appendLog("[TelegramService:getChatHistory] Parsing,", rawMessages);
+    // appendLog("[TelegramService:getChatHistory] Parsing,", rawMessages);
     const parsedMessages = rawMessages.map((msg) =>
       parseTelegramMessage(msg, accountId)
     );
-    appendLog("[TelegramService:getChatHistory] Parsed,", parsedMessages);
+    // appendLog("[TelegramService:getChatHistory] Parsed,", parsedMessages);
     const lastMessage = rawMessages.length
       ? rawMessages[rawMessages.length - 1]
       : null;

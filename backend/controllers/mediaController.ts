@@ -41,7 +41,7 @@ export async function getTelegramMedia(req: Request, res: Response) {
   try {
     const { accountId, fileId } = req.params;
     const messageId = fileId;
-    logger.info("[MEDIA GET] Incoming request", { accountId, messageId });
+    // logger.info("[MEDIA GET] Incoming request", { accountId, messageId });
     if (!accountId || !messageId) {
       return res.status(400).json({ error: "Invalid parameters" });
     }
@@ -52,7 +52,7 @@ export async function getTelegramMedia(req: Request, res: Response) {
     // STEP 1: Try cache
     const cachedPath = findCachedFile(chatDir, messageId);
     if (cachedPath) return streamFile(req, res, cachedPath);
-    logger.info("[MEDIA GET] Cache miss, need to download from Telegram");
+    // logger.info("[MEDIA GET] Cache miss, need to download from Telegram");
     // STEP 2: Download via Telegram
     const index = await prisma.telegramMessageIndex.findUnique({
       where: {
@@ -73,11 +73,11 @@ export async function getTelegramMedia(req: Request, res: Response) {
 
     const peerId = index.rawPeerId ?? index.chatId;
     const accessHash = index.rawAccessHash ?? undefined;
-    logger.info("[MEDIA GET] Resolved peer info", {
-      peerType,
-      peerId,
-      accessHash,
-    });
+    // logger.info("[MEDIA GET] Resolved peer info", {
+    //   peerType,
+    //   peerId,
+    //   accessHash,
+    // });
     if (!peerId) return res.status(500).json({ error: "Missing peerId" });
 
     let client = telegramClientManager.getClient(accountId);
@@ -93,7 +93,7 @@ export async function getTelegramMedia(req: Request, res: Response) {
     const messages = await client.getMessages(peer, { ids: msgId });
     const message = Array.isArray(messages) ? messages[0] : messages;
 
-    logger.info("[MEDIA GET] Retrieved message", { message });
+    // logger.info("[MEDIA GET] Retrieved message", { message });
 
     if (!(message instanceof Api.Message) || !message.media) {
       return res.status(404).json({ error: "Message or media not found" });
@@ -108,11 +108,11 @@ export async function getTelegramMedia(req: Request, res: Response) {
 
     const buffer = await client.downloadMedia(message.media);
     if (!buffer) return res.status(404).json({ error: "Download failed" });
-    logger.info("[MEDIA GET] Downloaded media, saving to", { finalPath });
+    // logger.info("[MEDIA GET] Downloaded media, saving to", { finalPath });
     fs.writeFileSync(finalPath, buffer);
     return streamFile(req, res, finalPath);
   } catch (err: any) {
-    logger.error("[MEDIA GET ERROR]", err);
+    //logger.error("[MEDIA GET ERROR]", err);
     return res.status(500).json({ error: err.message });
   }
 }
@@ -183,7 +183,7 @@ function detectUploadKind(
 ): "photo" | "video" | "voice" | "gif" | "document" {
   if (!mime) return "document";
 
-  // реальні фото, які Telegram дозволяє шити як photo
+  // Real photos that Telegram allows to send as photo type
   if (mime === "image/jpeg" || mime === "image/jpg" || mime === "image/png") {
     return "photo";
   }
@@ -191,7 +191,7 @@ function detectUploadKind(
   // gif = animation
   if (mime === "image/gif") return "gif";
 
-  // ВСІ ІНШІ зображення (jfif, webp, bmp, heic...) → документ
+  // All other images (jfif, webp, bmp, heic, etc) are sent as document
   if (mime.startsWith("image/")) return "document";
 
   if (mime.startsWith("video/")) return "video";

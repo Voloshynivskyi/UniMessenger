@@ -20,14 +20,11 @@ export async function onEditedMessage(
 
     const msg = event.message as Api.Message;
 
-    // ----------------------------------------------
-    // FIX: senderId must be set for unified pipeline
-    // ----------------------------------------------
+    // Ensure senderId is set for unified pipeline
     if (!msg.fromId && msg.peerId instanceof Api.PeerUser) {
       msg.fromId = msg.peerId; // ensure sender for private chats
     }
 
-    // ----------------------------------------------
     // Resolve chatId (same as in NEW)
     // ----------------------------------------------
     let resolvedChat: any = null;

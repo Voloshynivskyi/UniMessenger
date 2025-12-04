@@ -11,6 +11,7 @@ import { prisma } from "../lib/prisma";
 import { isValidPhone } from "../utils/validation";
 import { logger } from "../utils/logger";
 import { getSocketGateway } from "../realtime/socketGateway";
+import { parseTelegramMessage } from "../utils/parseTelegramMessage";
 
 const telegramService = new TelegramService();
 
@@ -551,7 +552,7 @@ export const getMessageHistory = async (req: Request, res: Response) => {
     );
   }
 };
-type MediaKind = "voice" | "video_note" | "photo" | "video" | "audio" | "file";
+type MediaKind = "voice" | "video_note" | "file";
 
 export async function sendMessage(req: Request, res: Response) {
   try {
@@ -559,51 +560,24 @@ export async function sendMessage(req: Request, res: Response) {
     const { accountId, peerType, peerId, accessHash, text, tempId } = req.body;
     const file = req.file;
 
-    const rawMediaKind = (req.body.mediaKind || "") as string;
-    const mediaKind: MediaKind | undefined =
-      rawMediaKind === "voice" ||
-      rawMediaKind === "video_note" ||
-      rawMediaKind === "photo" ||
-      rawMediaKind === "video" ||
-      rawMediaKind === "audio" ||
-      rawMediaKind === "file"
-        ? (rawMediaKind as MediaKind)
-        : undefined;
-
     const textLength = typeof text === "string" ? text.length : 0;
-
-    logger.info("[telegramController.sendMessage] Incoming request", {
-      body: {
-        accountId,
-        peerType,
-        peerId,
-        accessHash,
-        textLength,
-        tempId,
-        mediaKind,
-      },
-      fileMeta: file
-        ? {
-            fieldname: file.fieldname,
-            originalname: file.originalname,
-            size: file.size,
-            mimetype: file.mimetype,
-          }
-        : null,
-    });
 
     if (!textLength && !file) {
       return sendError(res, "BAD_REQUEST", "Message must have text or file");
     }
 
+    // 🔹 ДІСТАЄМО mediaKind з body (воно приходить з фронта як string)
+    const rawMediaKind = (req.body.mediaKind || "") as string;
+    const mediaKind: MediaKind | undefined =
+      rawMediaKind === "voice" ||
+      rawMediaKind === "video_note" ||
+      rawMediaKind === "file"
+        ? (rawMediaKind as MediaKind)
+        : undefined;
+
     let sent;
 
     if (file) {
-      logger.info(
-        "[telegramController.sendMessage] Going through sendUnified with FILE",
-        { mediaKind }
-      );
-
       const payload: any = {
         accountId,
         peerType,
@@ -615,15 +589,11 @@ export async function sendMessage(req: Request, res: Response) {
       };
 
       if (mediaKind !== undefined) {
-        payload.mediaKind = mediaKind;
+        payload.mediaKind = mediaKind; // ✅ КРИТИЧНО
       }
 
       sent = await telegramService.sendUnified(payload);
     } else {
-      logger.info(
-        "[telegramController.sendMessage] Going through sendUnified TEXT only"
-      );
-
       sent = await telegramService.sendUnified({
         accountId,
         peerType,
@@ -633,6 +603,17 @@ export async function sendMessage(req: Request, res: Response) {
       });
     }
 
+    // -------------------------------
+    //  PARSE RAW TELEGRAM MESSAGE
+    // -------------------------------
+    const unified = parseTelegramMessage(sent.raw, accountId);
+
+    unified.chatId = String(peerId);
+    unified.peerId = String(peerId);
+    unified.accountId = accountId;
+    unified.isOutgoing = true;
+    unified.tempId = tempId ? String(tempId) : null;
+
     const gateway = getSocketGateway();
 
     gateway.emitToUser(userId, "telegram:message_confirmed", {
@@ -640,16 +621,11 @@ export async function sendMessage(req: Request, res: Response) {
       accountId,
       chatId: String(peerId),
       tempId: tempId ? String(tempId) : null,
-      realMessageId: String(sent.id),
-      date: sent.date,
-      status: "sent",
+      message: unified,
+      timestamp: new Date().toISOString(),
     });
 
-    return sendOk(res, {
-      tempId,
-      realMessageId: sent.id,
-      date: sent.date,
-    });
+    return sendOk(res, { ok: true });
   } catch (err: any) {
     logger.error("[telegramController.sendMessage] UNEXPECTED error", {
       message: err.message,

@@ -1,3 +1,5 @@
+// frontend/src/pages/inbox/chat/recorders/RecorderWaveform.tsx
+
 import { Box } from "@mui/material";
 
 interface Props {
@@ -17,7 +19,7 @@ export default function RecorderWaveform({ waveform }: Props) {
       sx={{
         flex: 1,
         display: "flex",
-        alignItems: "center", // centered → симетрія
+        alignItems: "center", // Vertically centered for symmetry
         gap: "2px",
         height: 40,
       }}

@@ -265,7 +265,9 @@ export const UnifiedDialogsProvider = ({
 
         const updatedText = buildSidebarPreviewText(
           data.newText,
-          existing.lastMessage.type as UnifiedTelegramMessage["type"] | undefined
+          existing.lastMessage.type as
+            | UnifiedTelegramMessage["type"]
+            | undefined
         );
 
         const updatedChat: UnifiedChat = {
@@ -397,8 +399,8 @@ export const UnifiedDialogsProvider = ({
           ...existing,
           lastMessage: {
             ...existing.lastMessage,
-            id: data.realMessageId,
-            date: data.date,
+            id: data.message.messageId,
+            date: data.message.date,
           },
         };
 
@@ -622,10 +624,7 @@ export const UnifiedDialogsProvider = ({
       const existing = accountChats[chatKey];
       if (!existing) return prev;
 
-      const previewText = buildSidebarPreviewText(
-        message.text,
-        message.type
-      );
+      const previewText = buildSidebarPreviewText(message.text, message.type);
 
       const updatedChat: UnifiedChat = {
         ...existing,

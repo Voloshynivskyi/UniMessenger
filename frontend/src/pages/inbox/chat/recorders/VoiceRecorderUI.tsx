@@ -1,3 +1,5 @@
+// frontend/src/pages/inbox/chat/recorders/VoiceRecorderUI.tsx
+
 import { useEffect, useRef, useState } from "react";
 import { Box, IconButton, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
