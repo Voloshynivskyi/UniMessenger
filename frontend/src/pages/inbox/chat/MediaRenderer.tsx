@@ -1,23 +1,32 @@
+// frontend/src/pages/inbox/chat/MediaRenderer.tsx
+
 import { Box, Typography } from "@mui/material";
-import { useState, useRef, useEffect } from "react";
+import { useRef, useState } from "react";
 import { useAuth } from "../../../context/AuthContext";
 import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import Skeleton from "@mui/material/Skeleton";
 
 import RoundVideoNote from "./RoundVideoNote";
 import MediaViewerModal from "./MediaViewerModal";
 import LoadingSpinner from "../../../components/common/LoadingSpinner";
+import { useMediaBlob } from "../../../hooks/useMediaBlob";
+import MessageTimestamp from "./MessageTimestamp";
 
 interface Props {
   message: UnifiedTelegramMessage;
+  showTimestampOverlay?: boolean;
 }
 
-export default function MediaRenderer({ message }: Props) {
+export default function MediaRenderer({
+  message,
+  showTimestampOverlay = true,
+}: Props) {
   const { token } = useAuth();
   const media = message.media;
 
   if (!message || !media) return null;
 
-  // Normalize type for image files
+  // Normalize type
   const mime = media.mimeType || "";
   const rawType = message.type;
 
@@ -25,18 +34,16 @@ export default function MediaRenderer({ message }: Props) {
     rawType === "file" && mime.startsWith("image/") ? "photo" : rawType;
 
   /* ------------------------------------------------------------
-     Local state
+     HOOKS MUST ALWAYS REMAIN FIRST BEFORE ANY CONDITIONAL LOGIC
   ------------------------------------------------------------ */
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerType, setViewerType] = useState<"image" | "video" | null>(null);
-  // MUSIC AUDIO HOOKS – must always exist
   const [musicProgress, setMusicProgress] = useState(0);
 
   /* ------------------------------------------------------------
-     Decide source for display
+     Compute blob URL
   ------------------------------------------------------------ */
   const hasLocalPreview =
     typeof media.localPreviewUrl === "string" &&
@@ -50,90 +57,144 @@ export default function MediaRenderer({ message }: Props) {
       ? `/api/telegram/media/${message.accountId}/${realMessageId}`
       : null;
 
-  /* ------------------------------------------------------------
-     Load blob
-  ------------------------------------------------------------ */
-  useEffect(() => {
-    let active = true;
-
-    if (hasLocalPreview) {
-      setBlobUrl(media.localPreviewUrl!);
-      return () => {
-        active = false;
-      };
-    }
-
-    if (!protectedUrl) return () => void 0;
-
-    const load = async () => {
-      try {
-        const res = await fetch(protectedUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error("media fetch failed");
-
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-
-        if (active) setBlobUrl(url);
-      } catch {
-        if (active) setBlobUrl(null);
-      }
-    };
-
-    load();
-
-    return () => {
-      active = false;
-      if (!hasLocalPreview && blobUrl) URL.revokeObjectURL(blobUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [protectedUrl, token, hasLocalPreview]);
+  const { blobUrl, loading } = useMediaBlob({
+    token: token || undefined,
+    previewUrl: hasLocalPreview ? media.localPreviewUrl! : null,
+    realUrl: protectedUrl,
+  });
 
   /* ------------------------------------------------------------
-     Loading spinner
-  ------------------------------------------------------------ */
-  if (!blobUrl) {
-    return (
-      <Box
-        sx={{
-          width: 120,
-          height: 120,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <LoadingSpinner size={28} />
-      </Box>
-    );
-  }
-
-  /* ------------------------------------------------------------
-     Type Detection
+     TYPE DETECTION (must be defined BEFORE loader uses them)
   ------------------------------------------------------------ */
   const isPhoto = type === "photo";
   const isGif = type === "animation";
   const isVideo = type === "video";
+  const isSticker = type === "sticker";
+  const isVideoNote = type === "video_note" || media.isRoundVideo === true;
+
   const isVoiceMessage =
     message.type === "voice" ||
     media.isVoice === true ||
     (Array.isArray(media.waveform) && media.waveform.length > 0);
 
   const isMusicAudio =
-    !isVoiceMessage && media.mimeType?.startsWith("audio/") && media.fileName; // must exist
-
-  const isSticker = type === "sticker";
-  const isVideoNote = type === "video_note" || media.isRoundVideo === true;
+    !isVoiceMessage && media.mimeType?.startsWith("audio/") && media.fileName;
 
   const duration = media.duration ?? 0;
   const waveform = media.waveform ?? null;
   const fileName = media.fileName ?? "File";
 
-  const openViewer = (kind: "image" | "video") => {
-    setViewerType(kind);
-    setViewerOpen(true);
+  // All large visual media
+  const isVisualMedia = isPhoto || isVideo || isGif || isSticker || isVideoNote;
+
+  /* ------------------------------------------------------------
+     RESERVED HEIGHT CALCULATION FOR LAYOUT STABILITY
+     Prevents scroll jumps while media is loading
+  ------------------------------------------------------------ */
+  const aspectRatio =
+    media.width && media.height && media.width > 0 && media.height > 0
+      ? media.height / media.width
+      : isVideoNote
+      ? 1
+      : 3 / 4;
+
+  const baseWidth = 240;
+  let reservedHeight = Math.round(baseWidth * aspectRatio);
+
+  if (reservedHeight < 180) reservedHeight = 180;
+  if (reservedHeight > 420) reservedHeight = 420;
+
+  /* ------------------------------------------------------------
+     TIMESTAMP FORMATTER
+  ------------------------------------------------------------ */
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(
+      d.getMinutes()
+    ).padStart(2, "0")}`;
   };
+
+  /* ------------------------------------------------------------
+     TIMESTAMP OVERLAY FOR MEDIA
+  ------------------------------------------------------------ */
+  const renderOverlayTimestamp = () => {
+    if (!showTimestampOverlay) return null;
+    return (
+      <Box
+        sx={{
+          position: "absolute",
+          right: 8,
+          bottom: 8,
+          px: 0.9,
+          py: 0.3,
+          borderRadius: 999,
+          bgcolor: "rgba(0,0,0,0.45)",
+          color: "white",
+          fontSize: "11px",
+          backdropFilter: "blur(2px)",
+          userSelect: "none",
+          pointerEvents: "none",
+        }}
+      >
+        {formatTime(message.date)}
+      </Box>
+    );
+  };
+
+  /* ------------------------------------------------------------
+     LOADER — MUST MATCH FINAL MEDIA SIZE
+     This prevents scroll jumps when media loads
+  ------------------------------------------------------------ */
+  if (loading || !blobUrl) {
+    // --- Large animated skeleton placeholder for visual media ---
+    if (isVisualMedia) {
+      return (
+        <Box
+          sx={{
+            position: "relative",
+            display: "inline-block",
+            width: isVideoNote ? 260 : 360, // always large width
+            height: isVideoNote ? 260 : 420, // always large height (fixed for stability)
+            borderRadius: isVideoNote ? "50%" : 3, // keep round shape for video notes
+            overflow: "hidden",
+            bgcolor: "rgba(255,255,255,0.08)",
+          }}
+        >
+          {/* Modern shimmering skeleton */}
+          <Skeleton
+            variant="rectangular"
+            animation="wave"
+            sx={{
+              width: "100%",
+              height: "100%",
+              borderRadius: "inherit",
+              bgcolor: "rgba(22, 18, 18, 0.2)", // better contrast for dark mode
+              "& .MuiSkeleton-wave": {
+                animationDuration: "1.2s",
+              },
+            }}
+          />
+        </Box>
+      );
+    }
+
+    // --- Smaller skeleton for audio/file ---
+    return (
+      <Skeleton
+        variant="rectangular"
+        animation="wave"
+        sx={{
+          width: 300,
+          height: 48,
+          borderRadius: 2,
+          bgcolor: "rgba(255,255,255,0.1)",
+          "& .MuiSkeleton-wave": {
+            animationDuration: "1.2s",
+          },
+        }}
+      />
+    );
+  }
 
   /* ------------------------------------------------------------
      VIDEO NOTE
@@ -141,7 +202,11 @@ export default function MediaRenderer({ message }: Props) {
   if (isVideoNote) {
     return (
       <>
-        <RoundVideoNote src={blobUrl} />
+        <Box sx={{ position: "relative", display: "inline-block" }}>
+          <RoundVideoNote src={blobUrl} />
+          {renderOverlayTimestamp()}
+        </Box>
+
         <MediaViewerModal
           open={viewerOpen}
           type={viewerType}
@@ -157,11 +222,19 @@ export default function MediaRenderer({ message }: Props) {
   ------------------------------------------------------------ */
   if (isSticker) {
     return (
-      <Box sx={{ maxWidth: 180, p: 1 }}>
+      <Box
+        sx={{
+          maxWidth: 180,
+          p: 1,
+          position: "relative",
+          display: "inline-block",
+        }}
+      >
         <img
           src={blobUrl}
           style={{ width: "100%", height: "auto", display: "block" }}
         />
+        {renderOverlayTimestamp()}
       </Box>
     );
   }
@@ -181,34 +254,41 @@ export default function MediaRenderer({ message }: Props) {
             boxShadow: 1,
             maxWidth: 360,
             minWidth: 180,
+            minHeight: reservedHeight,
+            position: "relative",
+            display: "inline-block",
           }}
         >
           <img
             src={blobUrl}
-            onClick={() => openViewer("image")}
+            onClick={() => {
+              setViewerType("image");
+              setViewerOpen(true);
+            }}
             style={{
               width: "100%",
-              maxHeight: 420,
+              height: "100%",
               objectFit: "cover",
               display: "block",
               cursor: "pointer",
             }}
           />
+          {renderOverlayTimestamp()}
         </Box>
+
         <MediaViewerModal
           open={viewerOpen}
-          type={viewerType}
+          type="image"
           src={blobUrl}
           onClose={() => setViewerOpen(false)}
         />
       </>
     );
   }
-
   /* ------------------------------------------------------------
-     VIDEO / GIF
+     GIF (render as real GIF image, not a video)
   ------------------------------------------------------------ */
-  if (isVideo || isGif) {
+  if (isGif) {
     return (
       <>
         <Box
@@ -220,25 +300,79 @@ export default function MediaRenderer({ message }: Props) {
             boxShadow: 1,
             maxWidth: 360,
             minWidth: 220,
+            position: "relative",
+            display: "inline-block",
+          }}
+        >
+          <img
+            src={blobUrl}
+            alt="GIF"
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+              cursor: "pointer",
+            }}
+            onClick={() => {
+              setViewerType("image");
+              setViewerOpen(true);
+            }}
+          />
+
+          {renderOverlayTimestamp()}
+        </Box>
+
+        <MediaViewerModal
+          open={viewerOpen}
+          type="image"
+          src={blobUrl}
+          onClose={() => setViewerOpen(false)}
+        />
+      </>
+    );
+  }
+  /* ------------------------------------------------------------
+     VIDEO
+  ------------------------------------------------------------ */
+  if (isVideo) {
+    return (
+      <>
+        <Box
+          sx={{
+            borderRadius: 3,
+            overflow: "hidden",
+            bgcolor: "background.paper",
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: 1,
+            maxWidth: 360,
+            minWidth: 220,
+            minHeight: reservedHeight,
+            position: "relative",
+            display: "inline-block",
           }}
         >
           <video
             src={blobUrl}
             controls
             preload="metadata"
-            onClick={() => openViewer("video")}
+            onClick={() => {
+              setViewerType("video");
+              setViewerOpen(true);
+            }}
             style={{
               width: "100%",
-              maxHeight: 420,
-              background: "black",
+              height: "100%",
               display: "block",
+              background: "black",
               cursor: "pointer",
             }}
           />
+          {renderOverlayTimestamp()}
         </Box>
+
         <MediaViewerModal
           open={viewerOpen}
-          type={viewerType}
+          type="video"
           src={blobUrl}
           onClose={() => setViewerOpen(false)}
         />
@@ -246,10 +380,10 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // ------------------------------------------------------------
-  // MUSIC AUDIO (not voice) — same bubble style as voice
-  // ------------------------------------------------------------
-  if (isMusicAudio && !message.media?.isVoice) {
+  /* ------------------------------------------------------------
+     MUSIC AUDIO
+  ------------------------------------------------------------ */
+  if (isMusicAudio) {
     const seconds = Math.max(1, duration);
     const timeLabel = `${Math.floor(seconds / 60)}:${String(
       Math.floor(seconds % 60)
@@ -258,7 +392,6 @@ export default function MediaRenderer({ message }: Props) {
     const togglePlay = () => {
       const a = audioRef.current;
       if (!a) return;
-
       if (a.paused) {
         a.play();
         setIsPlaying(true);
@@ -277,7 +410,6 @@ export default function MediaRenderer({ message }: Props) {
     const onSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
       const a = audioRef.current;
       if (!a || !a.duration) return;
-
       const val = Number(e.target.value);
       a.currentTime = val * a.duration;
       setMusicProgress(val);
@@ -285,7 +417,6 @@ export default function MediaRenderer({ message }: Props) {
 
     return (
       <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-        {/* File name */}
         <Typography
           sx={{
             fontSize: 13,
@@ -296,19 +427,10 @@ export default function MediaRenderer({ message }: Props) {
             textOverflow: "ellipsis",
           }}
         >
-          {fileName || "Audio"}
+          {fileName}
         </Typography>
 
-        {/* Bubble same as voice */}
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 1.2,
-          }}
-        >
-          {/* Play button */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box
             sx={{
               width: 42,
@@ -321,37 +443,27 @@ export default function MediaRenderer({ message }: Props) {
               color: "white",
               cursor: "pointer",
               fontSize: 20,
-              flexShrink: 0,
             }}
             onClick={togglePlay}
           >
             {isPlaying ? "⏸" : "▶"}
           </Box>
 
-          {/* Seekbar */}
-          <Box sx={{ flexGrow: 1, display: "flex", alignItems: "center" }}>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={musicProgress}
-              onChange={onSeek}
-              style={{ width: "100%", cursor: "pointer" }}
-            />
-          </Box>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={musicProgress}
+            onChange={onSeek}
+            style={{ width: "100%", cursor: "pointer" }}
+          />
 
-          {/* Duration */}
-          <Typography
-            sx={{
-              fontSize: 13,
-              opacity: 0.7,
-              minWidth: 34,
-              textAlign: "right",
-            }}
-          >
+          <Typography sx={{ fontSize: 13, opacity: 0.7 }}>
             {timeLabel}
           </Typography>
+
+          <MessageTimestamp date={message.date} />
 
           <audio
             ref={audioRef}
@@ -365,7 +477,9 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // Voice message (Telegram style, inside bubble)
+  /* ------------------------------------------------------------
+     VOICE MESSAGE
+  ------------------------------------------------------------ */
   if (isVoiceMessage) {
     const seconds = Math.max(1, duration);
     const timeLabel = `${Math.floor(seconds / 60)}:${String(
@@ -385,15 +499,7 @@ export default function MediaRenderer({ message }: Props) {
     };
 
     return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 1.2,
-        }}
-      >
-        {/* Play button */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Box
           sx={{
             width: 42,
@@ -405,16 +511,13 @@ export default function MediaRenderer({ message }: Props) {
             justifyContent: "center",
             color: "white",
             cursor: "pointer",
-            fontSize: 20,
-            flexShrink: 0,
           }}
           onClick={togglePlay}
         >
           {isPlaying ? "⏸" : "▶"}
         </Box>
 
-        {/* Waveform */}
-        <Box sx={{ flexGrow: 1, display: "flex", alignItems: "center" }}>
+        <Box sx={{ flexGrow: 1 }}>
           {waveform ? (
             <MiniWaveform waveform={waveform} />
           ) : (
@@ -429,12 +532,9 @@ export default function MediaRenderer({ message }: Props) {
           )}
         </Box>
 
-        {/* Duration */}
-        <Typography
-          sx={{ fontSize: 13, opacity: 0.7, minWidth: 34, textAlign: "right" }}
-        >
-          {timeLabel}
-        </Typography>
+        <Typography sx={{ fontSize: 13, opacity: 0.7 }}>{timeLabel}</Typography>
+
+        <MessageTimestamp date={message.date} />
 
         <audio
           ref={audioRef}
@@ -446,16 +546,11 @@ export default function MediaRenderer({ message }: Props) {
     );
   }
 
-  // File or unknown type (Telegram style, inside bubble)
+  /* ------------------------------------------------------------
+     FILE
+  ------------------------------------------------------------ */
   return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        gap: 1.2,
-      }}
-    >
-      {/* Іконка файлу в синьому кружечку */}
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Box
         sx={{
           width: 42,
@@ -465,7 +560,6 @@ export default function MediaRenderer({ message }: Props) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          flexShrink: 0,
         }}
       >
         <Box
@@ -491,40 +585,42 @@ export default function MediaRenderer({ message }: Props) {
         </Box>
       </Box>
 
-      <Box
-        component="a"
-        href={blobUrl}
-        download={fileName}
-        target="_blank"
-        rel="noreferrer"
-        sx={{
-          fontSize: 14,
-          fontWeight: 500,
-          textDecoration: "none",
-          color: "inherit",
-          maxWidth: 220,
-          whiteSpace: "nowrap",
-          textOverflow: "ellipsis",
-          overflow: "hidden",
-        }}
-      >
-        {fileName}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Box
+          component="a"
+          href={blobUrl}
+          download={fileName}
+          target="_blank"
+          rel="noreferrer"
+          sx={{
+            fontSize: 14,
+            fontWeight: 500,
+            color: "inherit",
+            textDecoration: "none",
+            maxWidth: 220,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {fileName}
+        </Box>
+
+        <MessageTimestamp date={message.date} />
       </Box>
     </Box>
   );
 }
 
 /* ------------------------------------------------------------
-   Mini waveform renderer
+   Mini waveform component
 ------------------------------------------------------------ */
 function MiniWaveform({ waveform }: { waveform: number[] }) {
-  if (!Array.isArray(waveform) || waveform.length === 0) {
-    return null;
-  }
+  if (!waveform || waveform.length === 0) return null;
 
   const normalized = waveform.map((v) => Math.max(0, Math.min(1, v / 255)));
-  const TARGET_BARS = 60;
-  const step = Math.max(1, Math.floor(normalized.length / TARGET_BARS));
+  const TARGET = 60;
+  const step = Math.max(1, Math.floor(normalized.length / TARGET));
   const reduced = normalized.filter((_, i) => i % step === 0);
 
   return (
@@ -541,7 +637,7 @@ function MiniWaveform({ waveform }: { waveform: number[] }) {
         <Box
           key={i}
           sx={{
-            width: "2px",
+            width: 2,
             height: `${6 + v * 20}px`,
             bgcolor: "rgba(0,0,0,0.38)",
             borderRadius: 1,

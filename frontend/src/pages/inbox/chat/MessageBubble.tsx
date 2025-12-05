@@ -1,6 +1,8 @@
 // frontend/src/pages/inbox/chat/MessageBubble.tsx
+import React, { useMemo } from "react";
 import { Box, Typography } from "@mui/material";
 import MediaRenderer from "./MediaRenderer";
+import MessageTimestamp from "./MessageTimestamp";
 import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
 
 interface Props {
@@ -8,7 +10,10 @@ interface Props {
   isSelf: boolean;
 }
 
-function renderTextWithLinks(text: string) {
+/**
+ * Парсинг тексту з лінками (чиста функція).
+ */
+function parseLinks(text: string) {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
 
@@ -34,16 +39,20 @@ function renderTextWithLinks(text: string) {
   });
 }
 
-export default function MessageBubble({ message, isSelf }: Props) {
+function MessageBubbleBase({ message, isSelf }: Props) {
   const hasMedia = !!message.media && message.type !== "text";
   const hasText = !!message.text?.trim();
 
   const outgoingBg = "#cde8ff";
   const incomingBg = "#ffffff";
 
-  const bubbleRadius = isSelf
-    ? "18px 18px 4px 18px"
-    : "18px 18px 18px 4px";
+  const bubbleRadius = isSelf ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
+
+  // Мемоізація тексту з лінками
+  const renderedText = useMemo(() => {
+    if (!message.text) return null;
+    return parseLinks(message.text);
+  }, [message.text]);
 
   return (
     <Box
@@ -58,7 +67,8 @@ export default function MessageBubble({ message, isSelf }: Props) {
     >
       {hasMedia && (
         <Box sx={{ mb: hasText ? 1 : 0 }}>
-          <MediaRenderer message={message} />
+          {/* showTimestampOverlay=false → щоб не було дубля таймстемпу поверх медіа */}
+          <MediaRenderer message={message} showTimestampOverlay={false} />
         </Box>
       )}
 
@@ -71,9 +81,36 @@ export default function MessageBubble({ message, isSelf }: Props) {
             lineHeight: 1.35,
           }}
         >
-          {renderTextWithLinks(message.text!)}
+          {renderedText}
         </Typography>
+      )}
+
+      {/* Таймстемп ТІЛЬКИ коли є текст (text або text+media) */}
+      {hasText && (
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "flex-end",
+            mt: 0.25,
+          }}
+        >
+          <MessageTimestamp date={message.date} />
+        </Box>
       )}
     </Box>
   );
 }
+
+/**
+ * React.memo — бульбашка не перерендерюється,
+ * якщо не змінилися ключові поля.
+ */
+export default React.memo(MessageBubbleBase, (prev, next) => {
+  return (
+    prev.message.messageId === next.message.messageId &&
+    prev.message.date === next.message.date &&
+    prev.message.text === next.message.text &&
+    prev.message.type === next.message.type &&
+    prev.isSelf === next.isSelf
+  );
+});

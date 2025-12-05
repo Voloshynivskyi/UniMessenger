@@ -9,7 +9,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { telegramApi } from "../api/telegramApi";
-import { socketClient } from "../realtime/socketClient";
+import { socketBus } from "../realtime/eventBus";
 
 import {
   type TelegramNewMessagePayload,
@@ -23,7 +23,7 @@ import type { MessageStatus } from "../types/unifiedMessage.types";
 
 import { buildChatKey } from "../pages/inbox/utils/chatUtils";
 
-const INITIAL_KEEP = 40;
+const INITIAL_KEEP = 30;
 const PAGE_SIZE = 20;
 
 function asUnified(m: any): UnifiedTelegramMessage {
@@ -402,17 +402,12 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   --------------------------------------------------------- */
 
   useEffect(() => {
-    if (!socketClient) return;
-
-    /* NEW MESSAGE — replaces optimistic with TRUE backend payload */
     const handleNewMessage = (p: TelegramNewMessagePayload) => {
       if (p.platform !== "telegram") return;
-
       const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
       const raw = p.message;
-
-      const msg: UnifiedTelegramMessage = asUnified({
+      const msg: UnifiedTelegramMessage = {
         ...raw,
         platform: "telegram",
         accountId: p.accountId,
@@ -421,34 +416,30 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         tempId: null,
         status: "sent",
         date: normalizeDateToISO(raw.date),
-      });
+      };
 
       addOrUpdateMessage(chatKey, msg);
     };
 
-    /* CONFIRMED — FULL REPLACEMENT OF OPTIMISTIC MESSAGE */
     const handleConfirmed = (p: TelegramMessageConfirmedPayload) => {
       if (p.platform !== "telegram") return;
-
       const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
       setMessagesByChat((prev) => {
         const list = prev[chatKey];
         if (!list) return prev;
 
-        const real = p.message; // ← full unified parsed message
-
-        const updated = list.map((m) => {
-          if (m.tempId != null && String(m.tempId) === String(p.tempId)) {
-            return asUnified({
-              ...real,
-              status: "sent",
-              tempId: null,
-              date: normalizeDateToISO(real.date),
-            });
-          }
-          return m;
-        });
+        const real = p.message;
+        const updated = list.map((m) =>
+          m.tempId != null && String(m.tempId) === String(p.tempId)
+            ? {
+                ...real,
+                status: "sent" as MessageStatus,
+                tempId: null,
+                date: normalizeDateToISO(real.date),
+              }
+            : m
+        );
 
         return {
           ...prev,
@@ -457,10 +448,8 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       });
     };
 
-    /* EDITED */
     const handleEdited = (p: TelegramMessageEditedPayload) => {
       if (p.platform !== "telegram") return;
-
       const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
       setMessagesByChat((prev) => {
@@ -478,17 +467,14 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       });
     };
 
-    /* DELETED */
     const handleDeleted = (p: TelegramMessageDeletedPayload) => {
       if (p.platform !== "telegram") return;
-
       const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
       const ids = new Set(p.messageIds.map(String));
 
       setMessagesByChat((prev) => {
         const list = prev[chatKey];
         if (!list) return prev;
-
         return {
           ...prev,
           [chatKey]: list.filter((m) => !ids.has(String(m.messageId))),
@@ -496,17 +482,16 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       });
     };
 
-    /* Bind */
-    socketClient.on("telegram:new_message", handleNewMessage);
-    socketClient.on("telegram:message_confirmed", handleConfirmed);
-    socketClient.on("telegram:message_edited", handleEdited);
-    socketClient.on("telegram:message_deleted", handleDeleted);
+    socketBus.on("telegram:new_message", handleNewMessage);
+    socketBus.on("telegram:message_confirmed", handleConfirmed);
+    socketBus.on("telegram:message_edited", handleEdited);
+    socketBus.on("telegram:message_deleted", handleDeleted);
 
     return () => {
-      socketClient.off("telegram:new_message", handleNewMessage);
-      socketClient.off("telegram:message_confirmed", handleConfirmed);
-      socketClient.off("telegram:message_edited", handleEdited);
-      socketClient.off("telegram:message_deleted", handleDeleted);
+      socketBus.off("telegram:new_message", handleNewMessage);
+      socketBus.off("telegram:message_confirmed", handleConfirmed);
+      socketBus.off("telegram:message_edited", handleEdited);
+      socketBus.off("telegram:message_deleted", handleDeleted);
     };
   }, [addOrUpdateMessage]);
 

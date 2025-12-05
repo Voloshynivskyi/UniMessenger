@@ -14,16 +14,19 @@ import theme from "./theme";
 import { RealtimeProvider } from "./context/RealtimeContext";
 import { UnifiedDialogsProvider } from "./context/UnifiedDialogsContext";
 import { UnifiedMessagesProvider } from "./context/UnifiedMessagesContext";
+import { SocketProvider } from "./realtime/SocketProvider";
 
 function RootApp() {
   const { token } = useAuth();
   return (
     <RealtimeProvider token={token || ""}>
-      <UnifiedMessagesProvider>
-        <UnifiedDialogsProvider>
-          <App />
-        </UnifiedDialogsProvider>
-      </UnifiedMessagesProvider>
+      <SocketProvider>
+        <UnifiedMessagesProvider>
+          <UnifiedDialogsProvider>
+            <App />
+          </UnifiedDialogsProvider>
+        </UnifiedMessagesProvider>
+      </SocketProvider>
     </RealtimeProvider>
   );
 }

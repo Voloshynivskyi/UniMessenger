@@ -13,7 +13,8 @@ import type {
   UnifiedChat,
 } from "../types/unifiedChat.types";
 import { telegramApi } from "../api/telegramApi";
-import { socketClient } from "../realtime/socketClient";
+import { socketBus } from "../realtime/eventBus";
+
 import type {
   TelegramNewMessagePayload,
   TelegramMessageEditedPayload,
@@ -467,26 +468,26 @@ export const UnifiedDialogsProvider = ({
       }, 5000);
     };
 
-    socketClient.on("telegram:typing", handleTyping);
-    socketClient.on("telegram:new_message", handleNewMessage);
-    socketClient.on("telegram:message_edited", handleMessageEdited);
-    socketClient.on("telegram:message_deleted", handleMessageDeleted);
-    socketClient.on("telegram:read_updates", handleReadUpdates);
-    socketClient.on("telegram:message_views", handleMessageViews);
-    socketClient.on("telegram:pinned_messages", handlePinnedMessages);
-    socketClient.on("telegram:account_status", handleAccountStatus);
-    socketClient.on("telegram:message_confirmed", handleMessageConfirmed);
+    socketBus.on("telegram:new_message", handleNewMessage);
+    socketBus.on("telegram:typing", handleTyping);
+    socketBus.on("telegram:message_edited", handleMessageEdited);
+    socketBus.on("telegram:message_deleted", handleMessageDeleted);
+    socketBus.on("telegram:read_updates", handleReadUpdates);
+    socketBus.on("telegram:message_views", handleMessageViews);
+    socketBus.on("telegram:pinned_messages", handlePinnedMessages);
+    socketBus.on("telegram:account_status", handleAccountStatus);
+    socketBus.on("telegram:message_confirmed", handleMessageConfirmed);
 
     return () => {
-      socketClient.off("telegram:typing", handleTyping);
-      socketClient.off("telegram:new_message", handleNewMessage);
-      socketClient.off("telegram:message_edited", handleMessageEdited);
-      socketClient.off("telegram:message_deleted", handleMessageDeleted);
-      socketClient.off("telegram:read_updates", handleReadUpdates);
-      socketClient.off("telegram:message_views", handleMessageViews);
-      socketClient.off("telegram:pinned_messages", handlePinnedMessages);
-      socketClient.off("telegram:account_status", handleAccountStatus);
-      socketClient.off("telegram:message_confirmed", handleMessageConfirmed);
+      socketBus.off("telegram:new_message", handleNewMessage);
+      socketBus.off("telegram:typing", handleTyping);
+      socketBus.off("telegram:message_edited", handleMessageEdited);
+      socketBus.off("telegram:message_deleted", handleMessageDeleted);
+      socketBus.off("telegram:read_updates", handleReadUpdates);
+      socketBus.off("telegram:message_views", handleMessageViews);
+      socketBus.off("telegram:pinned_messages", handlePinnedMessages);
+      socketBus.off("telegram:account_status", handleAccountStatus);
+      socketBus.off("telegram:message_confirmed", handleMessageConfirmed);
 
       for (const key of Object.keys(typingTimeouts.current)) {
         clearTimeout(typingTimeouts.current[key]);

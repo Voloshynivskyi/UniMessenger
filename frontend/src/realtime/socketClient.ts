@@ -8,12 +8,13 @@ const SOCKET_URL =
 export class SocketClient {
   private socket: Socket<ServerToClientEvents, ClientToServerEvents> | null =
     null;
+
   private pingInterval?: ReturnType<typeof setInterval>;
 
   // Store events registered BEFORE connection
   private pendingListeners: {
-    event: keyof ServerToClientEvents;
-    callback: ServerToClientEvents[keyof ServerToClientEvents];
+    event: string; // allow "__onAny__"
+    callback: (...args: any[]) => void;
   }[] = [];
 
   public connect(token: string): void {
@@ -31,14 +32,21 @@ export class SocketClient {
 
     this.registerBaseHandlers();
 
-    // After connection, register pending listeners
     this.socket.on("connect", () => {
       console.log("[SocketClient] Connected:", this.socket?.id);
+
+      // Attach all pending listeners
       this.pendingListeners.forEach(({ event, callback }) => {
         console.log("[SocketClient] Attaching pending listener:", event);
-        this.socket?.on(event as any, callback as any);
+
+        if (event === "__onAny__") {
+          this.socket?.onAny(callback as any);
+        } else {
+          this.socket?.on(event as any, callback as any);
+        }
       });
-      this.pendingListeners = []; // Clear the queue
+
+      this.pendingListeners = [];
     });
   }
 
@@ -68,8 +76,9 @@ export class SocketClient {
       console.error("System error from server:", data);
     });
 
+    // Debug catch-all (used only for logging):
     this.socket.onAny((event, ...args) => {
-      console.log("[SocketClient:onAny]", event, args);
+      console.log("[SocketClient:onAny LOG]", event, args);
     });
   }
 
@@ -89,9 +98,7 @@ export class SocketClient {
     event: T,
     callback: ServerToClientEvents[T]
   ): void {
-    // If not connected yet, queue the listener
     if (!this.socket) {
-      console.log("[SocketClient] Queueing listener until connect:", event);
       this.pendingListeners.push({ event, callback });
       return;
     }
@@ -104,11 +111,28 @@ export class SocketClient {
   ): void {
     if (this.socket) {
       this.socket.off(event as any, callback as any);
+      return;
+    }
+
+    this.pendingListeners = this.pendingListeners.filter(
+      (l) => l.event !== event || (callback && l.callback !== callback)
+    );
+  }
+
+  public onAny(handler: (event: string, ...args: any[]) => void): void {
+    if (this.socket) {
+      this.socket.onAny(handler);
     } else {
-      // Remove from queue if not connected yet
-      this.pendingListeners = this.pendingListeners.filter(
-        (l) => l.event !== event || (callback && l.callback !== callback)
-      );
+      this.pendingListeners.push({
+        event: "__onAny__",
+        callback: handler,
+      });
+    }
+  }
+
+  public offAny(handler: (event: string, ...args: any[]) => void): void {
+    if (this.socket) {
+      this.socket.offAny(handler);
     }
   }
 
@@ -137,5 +161,4 @@ export class SocketClient {
   }
 }
 
-// Singleton instance
 export const socketClient = new SocketClient();

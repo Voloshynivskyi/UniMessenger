@@ -35,6 +35,8 @@ export class TelegramClientManager {
   private reconnectAttempts = new Map<string, number>();
   private maxReconnectAttempts = 5;
   private reconnectDelayMs = 5_000;
+  private userCache = new Map<string, Map<number, Api.User>>();
+  private chatCache = new Map<string, Map<number, Api.TypeChat>>();
 
   public getClient(accountId: string): TelegramClient | undefined {
     return this.clients.get(accountId);
@@ -136,8 +138,30 @@ export class TelegramClientManager {
       await client.connect();
       await client.getMe();
       try {
-        await client.getDialogs({ limit: 200 });
-        console.log("[Telegram] Dialogs preload done");
+        const dialogsRaw = await client.invoke(
+          new Api.messages.GetDialogs({
+            limit: 200,
+            offsetPeer: new Api.InputPeerEmpty(),
+          })
+        );
+
+        // Must check the exact MTProto type
+        if (
+          dialogsRaw instanceof Api.messages.Dialogs ||
+          dialogsRaw instanceof Api.messages.DialogsSlice
+        ) {
+          this.storeEntities(
+            accountId,
+            dialogsRaw.users ?? [],
+            dialogsRaw.chats ?? []
+          );
+
+          console.log("[Telegram] Dialogs preload done");
+        } else {
+          console.warn(
+            `[Telegram] Dialogs preload returned DialogsNotModified — no users/chats`
+          );
+        }
       } catch (e) {
         console.warn("[Telegram] Failed to preload dialogs", e);
       }
@@ -320,6 +344,53 @@ export class TelegramClientManager {
       );
     }
     return created;
+  }
+
+  public resolveSenderEntity(
+    accountId: string,
+    peer: Api.TypePeer | null | undefined
+  ): Api.User | Api.TypeChat | null {
+    if (!peer) return null;
+
+    const users = this.userCache.get(accountId);
+    const chats = this.chatCache.get(accountId);
+
+    if (peer instanceof Api.PeerUser && users) {
+      return users.get(Number(peer.userId)) ?? null;
+    }
+    if (peer instanceof Api.PeerChat && chats) {
+      return chats.get(Number(peer.chatId)) ?? null;
+    }
+    if (peer instanceof Api.PeerChannel && chats) {
+      return chats.get(Number(peer.channelId)) ?? null;
+    }
+    return null;
+  }
+
+  private storeEntities(
+    accountId: string,
+    users: Api.TypeUser[],
+    chats: Api.TypeChat[]
+  ) {
+    if (!this.userCache.has(accountId)) {
+      this.userCache.set(accountId, new Map());
+    }
+    if (!this.chatCache.has(accountId)) {
+      this.chatCache.set(accountId, new Map());
+    }
+
+    const userMap = this.userCache.get(accountId)!;
+    const chatMap = this.chatCache.get(accountId)!;
+
+    for (const u of users) {
+      if (u instanceof Api.User) {
+        userMap.set(Number(u.id), u);
+      }
+    }
+
+    for (const c of chats) {
+      chatMap.set(Number(c.id), c);
+    }
   }
 
   public async fetchDialogs(params: {

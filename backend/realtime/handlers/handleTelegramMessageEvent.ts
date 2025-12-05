@@ -8,6 +8,7 @@ import { TelegramMessageIndexService } from "../../services/telegram/telegramMes
 import { extractMediaFromMessage } from "../../utils/telegramMedia";
 
 import type { UnifiedTelegramMessage } from "../../types/telegram.types";
+import telegramClientManager from "../../services/telegram/telegramClientManager";
 
 /**
  * Handle NEW or EDIT Telegram Message and emit unified payload to frontend.
@@ -40,7 +41,7 @@ export async function handleTelegramMessageEvent({
     const chatId = resolvedChatId ?? "unknown";
 
     // ----------------------------------------------
-    // 2) Sender resolve
+    // 2) Sender resolve + fetch real entity (user/chat/channel)
     // ----------------------------------------------
     let senderId: string | null = null;
 
@@ -50,10 +51,35 @@ export async function handleTelegramMessageEvent({
       senderId = String(msg.peerId.userId);
     }
 
+    // витягуємо ентиті відправника з кешу TelegramClientManager
+    const senderEntity = telegramClientManager.resolveSenderEntity(
+      accountId,
+      msg.fromId ?? msg.peerId
+    );
+
+    // Формуємо людське імʼя
+    function getDisplayName(entity: any): string {
+      if (!entity) return "Unknown";
+
+      if (entity instanceof Api.User) {
+        const full = `${entity.firstName ?? ""} ${
+          entity.lastName ?? ""
+        }`.trim();
+        return full || entity.username || "Unknown";
+      }
+
+      if (entity instanceof Api.Chat || entity instanceof Api.Channel) {
+        return entity.title ?? "Unknown";
+      }
+
+      return "Unknown";
+    }
+
     const from = {
       id: senderId ?? "0",
-      name: `User ${senderId ?? "unknown"}`,
-      username: null as string | null, // strict-safe
+      name: getDisplayName(senderEntity),
+      username:
+        senderEntity instanceof Api.User ? senderEntity.username ?? null : null,
     };
 
     // ----------------------------------------------
