@@ -45,7 +45,7 @@ export async function onNewMessage(
       resolvedChatId = telegramPeerToChatId(msg.peerId);
     }
 
-    // 🔥 continue with normal unified message handling
+    // Continue with normal unified message handling
     await handleTelegramMessageEvent({
       kind: "NEW",
       msg,

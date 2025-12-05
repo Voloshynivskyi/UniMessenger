@@ -149,7 +149,7 @@ export default function ChatWindow() {
           </Typography>
         </Box>
 
-        {/* Тут пізніше буде online / typing */}
+        {/* Later will show online / typing */}
         <Box sx={{ minWidth: 80, textAlign: "right" }}></Box>
       </Box>
 

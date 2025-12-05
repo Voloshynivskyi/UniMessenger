@@ -46,11 +46,7 @@ model TelegramSession {
   account       TelegramAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
-//
-// ──────────────────────────────────────────────────────────────
-//   MESSAGE INDEX: messageId → chatId
-// ──────────────────────────────────────────────────────────────
-//
+// MESSAGE INDEX: messageId → chatId
 
 model TelegramMessageIndex {
   id            String   @id @default(uuid())

@@ -24,6 +24,20 @@ interface Props {
   };
 }
 
+/* ---------------------------------------------------------
+   Helpers
+--------------------------------------------------------- */
+
+function isNearBottom(el: HTMLDivElement) {
+  // Bottom 15% height threshold
+  const threshold = el.clientHeight * 0.15;
+  return el.scrollHeight - (el.scrollTop + el.clientHeight) < threshold;
+}
+
+/* ---------------------------------------------------------
+   MAIN
+--------------------------------------------------------- */
+
 export default function MessageList({ chatKey, messages, chat }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,19 +50,17 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
   const initializedRef = useRef(false);
   const prevFirstMessageIdRef = useRef<string | number | null>(null);
 
-  // ---------------------------
-  //  Scroll handler
-  // ---------------------------
+  /* ---------------------------------------------------------
+     Scroll handler (user scroll + load older)
+  --------------------------------------------------------- */
+
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = el;
+    wasAtBottomRef.current = isNearBottom(el);
 
-    const isAtBottom = scrollHeight - (scrollTop + clientHeight) < 40;
-    wasAtBottomRef.current = isAtBottom;
-
-    if (!isLoading && !fullyLoaded && scrollTop < 80) {
+    if (!isLoading && !fullyLoaded && el.scrollTop < 80) {
       fetchOlderMessages({
         chatKey,
         accountId: chat.accountId,
@@ -68,9 +80,10 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
     isLoading,
   ]);
 
-  // ---------------------------
-  //  Initial scroll to bottom
-  // ---------------------------
+  /* ---------------------------------------------------------
+     Initial scroll to bottom
+  --------------------------------------------------------- */
+
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -82,9 +95,10 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
     }
   }, [messages]);
 
-  // ---------------------------
-  //  Smooth auto-scroll on media expansion
-  // ---------------------------
+  /* ---------------------------------------------------------
+     Smooth auto-scroll on container resize (media load)
+  --------------------------------------------------------- */
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -92,13 +106,8 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
     const resizeObserver = new ResizeObserver(() => {
       if (!wasAtBottomRef.current) return;
 
-      // smooth but fast scroll
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: "smooth",
-      });
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
 
-      // fallback to ensure bottom alignment
       setTimeout(() => {
         if (wasAtBottomRef.current) {
           el.scrollTop = el.scrollHeight;
@@ -107,16 +116,21 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
     });
 
     resizeObserver.observe(el);
-
     return () => resizeObserver.disconnect();
   }, []);
 
-  // ---------------------------
-  //  Maintain scroll when older messages prepend
-  // ---------------------------
+  /* ---------------------------------------------------------
+     Maintain scroll position when older messages load
+  --------------------------------------------------------- */
+
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    if (!messages.length) {
+      prevFirstMessageIdRef.current = null;
+      return;
+    }
 
     const newFirstId = messages[0]?.messageId;
     const prevFirstId = prevFirstMessageIdRef.current;
@@ -137,14 +151,43 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
     prevFirstMessageIdRef.current = newFirstId;
   }, [messages]);
 
-  // ---------------------------
-  //  Reset on chat switch
-  // ---------------------------
+  /* ---------------------------------------------------------
+     Reset on chat switch
+  --------------------------------------------------------- */
+
   useEffect(() => {
     initializedRef.current = false;
     wasAtBottomRef.current = true;
     prevFirstMessageIdRef.current = null;
   }, [chatKey]);
+
+  /* ---------------------------------------------------------
+     Auto-scroll on NEW MESSAGE (incoming or outgoing)
+     — behaves exactly like Telegram
+  --------------------------------------------------------- */
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (messages.length === 0) return;
+
+    const lastMsg = messages[messages.length - 1];
+    const isSelfSent = lastMsg?.isOutgoing;
+
+    const shouldScroll =
+      wasAtBottomRef.current || isNearBottom(el) || isSelfSent;
+
+    if (shouldScroll) {
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      });
+    }
+  }, [messages]);
+
+  /* ---------------------------------------------------------
+     Render
+  --------------------------------------------------------- */
 
   const showTopLoader = isLoading && !fullyLoaded;
 
@@ -170,7 +213,8 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
 
       {messages.map((m, index) => {
         const currentDate = new Date(m.date);
-        const prevMsg = index > 0 ? messages[index - 1] : null;
+        const prevMsg: UnifiedTelegramMessage | null =
+          index > 0 ? messages[index - 1] : null;
         const prevDate = prevMsg ? new Date(prevMsg.date) : null;
 
         const needSeparator =
@@ -179,7 +223,12 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
         return (
           <Fragment key={m.messageId}>
             {needSeparator && <MessageDaySeparator date={m.date} />}
-            <MessageRow message={m} isSelf={m.isOutgoing} />
+            <MessageRow
+              message={m}
+              isSelf={m.isOutgoing}
+              prevMessage={prevMsg}
+              peerType={chat.peerType}
+            />
           </Fragment>
         );
       })}

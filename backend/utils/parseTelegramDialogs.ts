@@ -201,7 +201,7 @@ export function parseTelegramDialogs(
       photo = p?.photoId?.toString?.() ?? null;
     }
 
-    // ✅ Telegram-specific fields now included
+    // Telegram-specific fields now included
     const baseChat: UnifiedTelegramChat = {
       platform: "telegram",
       accountId: accountId,

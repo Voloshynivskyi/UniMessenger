@@ -34,9 +34,7 @@ export function parseTelegramMessage(
   return makeUnknown(accountId, Date.now());
 }
 
-/* ========================================================================
-   NORMAL MESSAGE
-   ======================================================================== */
+// NORMAL MESSAGE
 
 /**
  * Parses a normal Telegram message (text, media, etc.)
@@ -58,7 +56,7 @@ function parseNormal(
   const { peerType, peerId, accessHash } = extractPeer(msg.peerId);
   const senderId = extractSenderId(msg.fromId);
 
-  // Базова частина повідомлення (текст, метадані)
+  // Base message part (text, metadata)
   const base: UnifiedTelegramMessage = {
     platform: "telegram",
     accountId,
@@ -98,9 +96,7 @@ function parseNormal(
   };
 }
 
-/* ========================================================================
-   SERVICE MESSAGE
-   ======================================================================== */
+// SERVICE MESSAGE
 
 /**
  * Parses a Telegram service message
@@ -150,9 +146,7 @@ function parseService(
   };
 }
 
-/* ========================================================================
-   UNKNOWN / FALLBACK
-   ======================================================================== */
+// UNKNOWN / FALLBACK
 
 function makeUnknown(accountId: string, id: number): UnifiedTelegramMessage {
   return {
@@ -183,9 +177,7 @@ function makeUnknown(accountId: string, id: number): UnifiedTelegramMessage {
   };
 }
 
-/* ========================================================================
-   HELPERS
-   ======================================================================== */
+// HELPERS
 
 /**
  * Extracts sender user ID from a Telegram peer object

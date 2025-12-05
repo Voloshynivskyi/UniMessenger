@@ -1,6 +1,6 @@
 // frontend/src/components/layout/header/Header.tsx
 /**
- * Header.tsx — AppBar адаптований до ширини Sidebar.
+ * Header.tsx — AppBar adapted to Sidebar width.
  */
 
 import React from "react";

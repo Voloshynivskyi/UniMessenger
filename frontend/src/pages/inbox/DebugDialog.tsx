@@ -26,14 +26,14 @@ export default function DebugDialog() {
     selectChat,
   } = useUnifiedDialogs();
 
-  const { accounts } = useTelegram(); // ✅ усі Telegram акаунти
+  const { accounts } = useTelegram(); // All Telegram accounts
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null
   );
 
-  const platform = "telegram"; // 🔹 можна потім динамічно вибирати платформу
+  const platform = "telegram"; // Can be dynamically selected later
 
-  // коли акаунти завантажились — вибираємо перший за замовчуванням
+  // When accounts loaded — select first by default
   useEffect(() => {
     if (accounts && accounts.length > 0 && !selectedAccountId) {
       setSelectedAccountId(accounts[0].accountId);
@@ -131,7 +131,7 @@ export default function DebugDialog() {
       </Typography>
 
       {/* Error & Loading */}
-      {error && <Typography color="error">❌ {error}</Typography>}
+      {error && <Typography color="error">{error}</Typography>}
       {loading && (
         <Stack direction="row" alignItems="center" spacing={1}>
           <CircularProgress size={20} />

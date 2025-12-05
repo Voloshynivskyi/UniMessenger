@@ -285,9 +285,7 @@ export class TelegramClientManager {
     userId: string,
     client: TelegramClient
   ): void {
-    /** ───────────────────────────────────────────────
-     * HIGH-LEVEL NEW MESSAGE
-     * ─────────────────────────────────────────────── */
+    // HIGH-LEVEL NEW MESSAGE
     client.addEventHandler(async (event) => {
       console.log("[HL NEW] Incoming NewMessage event");
       try {

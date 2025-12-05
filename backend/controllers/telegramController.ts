@@ -12,6 +12,7 @@ import { isValidPhone } from "../utils/validation";
 import { logger } from "../utils/logger";
 import { getSocketGateway } from "../realtime/socketGateway";
 import { parseTelegramMessage } from "../utils/parseTelegramMessage";
+import telegramClientManager from "../services/telegram/telegramClientManager";
 
 const telegramService = new TelegramService();
 
@@ -566,7 +567,7 @@ export async function sendMessage(req: Request, res: Response) {
       return sendError(res, "BAD_REQUEST", "Message must have text or file");
     }
 
-    // 🔹 ДІСТАЄМО mediaKind з body (воно приходить з фронта як string)
+    // Get mediaKind from body (comes from frontend as string)
     const rawMediaKind = (req.body.mediaKind || "") as string;
     const mediaKind: MediaKind | undefined =
       rawMediaKind === "voice" ||
@@ -589,7 +590,7 @@ export async function sendMessage(req: Request, res: Response) {
       };
 
       if (mediaKind !== undefined) {
-        payload.mediaKind = mediaKind; // ✅ КРИТИЧНО
+        payload.mediaKind = mediaKind; // CRITICAL
       }
 
       sent = await telegramService.sendUnified(payload);

@@ -1,3 +1,4 @@
+// frontend/src/hooks/useMediaBlob.ts
 import { useEffect, useRef, useState } from "react";
 
 interface Options {
@@ -28,10 +29,8 @@ export function useMediaBlob({ token, previewUrl, realUrl }: Options) {
     setLoading(true);
     setError(null);
 
-    /** --------------------------------------------------------
-     *  Retry helper — як у Telegram Web
-     *  404 → файл ще не готовий → пробуємо ще раз
-     * -------------------------------------------------------- */
+    // Retry helper — like in Telegram Web
+    // 404 → file not ready yet → try again
     const fetchWithRetry = async (
       url: string,
       retries = 5,

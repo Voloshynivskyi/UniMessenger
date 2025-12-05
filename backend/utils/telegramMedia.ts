@@ -29,9 +29,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
     return { type: "text", media: null, mediaGroupId };
   }
 
-  /* ----------------------------------------------------------------------
-     PHOTO
-     ---------------------------------------------------------------------- */
+  // PHOTO
   if (
     rawMedia instanceof Api.MessageMediaPhoto &&
     rawMedia.photo instanceof Api.Photo
@@ -59,9 +57,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
     return { type: "photo", media, mediaGroupId };
   }
 
-  /* ----------------------------------------------------------------------
-     DOCUMENT (voice, video, audio, gif, sticker, file)
-     ---------------------------------------------------------------------- */
+  // DOCUMENT (voice, video, audio, gif, sticker, file)
   if (
     rawMedia instanceof Api.MessageMediaDocument &&
     rawMedia.document instanceof Api.Document
@@ -111,9 +107,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
     return { type: unifiedType, media, mediaGroupId };
   }
 
-  /* ----------------------------------------------------------------------
-     WEB PAGE → treat as plain text for now
-     ---------------------------------------------------------------------- */
+  // WEB PAGE → treat as plain text for now
   if (
     rawMedia instanceof Api.MessageMediaWebPage &&
     rawMedia.webpage instanceof Api.WebPage
@@ -126,9 +120,7 @@ export function extractMediaFromMessage(msg: Api.Message): {
   return { type: "unknown", media: null, mediaGroupId };
 }
 
-/* ========================================================================
-   HELPERS
-   ======================================================================== */
+// HELPERS
 
 function selectBestPhotoSize(sizes: Api.TypePhotoSize[]) {
   if (!sizes?.length) return { w: 0, h: 0 };

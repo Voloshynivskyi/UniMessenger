@@ -1,16 +1,16 @@
 /**
  * AuthContext.tsx
- * 🌐 Global authentication context for UniMessenger frontend application.
+ * Global authentication context for UniMessenger frontend application.
  *
- * 🎯 Responsibilities:
+ * Responsibilities:
  *  - Store and provide auth state (user + token)
  *  - Handle login/logout operations
  *  - Automatically fetch user profile if token exists
  *  - Expose `isAuthenticated` flag to protect routes
  *
- * ✅ Uses centralized API layer (authApi) instead of direct axios calls.
- * ✅ Uses localStorage only for token persistence.
- * ✅ Follows production-grade architecture used in scalable SaaS apps.
+ * Uses centralized API layer (authApi) instead of direct axios calls.
+ * Uses localStorage only for token persistence.
+ * Follows production-grade architecture used in scalable SaaS apps.
  */
 
 import { createContext, useContext, useState, useEffect } from "react";

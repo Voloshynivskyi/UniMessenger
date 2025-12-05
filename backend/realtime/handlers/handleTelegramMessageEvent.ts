@@ -9,6 +9,7 @@ import { extractMediaFromMessage } from "../../utils/telegramMedia";
 
 import type { UnifiedTelegramMessage } from "../../types/telegram.types";
 import telegramClientManager from "../../services/telegram/telegramClientManager";
+import { appendLog } from "../../utils/debugLogger";
 
 /**
  * Handle NEW or EDIT Telegram Message and emit unified payload to frontend.
@@ -51,13 +52,24 @@ export async function handleTelegramMessageEvent({
       senderId = String(msg.peerId.userId);
     }
 
-    // витягуємо ентиті відправника з кешу TelegramClientManager
+    // Extract sender entity from TelegramClientManager cache
     const senderEntity = telegramClientManager.resolveSenderEntity(
       accountId,
       msg.fromId ?? msg.peerId
     );
+    appendLog("[ENTITY DEBUG]", {
+      fromId: msg.fromId,
+      senderEntity,
+    });
 
-    // Формуємо людське імʼя
+    let senderPhotoId: string | null = null;
+
+    if (senderEntity && "photo" in senderEntity && senderEntity.photo) {
+      const p = senderEntity.photo as any;
+      senderPhotoId = p?.photoId?.toString?.() ?? null;
+    }
+
+    // Form human-readable display name
     function getDisplayName(entity: any): string {
       if (!entity) return "Unknown";
 
@@ -80,6 +92,7 @@ export async function handleTelegramMessageEvent({
       name: getDisplayName(senderEntity),
       username:
         senderEntity instanceof Api.User ? senderEntity.username ?? null : null,
+      photoId: senderPhotoId, // Add this field
     };
 
     // ----------------------------------------------
@@ -99,7 +112,7 @@ export async function handleTelegramMessageEvent({
 
     // Ensure voice waveform and duration are forwarded
     if (mediaInfo.type === "voice" && mediaInfo.media) {
-      // Витягнути waveform з сирих атрибутів документа
+      // Extract waveform from raw document attributes
       const doc = (msg.media as any)?.document;
       if (doc?.attributes) {
         for (const attr of doc.attributes) {
@@ -111,7 +124,7 @@ export async function handleTelegramMessageEvent({
         }
       }
 
-      // Якщо Telegram дав пустий waveform → поставити placeholder
+      // If Telegram gave empty waveform → set placeholder
       if (!mediaInfo.media.waveform) {
         mediaInfo.media.waveform = [];
       }

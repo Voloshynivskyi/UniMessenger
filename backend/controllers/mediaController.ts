@@ -5,16 +5,14 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 import { Api } from "telegram";
-
+import bigInt from "big-integer";
 import telegramClientManager from "../services/telegram/telegramClientManager";
 import { prisma } from "../lib/prisma";
 import { resolveTelegramPeer } from "../utils/resolveTelegramPeer";
 import { logger } from "../utils/logger";
 import { log } from "console";
 
-/* ========================================================================
-   CONSTANTS & HELPERS (folders)
-   ======================================================================== */
+// CONSTANTS & HELPERS (folders)
 
 const INCOMING_ROOT = path.join(process.cwd(), "stored-media", "telegram");
 const OUTGOING_ROOT = path.join(
@@ -27,15 +25,12 @@ function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-/* ========================================================================
-   MULTER (UPLOAD)
-   ======================================================================== */
+// MULTER (UPLOAD)
 
 const upload = multer({ storage: multer.memoryStorage() });
-/* ========================================================================
-   GET INCOMING MEDIA
-   GET /media/telegram/:accountId/:fileId
-   ======================================================================== */
+
+// GET INCOMING MEDIA
+// GET /media/telegram/:accountId/:fileId
 
 export async function getTelegramMedia(req: Request, res: Response) {
   try {
@@ -117,9 +112,7 @@ export async function getTelegramMedia(req: Request, res: Response) {
   }
 }
 
-/* ========================================================================
-   STREAMING (supports Range for videos)
-   ======================================================================== */
+// STREAMING (supports Range for videos)
 
 function streamFile(
   req: Request,
@@ -158,10 +151,8 @@ function streamFile(
   fs.createReadStream(filePath).pipe(res);
 }
 
-/* ========================================================================
-   MIME DETECTION HELPERS
-   Incoming (Telegram) + Outgoing (Upload)
-   ======================================================================== */
+// MIME DETECTION HELPERS
+// Incoming (Telegram) + Outgoing (Upload)
 
 function detectUploadExt(mime: string): string {
   if (mime.startsWith("image/jpeg")) return ".jpg";
@@ -234,9 +225,7 @@ function guessMime(file: string): string {
   return "application/octet-stream";
 }
 
-/* ========================================================================
-   UTIL — find cached file
-   ======================================================================== */
+// UTIL — find cached file
 
 function findCachedFile(dir: string, id: string): string | null {
   if (!fs.existsSync(dir)) return null;
@@ -246,4 +235,38 @@ function findCachedFile(dir: string, id: string): string | null {
     .find((name) => name === id || name.startsWith(`${id}.`));
 
   return file ? path.join(dir, file) : null;
+}
+
+// GET TELEGRAM AVATAR
+// GET /media/telegram/avatar/:accountId/:photoId
+export async function getTelegramAvatar(req: Request, res: Response) {
+  try {
+    const { accountId, senderId } = req.params;
+
+    const client = telegramClientManager.getClient(accountId!);
+    if (!client) return res.status(404).send("No client");
+
+    // Extract entity from cache
+    const entity = telegramClientManager.resolveSenderEntity(
+      accountId!,
+      new Api.PeerUser({ userId: bigInt(senderId!) })
+    );
+
+    if (!entity) {
+      return res.status(404).send("No entity for user " + senderId);
+    }
+
+    // Most reliable way to get avatar
+    const buffer = await client.downloadProfilePhoto(entity);
+
+    if (!buffer) {
+      return res.status(404).send("No avatar");
+    }
+
+    res.setHeader("Content-Type", "image/jpeg");
+    return res.end(buffer);
+  } catch (err: any) {
+    console.error("Avatar error:", err);
+    return res.status(500).send("Avatar download failed");
+  }
 }

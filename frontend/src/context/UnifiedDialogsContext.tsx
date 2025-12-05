@@ -29,9 +29,7 @@ import type {
 import { useTelegram } from "./TelegramAccountContext";
 import { buildChatKey, parseChatKey } from "../pages/inbox/utils/chatUtils";
 
-/* ========================================================================
-   Helpers for sidebar lastMessage
-   ======================================================================== */
+// Helpers for sidebar lastMessage
 
 // Map Telegram message type to sidebar "kind"
 function mapMessageTypeToSidebarType(t: UnifiedTelegramMessage["type"]) {
@@ -181,7 +179,7 @@ export const UnifiedDialogsProvider = ({
     });
   }, [selectedChatKey, chatsByAccount]);
 
-  /* ===== SOCKET EVENTS ===== */
+  // SOCKET EVENTS
   useEffect(() => {
     if (!accounts?.length) return;
 
@@ -382,7 +380,7 @@ export const UnifiedDialogsProvider = ({
       console.log(`[Account ${data.accountId}] Status: ${data.status}`);
     };
 
-    // 🔔 Підтвердження повідомлення — оновлюємо id + date у прев’ю
+    // Message confirmation — update id + date in preview
     const handleMessageConfirmed = (data: TelegramMessageConfirmedPayload) => {
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
@@ -496,7 +494,7 @@ export const UnifiedDialogsProvider = ({
     };
   }, [accounts?.length]);
 
-  /* ===== FETCH DIALOGS ===== */
+  // FETCH DIALOGS
   const fetchDialogs = async (
     platform: UnifiedChatPlatform,
     accountId: string
@@ -551,7 +549,7 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
-  /* ===== FETCH MORE ===== */
+  // FETCH MORE
   const fetchMoreDialogs = async (
     platform: UnifiedChatPlatform,
     accountId: string

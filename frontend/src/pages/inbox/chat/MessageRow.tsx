@@ -24,7 +24,7 @@ const PURE_MEDIA_TYPES: UnifiedTelegramMessage["type"][] = [
 ];
 
 /* ---------------------------------------------------------
-   Check if two messages belong to the same "visual group"
+   Grouping logic
 --------------------------------------------------------- */
 function isSameSender(
   prev?: UnifiedTelegramMessage | null,
@@ -36,8 +36,7 @@ function isSameSender(
   const t1 = new Date(prev.date).getTime();
   const t2 = new Date(curr.date).getTime();
 
-  // Telegram-style grouping: within 5 minutes
-  return Math.abs(t2 - t1) < 5 * 60 * 1000;
+  return Math.abs(t2 - t1) < 5 * 60 * 1000; // 5 minutes
 }
 
 function shouldShowHeader(
@@ -46,53 +45,20 @@ function shouldShowHeader(
   isSelf: boolean,
   peerType?: "user" | "chat" | "channel"
 ) {
-  // no header for outgoing messages at all
   if (isSelf) return false;
 
-  // no header in 1-1 chats and channels – only in groups
-  const isGroupLike = peerType === "chat";
-  if (!isGroupLike) return false;
+  const isGroupLike = peerType === "chat" || peerType === "channel";
 
+  if (!isGroupLike) return false;
   if (!curr.from) return false;
+
   if (!prev) return true;
 
   return !isSameSender(prev, curr);
 }
 
 /* ---------------------------------------------------------
-   Helpers for avatar
---------------------------------------------------------- */
-function getInitials(name?: string | null) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function tgColorForId(id: string) {
-  const colors = [
-    "#E17076",
-    "#E0609A",
-    "#D45AAB",
-    "#A86EC5",
-    "#6D81D5",
-    "#5BA5E0",
-    "#5BC8E7",
-    "#49D3B4",
-    "#4DD16E",
-    "#A0C34E",
-    "#F7CB4D",
-    "#F79F4D",
-  ];
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) % colors.length;
-  }
-  return colors[hash];
-}
-
-/* ---------------------------------------------------------
-   MAIN COMPONENT
+   MAIN
 --------------------------------------------------------- */
 function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
   const isService = message.type === "service";
@@ -101,9 +67,7 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
   const hasText = !!message.text?.trim();
 
   const isPureMedia =
-    hasMedia &&
-    PURE_MEDIA_TYPES.includes(message.type as UnifiedTelegramMessage["type"]) &&
-    !hasText;
+    hasMedia && PURE_MEDIA_TYPES.includes(message.type) && !hasText;
 
   const content = useMemo(() => {
     if (isService) {
@@ -111,16 +75,15 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
     }
 
     if (isPureMedia) {
-      // pure media – no bubble
       return <MediaRenderer message={message} />;
     }
 
-    // text or text+media inside bubble
     return <MessageBubble message={message} isSelf={isSelf} />;
   }, [isService, isPureMedia, message, isSelf]);
 
-  const showHeader = shouldShowHeader(prevMessage, message, isSelf, peerType);
+  const isGroupLike = peerType === "chat" || peerType === "channel";
 
+  const showHeader = shouldShowHeader(prevMessage, message, isSelf, peerType);
   const senderName = message.from?.name || "";
 
   return (
@@ -134,43 +97,7 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
       }}
       data-msg-id={message.messageId}
     >
-      {/* LEFT SIDE: avatar only for incoming group messages */}
-      {!isSelf && peerType === "chat" && (
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            mr: 1,
-          }}
-        >
-          {showHeader ? (
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                bgcolor: tgColorForId(message.from?.id || "0"),
-                color: "white",
-                fontSize: "14px",
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                userSelect: "none",
-                flexShrink: 0,
-              }}
-            >
-              {getInitials(senderName)}
-            </Box>
-          ) : (
-            // placeholder to keep horizontal alignment in message groups
-            <Box sx={{ width: 36, height: 20 }} />
-          )}
-        </Box>
-      )}
-
-      {/* MAIN COLUMN: optional name + content */}
+      {/* MAIN COLUMN */}
       <Box
         sx={{
           maxWidth: "75%",
@@ -179,8 +106,8 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
           alignItems: isSelf ? "flex-end" : "flex-start",
         }}
       >
-        {/* Name above bubble – only for incoming group messages on first in group */}
-        {!isSelf && peerType === "chat" && showHeader && (
+        {/* Header name */}
+        {!isSelf && isGroupLike && showHeader && (
           <Typography
             sx={{
               fontSize: 13,
@@ -200,9 +127,9 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
   );
 }
 
-/**
- * memo – re-render this row only when needed
- */
+/* ---------------------------------------------------------
+   React.memo optimization
+--------------------------------------------------------- */
 export default React.memo(MessageRowBase, (prev, next) => {
   return (
     prev.message.messageId === next.message.messageId &&

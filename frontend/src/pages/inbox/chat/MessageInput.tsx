@@ -45,9 +45,7 @@ export default function MessageInput({
   const { addOrUpdateMessage } = useMessages();
   const { applyOptimisticOutgoing } = useUnifiedDialogs();
 
-  /* ============================================================
-   *  HELPERS
-   * ========================================================== */
+  // HELPERS
 
   const makeBaseOptimistic = (
     partial: Partial<UnifiedTelegramMessage>
@@ -85,9 +83,7 @@ export default function MessageInput({
     return "file";
   };
 
-  /* ============================================================
-   *  TEXT / FILE SEND
-   * ========================================================== */
+  // TEXT / FILE SEND
 
   const sendTextOrFile = async () => {
     const trimmed = text.trim();
@@ -154,9 +150,7 @@ export default function MessageInput({
     }
   };
 
-  /* ============================================================
-   *  VOICE SEND
-   * ========================================================== */
+  // VOICE SEND
 
   const handleVoiceSend = async (file: File, durationMs: number) => {
     setRecorderMode(null);
@@ -177,7 +171,7 @@ export default function MessageInput({
         fileName: file.name,
         size: file.size,
         duration: durationSec,
-        // waveform підтягнеться з реального апдейту
+        // waveform will be updated from real update
       },
       date: nowIso,
     });
@@ -204,9 +198,7 @@ export default function MessageInput({
     }
   };
 
-  /* ============================================================
-   *  VIDEO NOTE SEND
-   * ========================================================== */
+  // VIDEO NOTE SEND
 
   const handleVideoNoteSend = async (file: File) => {
     setRecorderMode(null);
@@ -255,9 +247,7 @@ export default function MessageInput({
     }
   };
 
-  /* ============================================================
-   *  FILE PICKER
-   * ========================================================== */
+  // FILE PICKER
 
   const handleFileChange = (ev: React.ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
@@ -265,9 +255,7 @@ export default function MessageInput({
     setAttachedFile(file);
     ev.target.value = "";
   };
-  /* ============================================================
-   * RECORDING UI RENDER
-   * ========================================================== */
+  // RECORDING UI RENDER
   if (recorderMode === "voice") {
     return (
       <VoiceRecorderUI
@@ -286,9 +274,7 @@ export default function MessageInput({
     );
   }
 
-  /* ============================================================
-   *  RENDER: DEFAULT INPUT
-   * ========================================================== */
+  // RENDER: DEFAULT INPUT
 
   const hasText = text.trim().length > 0;
 
@@ -313,7 +299,7 @@ export default function MessageInput({
         </Box>
       )}
 
-      {/* Прикріплений файл */}
+      {/* Attached file */}
       {attachedFile && (
         <Box
           sx={{

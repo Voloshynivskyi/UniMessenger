@@ -1,7 +1,7 @@
 // frontend/src/components/layout/sidebar/Sidebar.tsx
 /**
- * Sidebar — тепер з самого верху до низу.
- * Ніяких змін у стилях кнопок.
+ * Sidebar — now extends from top to bottom.
+ * No changes to button styles.
  */
 import React from "react";
 import {

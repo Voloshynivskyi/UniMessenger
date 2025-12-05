@@ -12,9 +12,7 @@ export interface BaseRealtimePayload {
   timestamp: string; // ISO8601
 }
 
-/* ========================================================================
-   Telegram unified realtime payloads
-   ======================================================================== */
+// Telegram unified realtime payloads
 
 // NEW MESSAGE
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
@@ -92,9 +90,7 @@ export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   message: UnifiedTelegramMessage;
 }
 
-/* ========================================================================
-   Server → Client events
-   ======================================================================== */
+// Server → Client events
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
@@ -113,9 +109,7 @@ export interface ServerToClientEvents {
   "system:error": (data: TelegramErrorPayload) => void;
 }
 
-/* ========================================================================
-   Client → Server events (unchanged)
-   ======================================================================== */
+// Client → Server events (unchanged)
 
 export interface TelegramTypingStartPayload {
   accountId: string;

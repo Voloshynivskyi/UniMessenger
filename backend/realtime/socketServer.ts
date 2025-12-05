@@ -44,9 +44,9 @@ export function createSocketServer(app: any) {
 
       // Handle user-specific events
 
-      // 🔹 Client → Server: "system:ping"
+      // Client → Server: "system:ping"
       socket.on("system:ping", () => {
-        // 🔹 Server → Client: "system:pong"
+        // Server → Client: "system:pong"
         socket.emit("system:pong");
       });
 

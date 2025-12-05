@@ -52,9 +52,7 @@ export interface TelegramAccountInfo {
   isActive: boolean; // Whether the account is currently active
 }
 
-/* ========================================================================
-   Unified Telegram Chat
-   ======================================================================== */
+// Unified Telegram Chat
 
 export interface TelegramGetDialogsResult {
   status: "ok";
@@ -107,9 +105,7 @@ export interface TelegramGetDialogsResult {
   nextOffset?: any;
 }
 
-/* ========================================================================
-   Unified Telegram Message
-   ======================================================================== */
+// Unified Telegram Message
 
 export type UnifiedTelegramMessageType =
   | "text"

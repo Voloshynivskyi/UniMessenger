@@ -16,6 +16,8 @@ import {
 } from "../controllers/telegramController";
 import { requireAuth } from "../middleware/requireAuth";
 import { getTelegramMedia } from "../controllers/mediaController";
+import { getTelegramAvatar } from "../controllers/mediaController";
+
 import multer from "multer";
 
 const router = Router();
@@ -84,5 +86,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  * @access Private
  */
 router.post("/sendMessage", requireAuth, upload.single("file"), sendMessage);
+
+/** * @route GET /media/telegram/avatar/:accountId/:photoId
+ * @desc Stream Telegram user/channel/chat avatar photos
+ * @access Private
+ */
+router.get("/avatar/:accountId/:photoId", requireAuth, getTelegramAvatar);
 
 export default router;

@@ -281,7 +281,7 @@ export class TelegramService {
       throw new Error("accessHash is required for user and channel peers");
     }
 
-    // Fetch raw MTProto messages
+    // 1. Fetch raw MTProto messages
     const rawMessages = await telegramClientManager.fetchHistory({
       accountId,
       peerType,
@@ -291,23 +291,73 @@ export class TelegramService {
       offsetId,
     });
 
-    // Parse messages → always returns UnifiedTelegramMessage
-    // appendLog("[TelegramService:getChatHistory] Parsing,", rawMessages);
-    const parsedMessages = rawMessages.map((msg) =>
-      parseTelegramMessage(msg, accountId)
-    );
-    // appendLog("[TelegramService:getChatHistory] Parsed,", parsedMessages);
+    // 2. Parse + inject senderEntity (fix history names)
+    const parsedMessages = rawMessages.map((msg) => {
+      const parsed = parseTelegramMessage(msg, accountId);
+
+      if (msg instanceof Api.Message) {
+        const senderPeer = msg.fromId ?? msg.peerId;
+
+        if (senderPeer) {
+          const senderEntity = telegramClientManager.resolveSenderEntity(
+            accountId,
+            senderPeer
+          );
+
+          if (senderEntity) {
+            let name = "Unknown";
+
+            if (senderEntity instanceof Api.User) {
+              const first = senderEntity.firstName ?? "";
+              const last = senderEntity.lastName ?? "";
+              name =
+                `${first} ${last}`.trim() || senderEntity.username || "Unknown";
+            } else if (
+              senderEntity instanceof Api.Chat ||
+              senderEntity instanceof Api.Channel
+            ) {
+              name = senderEntity.title ?? "Unknown";
+            }
+
+            let photoId: string | null = null;
+
+            if (
+              senderEntity &&
+              "photo" in senderEntity &&
+              senderEntity.photo &&
+              "photoId" in senderEntity.photo
+            ) {
+              photoId = senderEntity.photo.photoId?.toString?.() ?? null;
+            }
+
+            parsed.from = {
+              id: parsed.from?.id ?? String(senderEntity.id),
+              name,
+              username:
+                senderEntity instanceof Api.User
+                  ? senderEntity.username ?? null
+                  : null,
+              photoId,
+            };
+          }
+        }
+      }
+
+      return parsed;
+    });
+
     const lastMessage = rawMessages.length
       ? rawMessages[rawMessages.length - 1]
       : null;
 
     return {
       status: "ok",
-      rawMessages, // optional debugging
+      rawMessages,
       messages: parsedMessages,
       nextOffsetId: lastMessage ? Number(lastMessage.id) : null,
     };
   }
+
   async sendUnified(params: {
     accountId: string;
     peerType: "user" | "chat" | "channel";
@@ -339,7 +389,7 @@ export class TelegramService {
       textLength: text.length,
     });
 
-    // 1) Немає файлу → чистий текст
+    // 1) No file → pure text
     if (!fileBuffer || !fileName) {
       logger.info("[telegramService.sendUnified] Text-only branch");
       return telegramClientManager.sendText(
@@ -393,11 +443,11 @@ export class TelegramService {
         );
       } catch (convErr) {
         logger.error("[sendUnified] Video note conversion FAILED", { convErr });
-        throw convErr; // ← НІЯКОГО FALLBACK
+        throw convErr; // NO FALLBACK
       }
     }
 
-    // 4) Дефолт — звичайне медіа/файл як є
+    // 4) Default — regular media/file as is
     logger.info("[telegramService.sendUnified] Generic media branch");
     return telegramClientManager.sendMedia(
       accountId,

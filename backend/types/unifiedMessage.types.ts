@@ -30,6 +30,7 @@ export interface BaseUnifiedMessage {
     id: string;
     name: string;
     username?: string | null;
+    photoId?: string | null;
   };
 }
 

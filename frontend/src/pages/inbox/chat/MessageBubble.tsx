@@ -11,7 +11,7 @@ interface Props {
 }
 
 /**
- * Парсинг тексту з лінками (чиста функція).
+ * Parse text with links (pure function).
  */
 function parseLinks(text: string) {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -48,7 +48,7 @@ function MessageBubbleBase({ message, isSelf }: Props) {
 
   const bubbleRadius = isSelf ? "18px 18px 4px 18px" : "18px 18px 18px 4px";
 
-  // Мемоізація тексту з лінками
+  // Memoize text with links
   const renderedText = useMemo(() => {
     if (!message.text) return null;
     return parseLinks(message.text);
@@ -67,7 +67,7 @@ function MessageBubbleBase({ message, isSelf }: Props) {
     >
       {hasMedia && (
         <Box sx={{ mb: hasText ? 1 : 0 }}>
-          {/* showTimestampOverlay=false → щоб не було дубля таймстемпу поверх медіа */}
+          {/* showTimestampOverlay=false → to avoid duplicate timestamp over media */}
           <MediaRenderer message={message} showTimestampOverlay={false} />
         </Box>
       )}
@@ -85,7 +85,7 @@ function MessageBubbleBase({ message, isSelf }: Props) {
         </Typography>
       )}
 
-      {/* Таймстемп ТІЛЬКИ коли є текст (text або text+media) */}
+      {/* Timestamp ONLY when text present (text or text+media) */}
       {hasText && (
         <Box
           sx={{
@@ -102,8 +102,8 @@ function MessageBubbleBase({ message, isSelf }: Props) {
 }
 
 /**
- * React.memo — бульбашка не перерендерюється,
- * якщо не змінилися ключові поля.
+ * React.memo — prevents bubble re-render
+ * if key fields haven't changed.
  */
 export default React.memo(MessageBubbleBase, (prev, next) => {
   return (

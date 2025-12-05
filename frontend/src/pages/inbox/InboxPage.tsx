@@ -85,7 +85,7 @@ const InboxPage: React.FC = () => {
             flex: 1,
             minWidth: 0,
             bgcolor: "background.default",
-            p: 0, // щоб ChatWindow сам керував відступами
+            p: 0, // so ChatWindow controls its own padding
             display: "flex",
           }}
         >

@@ -1,9 +1,7 @@
 // frontend/src/pages/inbox/utils/chatUtils.ts
 import type { UnifiedChat } from "../../../types/unifiedChat.types";
 
-/* ============================================================
-   SENDER LABEL (last message)
-============================================================ */
+// SENDER LABEL (last message)
 export function getSenderLabel(chat: UnifiedChat): string | null {
   const last = chat.lastMessage;
   if (!last) return null;
@@ -24,9 +22,7 @@ export function getSenderLabel(chat: UnifiedChat): string | null {
   );
 }
 
-/* ============================================================
-   TIME LABEL
-============================================================ */
+// TIME LABEL
 export function formatTimeLabel(dateStr?: string): string {
   if (!dateStr) return "";
 
@@ -60,9 +56,7 @@ export function formatTimeLabel(dateStr?: string): string {
   });
 }
 
-/* ============================================================
-   TYPING LABEL —  only name from backend to reduce payload size
-============================================================ */
+// TYPING LABEL —  only name from backend to reduce payload size
 export function formatTypingLabel(
   chat: UnifiedChat,
   typing?: { users: { id: string; name: string }[] }
@@ -94,9 +88,11 @@ export function buildChatKey(
 }
 
 // Parse chat key
-export function parseChatKey(
-  chatKey: string
-): { platform: string; accountId: string; chatId: string } {
+export function parseChatKey(chatKey: string): {
+  platform: string;
+  accountId: string;
+  chatId: string;
+} {
   const [platform, accountId, chatId] = chatKey.split(":");
   return { platform, accountId, chatId };
 }

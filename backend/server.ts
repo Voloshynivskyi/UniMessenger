@@ -81,9 +81,9 @@ const PORT = process.env.PORT || 7007;
     logger.error("Failed to restore Telegram clients:", { err });
   }
 
-  // 🚀 Запускаємо сервер
+  // Start server
   server.listen(PORT, () => {
-    logger.info(`🚀 Express + Socket.IO running on http://localhost:${PORT}`);
+    logger.info(`Express + Socket.IO running on http://localhost:${PORT}`);
   });
 })();
 

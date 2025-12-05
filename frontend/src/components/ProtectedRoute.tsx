@@ -1,13 +1,13 @@
 /**
  * ProtectedRoute.tsx
- * 🧱 Route guard component for protecting private pages.
+ * Route guard component for protecting private pages.
  *
- * 🎯 Responsibilities:
+ * Responsibilities:
  *  - Allow access only to authenticated users (via AuthContext)
  *  - Redirect unauthenticated users to the login page
  *  - Prevents flashing of protected content before redirect
  *
- * ✅ Works seamlessly with AuthProvider + React Router v6.
+ * Works seamlessly with AuthProvider + React Router v6.
  */
 
 import React from "react";

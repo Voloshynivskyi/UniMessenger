@@ -21,9 +21,9 @@ export function appendLog(label: string, data: any) {
     ensureLogDir();
 
     const entry =
-      `\n==== ${label} @ ${new Date().toISOString()} ====\n` +
+      `\n${label} @ ${new Date().toISOString()}\n` +
       JSON.stringify(data, null, 2) +
-      "\n===============================================\n";
+      "\n\n";
 
     fs.appendFileSync(LOG_FILE, entry, "utf8");
   } catch (err) {
