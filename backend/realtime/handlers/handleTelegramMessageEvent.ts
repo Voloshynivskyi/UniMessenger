@@ -5,7 +5,7 @@ import { logger } from "../../utils/logger";
 import { getSocketGateway } from "../../realtime/socketGateway";
 import { TelegramMessageIndexService } from "../../services/telegram/telegramMessageIndexService";
 
-import { extractMediaFromMessage } from "../../utils/telegramMedia";
+import { extractMediaFromMessage } from "../../utils/telegram/telegramMedia";
 
 import type { UnifiedTelegramMessage } from "../../types/telegram.types";
 import telegramClientManager from "../../services/telegram/telegramClientManager";

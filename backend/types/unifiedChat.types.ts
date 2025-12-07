@@ -1,11 +1,10 @@
 // backend/types/unifiedChat.types.ts
 import type { UnifiedTelegramChat } from "./telegram.types";
-//import { UnifiedDiscordChat } from "./discordChat.types";
 //import { UnifiedSlackChat } from "./slackChat.types";
 
-export type UnifiedChat = UnifiedTelegramChat;
-//  | UnifiedDiscordChat
-//  | UnifiedSlackChat;
+import type { UnifiedDiscordChat } from "./discord.types";
+
+export type UnifiedChat = UnifiedTelegramChat | UnifiedDiscordChat;
 
 export type UnifiedChatPlatform = "telegram" | "discord" | "slack";
 

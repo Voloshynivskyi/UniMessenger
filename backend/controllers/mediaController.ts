@@ -8,7 +8,7 @@ import { Api } from "telegram";
 import bigInt from "big-integer";
 import telegramClientManager from "../services/telegram/telegramClientManager";
 import { prisma } from "../lib/prisma";
-import { resolveTelegramPeer } from "../utils/resolveTelegramPeer";
+import { resolveTelegramPeer } from "../utils/telegram/resolveTelegramPeer";
 import { logger } from "../utils/logger";
 import { log } from "console";
 

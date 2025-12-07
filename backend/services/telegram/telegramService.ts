@@ -5,8 +5,11 @@ import { Api, Logger, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { computeCheck } from "telegram/Password";
 import { prisma } from "../../lib/prisma";
-import { encryptSession, decryptSession } from "../../utils/telegramSession";
-import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
+import {
+  encryptSession,
+  decryptSession,
+} from "../../utils/telegram/telegramSession";
+import { parseTelegramDialogs } from "../../utils/telegram/parseTelegramDialogs";
 import type {
   TelegramSendCodeResult,
   TelegramSignInOkResult,
@@ -20,7 +23,7 @@ import type {
 import bigInt from "big-integer";
 import telegramClientManager from "./telegramClientManager";
 import { logger } from "../../utils/logger";
-import { parseTelegramMessage } from "../../utils/parseTelegramMessage";
+import { parseTelegramMessage } from "../../utils/telegram/parseTelegramMessage";
 import { appendLog } from "../../utils/debugLogger";
 import {
   convertWebmVideoToMp4Note,

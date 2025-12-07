@@ -11,7 +11,7 @@ import { prisma } from "../lib/prisma";
 import { isValidPhone } from "../utils/validation";
 import { logger } from "../utils/logger";
 import { getSocketGateway } from "../realtime/socketGateway";
-import { parseTelegramMessage } from "../utils/parseTelegramMessage";
+import { parseTelegramMessage } from "../utils/telegram/parseTelegramMessage";
 import telegramClientManager from "../services/telegram/telegramClientManager";
 
 const telegramService = new TelegramService();

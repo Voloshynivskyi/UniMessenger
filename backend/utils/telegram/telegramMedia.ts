@@ -1,11 +1,11 @@
 // backend/utils/telegramMedia.ts
 
 import { Api } from "telegram";
-import { appendLog } from "./debugLogger";
+import { appendLog } from "../debugLogger";
 import type {
   UnifiedTelegramMessageType,
   TelegramMedia,
-} from "../types/telegram.types";
+} from "../../types/telegram.types";
 
 /**
  * MAIN MEDIA EXTRACTOR

@@ -1,7 +1,7 @@
 import { Api } from "telegram";
-import type { UnifiedTelegramChat } from "../types/telegram.types";
-import { clearLog, appendLog } from "./debugLogger";
-import { logger } from "./logger";
+import type { UnifiedTelegramChat } from "../../types/telegram.types";
+import { clearLog, appendLog } from "../debugLogger";
+import { logger } from "../logger";
 /**
  * Checks if this is a full dialog structure (Dialogs or DialogsSlice)
  */

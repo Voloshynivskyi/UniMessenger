@@ -3,7 +3,7 @@
 import { Api } from "telegram";
 import { logger } from "../../utils/logger";
 import { handleTelegramMessageEvent } from "./handleTelegramMessageEvent";
-import { telegramPeerToChatId } from "../../utils/telegramPeerToChatId";
+import { telegramPeerToChatId } from "../../utils/telegram/telegramPeerToChatId";
 import { getSocketGateway } from "../socketGateway";
 
 export async function onNewMessage(

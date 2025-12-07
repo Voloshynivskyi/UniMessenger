@@ -1,12 +1,12 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { prisma } from "../../lib/prisma";
-import { decryptSession } from "../../utils/telegramSession";
+import { decryptSession } from "../../utils/telegram/telegramSession";
 import { logger } from "../../utils/logger";
 import { Api } from "telegram";
 import bigInt from "big-integer";
-import { parseTelegramDialogs } from "../../utils/parseTelegramDialogs";
-import { resolveTelegramPeer } from "../../utils/resolveTelegramPeer";
+import { parseTelegramDialogs } from "../../utils/telegram/parseTelegramDialogs";
+import { resolveTelegramPeer } from "../../utils/telegram/resolveTelegramPeer";
 import type { TelegramGetDialogsResult } from "../../types/telegram.types";
 import { Raw } from "telegram/events/Raw";
 import { EditedMessage } from "telegram/events/EditedMessage";

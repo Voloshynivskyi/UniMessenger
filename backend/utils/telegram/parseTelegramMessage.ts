@@ -1,7 +1,7 @@
 // backend/utils/parseTelegramMessage.ts
 
 import { Api } from "telegram";
-import type { UnifiedTelegramMessage } from "../types/telegram.types";
+import type { UnifiedTelegramMessage } from "../../types/telegram.types";
 import { extractMediaFromMessage } from "./telegramMedia";
 
 /**

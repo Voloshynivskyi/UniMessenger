@@ -4,6 +4,8 @@
     "moduleResolution": "Bundler",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     // File Layout
     // "rootDir": "./src",
     // "outDir": "./dist",

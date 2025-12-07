@@ -11,7 +11,7 @@ import type {
 
 import { getSocketGateway } from "./socketGateway";
 import { Api } from "telegram";
-import { telegramPeerToChatId } from "../utils/telegramPeerToChatId";
+import { telegramPeerToChatId } from "../utils/telegram/telegramPeerToChatId";
 import { logger } from "../utils/logger";
 import telegramClientManager from "../services/telegram/telegramClientManager";
 import { TelegramMessageIndexService } from "../services/telegram/telegramMessageIndexService";
