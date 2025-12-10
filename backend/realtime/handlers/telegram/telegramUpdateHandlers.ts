@@ -7,15 +7,15 @@ import type {
   TelegramReadUpdatesPayload,
   TelegramMessageViewPayload,
   TelegramPinnedMessagesPayload,
-} from "./events";
+} from "../../events";
 
-import { getSocketGateway } from "./socketGateway";
+import { getSocketGateway } from "../../socketGateway";
 import { Api } from "telegram";
-import { telegramPeerToChatId } from "../utils/telegram/telegramPeerToChatId";
-import { logger } from "../utils/logger";
-import telegramClientManager from "../services/telegram/telegramClientManager";
-import { TelegramMessageIndexService } from "../services/telegram/telegramMessageIndexService";
-import { TelegramUserResolverService } from "../services/telegram/telegramUserResolverService";
+import { telegramPeerToChatId } from "../../../utils/telegram/telegramPeerToChatId";
+import { logger } from "../../../utils/logger";
+import telegramClientManager from "../../../services/telegram/telegramClientManager";
+import { TelegramMessageIndexService } from "../../../services/telegram/telegramMessageIndexService";
+import { TelegramUserResolverService } from "../../../services/telegram/telegramUserResolverService";
 import bigInt from "big-integer";
 
 export type TelegramUpdateType =

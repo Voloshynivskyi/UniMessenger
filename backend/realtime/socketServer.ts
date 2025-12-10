@@ -11,7 +11,7 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
 } from "./events";
-import { telegramSocketHandlers } from "./telegramSocketHandlers";
+import { telegramSocketHandlers } from "./handlers/telegram/telegramSocketHandlers";
 import { logger } from "../utils/logger";
 let io: Server | null = null;
 let server: http.Server | null = null;

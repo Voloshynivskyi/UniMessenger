@@ -1,9 +1,9 @@
 // backend/realtime/handlers/onEditedMessage.ts
 
 import { Api } from "telegram";
-import { logger } from "../../utils/logger";
-import { handleTelegramMessageEvent } from "./handleTelegramMessageEvent";
-import { telegramPeerToChatId } from "../../utils/telegram/telegramPeerToChatId";
+import { logger } from "../../../utils/logger";
+import { handleTelegramMessageEvent } from "../telegram/handleTelegramMessageEvent";
+import { telegramPeerToChatId } from "../../../utils/telegram/telegramPeerToChatId";
 
 export async function onEditedMessage(
   event: any,

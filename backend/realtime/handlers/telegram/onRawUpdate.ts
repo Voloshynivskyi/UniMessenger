@@ -1,11 +1,11 @@
 // backend/realtime/handlers/onRawUpdate.ts
 
-import { logger } from "../../utils/logger";
+import { logger } from "../../../utils/logger";
 import {
   telegramUpdateHandlers,
   isTelegramUpdateType,
   type TelegramUpdateType,
-} from "../telegramUpdateHandlers";
+} from "./telegramUpdateHandlers";
 
 /**
  * Handles raw Telegram update events

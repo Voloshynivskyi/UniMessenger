@@ -15,6 +15,7 @@ import { prisma } from "./lib/prisma";
 import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
+import discordRoutes from "./routes/discord";
 import { createSocketServer } from "./realtime/socketServer";
 import { clearLog } from "./utils/debugLogger";
 clearLog();
@@ -46,6 +47,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/telegram", telegramRoutes);
+app.use("/api/discord", discordRoutes);
 
 /**
  * Unified fallback route
@@ -53,7 +55,6 @@ app.use("/api/telegram", telegramRoutes);
 app.use((req, res) => {
   res.status(404).json({ status: "error", message: "Route not found" });
 });
-
 /**
  * Global error handler
  */
@@ -68,6 +69,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 /** Start server and Socket.IO */
 import telegramClientManager from "./services/telegram/telegramClientManager";
+import { discordService } from "./services/discord/discordService";
 import { logger } from "./utils/logger";
 const { server } = createSocketServer(app);
 
@@ -79,6 +81,14 @@ const PORT = process.env.PORT || 7007;
     logger.info("Telegram clients restored successfully.");
   } catch (err) {
     logger.error("Failed to restore Telegram clients:", { err });
+  }
+
+  try {
+    logger.info("Restoring active Discord clients...");
+    await discordService.restoreActiveAccounts();
+    logger.info("Discord clients restored successfully.");
+  } catch (err) {
+    logger.error("Failed to restore Discord clients:", { err });
   }
 
   // Start server

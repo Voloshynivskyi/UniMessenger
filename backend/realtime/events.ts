@@ -4,9 +4,7 @@ import type { UnifiedTelegramMessage } from "../types/telegram.types";
 
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
-/* ============================================================
- * Base / common
- * ============================================================ */
+// Base / common
 
 export interface InterServerEvents {}
 
@@ -16,9 +14,7 @@ export interface BaseRealtimePayload {
   timestamp: string; // ISO8601
 }
 
-/* ============================================================
- * TELEGRAM realtime payloads
- * ============================================================ */
+// TELEGRAM realtime payloads
 
 // NEW MESSAGE
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
@@ -106,9 +102,7 @@ export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   message: UnifiedTelegramMessage;
 }
 
-/* ============================================================
- * DISCORD realtime payloads
- * ============================================================ */
+// DISCORD realtime payloads
 
 // NEW MESSAGE
 export interface DiscordNewMessagePayload extends BaseRealtimePayload {
@@ -145,7 +139,7 @@ export interface DiscordMessageDeletedPayload extends BaseRealtimePayload {
   messageIds: string[];
 }
 
-// MESSAGE CONFIRMED (для optimistic-UI, коли ми шлемо через REST)
+// MESSAGE CONFIRMED (for optimistic-UI when we send via REST)
 export interface DiscordMessageConfirmedPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
@@ -162,9 +156,7 @@ export interface DiscordErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
-/* ============================================================
- * Server → Client events
- * ============================================================ */
+// Server → Client events
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
@@ -192,11 +184,9 @@ export interface ServerToClientEvents {
   "system:error": (data: TelegramErrorPayload | DiscordErrorPayload) => void;
 }
 
-/* ============================================================
- * Client → Server events
- * ============================================================ */
+// Client → Server events
 
-/* ---------- Telegram payloads ---------- */
+// Telegram payloads
 
 export interface TelegramTypingStartPayload {
   accountId: string;
@@ -220,7 +210,7 @@ export interface TelegramMarkAsReadPayload {
   accessHash?: string;
 }
 
-/* ---------- Discord payloads ---------- */
+// Discord payloads
 
 export interface DiscordTypingStartPayload {
   accountId: string;
@@ -234,9 +224,9 @@ export interface DiscordTypingStopPayload {
 }
 
 /**
- * На Discord немає нормальних per-user read-індикаторів, але
- * ми лишаємо структуру на майбутнє, щоб UI міг викликати такий івент,
- * якщо захочемо робити "локальні read-статуси".
+ * Discord doesn't have proper per-user read indicators, but
+ * we keep this structure for the future, so UI can call such event
+ * if we decide to implement "local read statuses".
  */
 export interface DiscordMarkAsReadPayload {
   accountId: string;

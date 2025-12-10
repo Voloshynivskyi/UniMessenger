@@ -14,6 +14,7 @@ import LoginPage from "./pages/auth/login/LoginPage";
 import RegisterPage from "./pages/auth/register/RegisterPage";
 import ProfilePage from "./pages/profile/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import DiscordDebugPage from "./pages/DiscordDebugPage";
 const App: React.FC = () => {
   //useTelegramSocket(); // for testing Telegram real-time updates
 
@@ -50,7 +51,8 @@ const App: React.FC = () => {
           path="settings"
           element={
             <ProtectedRoute>
-              <SettingsPage />
+              {/*<SettingsPage />*/}
+              <DiscordDebugPage />
             </ProtectedRoute>
           }
         />

@@ -1,14 +1,14 @@
 // backend/realtime/telegramSocketHandlers.ts
 import { Socket } from "socket.io";
-import telegramClientManager from "../services/telegram/telegramClientManager";
+import telegramClientManager from "../../../services/telegram/telegramClientManager";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
   TelegramTypingStartPayload,
   TelegramTypingStopPayload,
   TelegramMarkAsReadPayload,
-} from "./events";
-import { logger } from "../utils/logger";
+} from "../../events";
+import { logger } from "../../../utils/logger";
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 export const telegramSocketHandlers = {

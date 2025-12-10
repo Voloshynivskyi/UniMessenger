@@ -23,4 +23,4 @@ const PhoneStepActions: React.FC<{
   </>
 );
 
-export default PhoneStepActions;  
+export default PhoneStepActions;

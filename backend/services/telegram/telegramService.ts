@@ -5,10 +5,7 @@ import { Api, Logger, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { computeCheck } from "telegram/Password";
 import { prisma } from "../../lib/prisma";
-import {
-  encryptSession,
-  decryptSession,
-} from "../../utils/telegram/telegramSession";
+import { encryptSession, decryptSession } from "../../utils/telegram/telegramSession";
 import { parseTelegramDialogs } from "../../utils/telegram/parseTelegramDialogs";
 import type {
   TelegramSendCodeResult,

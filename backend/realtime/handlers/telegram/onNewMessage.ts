@@ -1,10 +1,10 @@
 // backend/realtime/handlers/onNewMessage.ts
 
 import { Api } from "telegram";
-import { logger } from "../../utils/logger";
+import { logger } from "../../../utils/logger";
 import { handleTelegramMessageEvent } from "./handleTelegramMessageEvent";
-import { telegramPeerToChatId } from "../../utils/telegram/telegramPeerToChatId";
-import { getSocketGateway } from "../socketGateway";
+import { telegramPeerToChatId } from "../../../utils/telegram/telegramPeerToChatId";
+import { getSocketGateway } from "../../socketGateway";
 
 export async function onNewMessage(
   event: any,

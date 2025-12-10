@@ -171,7 +171,7 @@ export default function MessageInput({
         fileName: file.name,
         size: file.size,
         duration: durationSec,
-        // waveform will be updated from real update
+        // waveform підтягнеться з реального апдейту
       },
       date: nowIso,
     });
@@ -299,7 +299,7 @@ export default function MessageInput({
         </Box>
       )}
 
-      {/* Attached file */}
+      {/* Прикріплений файл */}
       {attachedFile && (
         <Box
           sx={{

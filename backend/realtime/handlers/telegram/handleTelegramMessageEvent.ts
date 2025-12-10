@@ -1,15 +1,15 @@
 // backend/realtime/handlers/handleTelegramMessageEvent.ts
 
 import { Api } from "telegram";
-import { logger } from "../../utils/logger";
-import { getSocketGateway } from "../../realtime/socketGateway";
-import { TelegramMessageIndexService } from "../../services/telegram/telegramMessageIndexService";
+import { logger } from "../../../utils/logger";
+import { getSocketGateway } from "../../socketGateway";
+import { TelegramMessageIndexService } from "../../../services/telegram/telegramMessageIndexService";
 
-import { extractMediaFromMessage } from "../../utils/telegram/telegramMedia";
+import { extractMediaFromMessage } from "../../../utils/telegram/telegramMedia";
 
-import type { UnifiedTelegramMessage } from "../../types/telegram.types";
-import telegramClientManager from "../../services/telegram/telegramClientManager";
-import { appendLog } from "../../utils/debugLogger";
+import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import telegramClientManager from "../../../services/telegram/telegramClientManager";
+import { appendLog } from "../../../utils/debugLogger";
 
 /**
  * Handle NEW or EDIT Telegram Message and emit unified payload to frontend.
