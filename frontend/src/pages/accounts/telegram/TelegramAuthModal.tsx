@@ -12,11 +12,11 @@ import AuthModalHeader from "../_shared/AuthModalHeader";
 interface TelegramAuthModalProps {
   open: boolean;
   onClose: () => void;
-
-  /** UI slots */
   header?: React.ReactNode;
   content?: React.ReactNode;
   actions?: React.ReactNode;
+
+  onComplete?: () => void; // ← нова пропса
 }
 
 const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({

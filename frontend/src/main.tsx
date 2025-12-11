@@ -15,6 +15,7 @@ import { RealtimeProvider } from "./context/RealtimeContext";
 import { UnifiedDialogsProvider } from "./context/UnifiedDialogsContext";
 import { UnifiedMessagesProvider } from "./context/UnifiedMessagesContext";
 import { SocketProvider } from "./realtime/SocketProvider";
+import { DiscordBotsProvider } from "./context/DiscordBotsContext";
 
 function RootApp() {
   const { token } = useAuth();
@@ -38,7 +39,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <AuthProvider>
           <TelegramProvider>
-            <RootApp />
+            <DiscordBotsProvider>
+              <RootApp />
+            </DiscordBotsProvider>
           </TelegramProvider>
         </AuthProvider>
       </BrowserRouter>

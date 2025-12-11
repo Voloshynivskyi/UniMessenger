@@ -195,9 +195,14 @@ export default function DiscordDebugPage() {
    * ADD BOT TO SERVER — DISCORD OAUTH2 INVITE
    * ====================================================================== */
 
-  function inviteBotToServer() {
-    const permissions = "268445696";
-    const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
+  function inviteBotToServer(bot: BotInfo) {
+    if (!bot.applicationId) {
+      alert("This bot has no applicationId set. Try re-registering it.");
+      return;
+    }
+
+    const permissions = "268445696"; // Send messages + read messages
+    const clientId = bot.applicationId; // ← THE KEY FIX
 
     const url = `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot&permissions=${permissions}`;
 
@@ -237,9 +242,28 @@ export default function DiscordDebugPage() {
           Add Bot
         </Button>
 
-        <Button variant="outlined" sx={{ mt: 1 }} onClick={inviteBotToServer}>
-          ➕ Add Bot to Server
-        </Button>
+        {bots.map((b) => (
+          <ListItemButton
+            key={b.id}
+            selected={selectedBotId === b.id}
+            onClick={() => {
+              setSelectedBotId(b.id);
+              setSelectedChatId("");
+              setHistory([]);
+            }}
+          >
+            <ListItemText
+              primary={b.botUsername || "Bot"}
+              secondary={`Bot ID: ${b.id}`}
+            />
+
+            <Button onClick={() => inviteBotToServer(b)}>➕</Button>
+            <Button onClick={() => refreshBotGuilds(b.id)}>↻</Button>
+            <Button color="error" onClick={() => deactivateBot(b.id)}>
+              X
+            </Button>
+          </ListItemButton>
+        ))}
 
         <Divider sx={{ my: 2 }} />
 

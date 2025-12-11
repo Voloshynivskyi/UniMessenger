@@ -5,6 +5,7 @@ import { discordClientManager } from "./discordClientManager";
 import { parseDiscordMessage } from "../../utils/discord/parseDiscordMessage";
 import { getSocketGateway } from "../../realtime/socketGateway";
 import { logger } from "../../utils/logger";
+import { Client, GatewayIntentBits } from "discord.js";
 
 // DISCORD SERVICE - BOT ONLY
 // - bot registration (store token)
@@ -30,36 +31,75 @@ export class DiscordService {
 
     await discordClientManager.attachBot(botId, bot.botToken);
   }
-
   /* ------------------------------------------------------------
    * 1) Register bot (user pastes botToken)
    * ------------------------------------------------------------ */
   async registerUserBot(userId: string, botToken: string) {
-    // створюємо запис бота
+    // 1. Ensure unique botToken
+    const existsByToken = await prisma.discordBot.findUnique({
+      where: { botToken },
+    });
+
+    if (existsByToken) {
+      throw new Error("This bot token is already added.");
+    }
+
+    // 2. Temporary login to extract bot metadata
+    const tempClient = new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageTyping,
+      ],
+    });
+
+    await tempClient.login(botToken);
+
+    const botUserId = tempClient.user?.id ?? null;
+    const botUsername = tempClient.user?.username ?? null;
+
+    if (!botUserId) {
+      await tempClient.destroy();
+      throw new Error("Invalid bot token — cannot retrieve bot user ID.");
+    }
+
+    // 3. Check duplicate botUserId
+    const existsByUserId = await prisma.discordBot.findUnique({
+      where: { botUserId },
+    });
+
+    if (existsByUserId) {
+      await tempClient.destroy();
+      throw new Error("This Discord bot is already registered.");
+    }
+
+    // 4. Fetch applicationId (= client_id in OAuth)
+    const app = await tempClient.application?.fetch();
+    const applicationId = app?.id ?? null;
+
+    await tempClient.destroy();
+
+    // 5. Create DB record
     const bot = await prisma.discordBot.create({
       data: {
         userId,
         botToken,
+        botUserId,
+        botUsername,
+        applicationId,
         isActive: true,
       },
     });
 
-    // attach discord.js client
-    const client = await discordClientManager.attachBot(bot.id, botToken);
+    // 6. Attach runtime instance (discord.js)
+    await discordClientManager.attachBot(bot.id, botToken);
 
-    // запам’ятати botUserId / username
-    const updated = await prisma.discordBot.update({
-      where: { id: bot.id },
-      data: {
-        botUserId: client.user?.id ?? null,
-        botUsername: client.user?.username ?? null,
-      },
-    });
-
-    // оновити список гільдій
+    // 7. Load guilds
     await this.refreshBotGuilds(bot.id);
 
-    return updated;
+    return bot;
   }
 
   /* ------------------------------------------------------------
@@ -84,12 +124,20 @@ export class DiscordService {
       throw new Error("Bot not found");
     }
 
-    await prisma.discordBot.update({
-      where: { id: botId },
-      data: { isActive: false },
+    // 1. Stop Discord runtime
+    await discordClientManager.detachBot(botId);
+
+    // 2. Delete guilds
+    await prisma.discordBotGuild.deleteMany({
+      where: { botId },
     });
 
-    await discordClientManager.detachBot(botId);
+    // 3. Delete bot
+    await prisma.discordBot.delete({
+      where: { id: botId },
+    });
+
+    return { ok: true };
   }
 
   // 4) BOT GUILDS - refresh server list

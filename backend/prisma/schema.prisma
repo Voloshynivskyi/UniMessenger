@@ -99,9 +99,11 @@ model TelegramUserCache {
 model DiscordBot {
   id          String   @id @default(cuid())
   userId      String
-  botToken    String
-  botUserId   String?
+
+  botToken    String   @unique
+  botUserId   String   @unique   // ← БІЛЬШЕ НЕ NULL
   botUsername String?
+  applicationId String? 
   isActive    Boolean  @default(true)
 
   createdAt   DateTime @default(now())

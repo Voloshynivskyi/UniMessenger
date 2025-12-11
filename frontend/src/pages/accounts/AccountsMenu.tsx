@@ -38,8 +38,11 @@ const AccountMenu: React.FC<AccountMenuProps> = () => {
       <Divider />
       <AccountList
         accounts={accounts as TelegramAuthAccount[]}
-        OnAddButtonClick={() => setIsTelegramModalOpen(true)}
+        onAddClick={() => setIsTelegramModalOpen(true)}
+        onLogoutAccount={logoutAccount}
+        onRefreshAccounts={refreshAccounts}
       />
+
       <TelegramAuthModal
         open={isTelegramModalOpen}
         onClose={() => setIsTelegramModalOpen(false)}
