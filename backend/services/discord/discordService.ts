@@ -1,88 +1,42 @@
 // backend/services/discord/discordService.ts
-import discordClientManager from "./discordClientManager";
+
 import { prisma } from "../../lib/prisma";
+import { discordClientManager } from "./discordClientManager";
 import { parseDiscordMessage } from "../../utils/discord/parseDiscordMessage";
 import { getSocketGateway } from "../../realtime/socketGateway";
 import { logger } from "../../utils/logger";
 
+// DISCORD SERVICE - BOT ONLY
+// - bot registration (store token)
+// - initialize discord.js client
+// - update guilds list
+// - dialogs tree: bot → guilds → channels/threads
+// - chat history
+// - send / file / edit / delete
+
 export class DiscordService {
-  // INTERNAL: Safe account resolver
-  private async resolveAccount(accountId: string) {
-    const account = await prisma.discordAccount.findUnique({
-      where: { id: accountId },
-    });
-
-    if (!account) {
-      logger.warn(
-        `[DiscordService] Account not found for accountId=${accountId}`
-      );
-      return null;
+  /* ------------------------------------------------------------
+   * 0) INTERNAL: ensure bot client is attached
+   * ------------------------------------------------------------ */
+  private async ensureBotClient(botId: string) {
+    if (discordClientManager.isBotReady(botId)) {
+      return;
     }
 
-    return account;
+    const bot = await prisma.discordBot.findUnique({ where: { id: botId } });
+    if (!bot || !bot.isActive) {
+      throw new Error("Bot not found or inactive");
+    }
+
+    await discordClientManager.attachBot(botId, bot.botToken);
   }
 
-  // Bootstrap — restore active accounts on server start
-  async restoreActiveAccounts() {
-    const accounts = await prisma.discordAccount.findMany({
-      where: { isActive: true },
-      orderBy: { createdAt: "asc" },
-    });
-
-    logger.info(
-      `[DiscordService] Restoring active Discord accounts: count=${accounts.length}`
-    );
-
-    for (const acc of accounts) {
-      try {
-        if (!discordClientManager.isClientActive(acc.id)) {
-          await discordClientManager.attachAccount(acc.id, acc.botToken);
-          logger.info(
-            `[DiscordService] Restored Discord account id=${acc.id} userId=${acc.userId}`
-          );
-        } else {
-          logger.info(
-            `[DiscordService] Discord account already active id=${acc.id}`
-          );
-        }
-      } catch (err) {
-        logger.error(
-          `[DiscordService] Failed to restore Discord account id=${acc.id}`,
-          { err }
-        );
-      }
-    }
-  }
-
-  // Attach / add bot account
-  async addAccount(userId: string, botToken: string) {
-    // 1. Check if bot already exists
-    const existing = await prisma.discordAccount.findFirst({
-      where: { botToken },
-    });
-
-    if (existing) {
-      // Ensure isActive in DB
-      if (!existing.isActive) {
-        await prisma.discordAccount.update({
-          where: { id: existing.id },
-          data: { isActive: true },
-        });
-      }
-
-      // Ensure discord.js client is actually running in memory
-      if (!discordClientManager.isClientActive(existing.id)) {
-        await discordClientManager.attachAccount(
-          existing.id,
-          existing.botToken
-        );
-      }
-
-      return existing;
-    }
-
-    // 2. If bot doesn't exist yet — create it
-    const account = await prisma.discordAccount.create({
+  /* ------------------------------------------------------------
+   * 1) Register bot (user pastes botToken)
+   * ------------------------------------------------------------ */
+  async registerUserBot(userId: string, botToken: string) {
+    // створюємо запис бота
+    const bot = await prisma.discordBot.create({
       data: {
         userId,
         botToken,
@@ -90,130 +44,268 @@ export class DiscordService {
       },
     });
 
-    await discordClientManager.attachAccount(account.id, botToken);
+    // attach discord.js client
+    const client = await discordClientManager.attachBot(bot.id, botToken);
 
-    return account;
+    // запам’ятати botUserId / username
+    const updated = await prisma.discordBot.update({
+      where: { id: bot.id },
+      data: {
+        botUserId: client.user?.id ?? null,
+        botUsername: client.user?.username ?? null,
+      },
+    });
+
+    // оновити список гільдій
+    await this.refreshBotGuilds(bot.id);
+
+    return updated;
   }
 
-  // Remove bot (detach client + mark inactive)
-  async removeAccount(accountId: string) {
-    try {
-      await discordClientManager.detachAccount(accountId);
-    } catch (err) {
-      logger.warn(
-        `[DiscordService] detachAccount failed for accountId=${accountId}`,
-        { err }
-      );
+  /* ------------------------------------------------------------
+   * 2) List bots for user
+   * ------------------------------------------------------------ */
+  async listUserBots(userId: string) {
+    return prisma.discordBot.findMany({
+      where: { userId, isActive: true },
+      include: { guilds: true },
+    });
+  }
+
+  /* ------------------------------------------------------------
+   * 3) Deactivate / delete bot
+   * ------------------------------------------------------------ */
+  async deactivateBot(userId: string, botId: string) {
+    const bot = await prisma.discordBot.findFirst({
+      where: { id: botId, userId },
+    });
+
+    if (!bot) {
+      throw new Error("Bot not found");
     }
 
-    await prisma.discordAccount.update({
-      where: { id: accountId },
+    await prisma.discordBot.update({
+      where: { id: botId },
       data: { isActive: false },
     });
 
-    return { status: "ok" };
+    await discordClientManager.detachBot(botId);
   }
 
-  // Get accounts for current user
-  async getAccounts(userId: string) {
-    return prisma.discordAccount.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    });
-  }
+  // 4) BOT GUILDS - refresh server list
+  async refreshBotGuilds(botId: string) {
+    await this.ensureBotClient(botId);
+    const client = discordClientManager.getClient(botId);
 
-  // Get dialogs (guilds + channels + threads)
-  async getDialogs(accountId: string) {
-    return discordClientManager.getDialogsTree(accountId);
-  }
+    if (!client) throw new Error("Bot client not found");
 
-  // Get history for a channel / thread
-  async getHistory(accountId: string, channelId: string, limit = 50) {
-    const messages = await discordClientManager.fetchMessages(
-      accountId,
-      channelId,
-      limit
-    );
+    const guilds = [...client.guilds.cache.values()];
 
-    return messages.map((msg) => parseDiscordMessage(msg, accountId));
-  }
+    await prisma.discordBotGuild.deleteMany({ where: { botId } });
 
-  // Send text message
-  async sendMessage(accountId: string, channelId: string, text: string) {
-    const sent = await discordClientManager.sendMessage(
-      accountId,
-      channelId,
-      text
-    );
-
-    const parsed = parseDiscordMessage(sent, accountId);
-
-    const account = await this.resolveAccount(accountId);
-
-    if (account) {
-      getSocketGateway().emitToUser(
-        account.userId,
-        "discord:message_confirmed",
-        {
-          platform: "discord",
-          accountId,
-          timestamp: new Date().toISOString(),
-          chatId: parsed.chatId,
-          parentChatId: parsed.parentChatId ?? null,
-          tempId: parsed.messageId, // тимчасово = реальний id
-          message: parsed,
-        }
-      );
-
-      logger.info(
-        `[DiscordService] message_confirmed → user=${account.userId} chat=${parsed.chatId} msg=${parsed.messageId}`
-      );
+    for (const g of guilds) {
+      await prisma.discordBotGuild.create({
+        data: {
+          botId,
+          guildId: g.id,
+          name: g.name,
+          icon: g.icon ?? null,
+        },
+      });
     }
+
+    return guilds.length;
+  }
+
+  /* ------------------------------------------------------------
+   * 5) DIALOGS TREE — FOR ALL BOTS OF USER
+   * ------------------------------------------------------------ */
+  async getDialogsForUser(userId: string) {
+    const bots = await prisma.discordBot.findMany({
+      where: { userId, isActive: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const dialogs: any[] = [];
+
+    for (const bot of bots) {
+      await this.ensureBotClient(bot.id);
+
+      const tree = await discordClientManager.getDialogsTree(bot.id);
+
+      dialogs.push({
+        botId: bot.id,
+        botUserId: bot.botUserId,
+        botUsername: bot.botUsername,
+        guilds: tree,
+      });
+    }
+
+    return dialogs;
+  }
+
+  /* ------------------------------------------------------------
+   * 6) HISTORY (per bot, per chat)
+   * ------------------------------------------------------------ */
+  async getHistory(botId: string, chatId: string, limit = 50) {
+    await this.ensureBotClient(botId);
+
+    const client = discordClientManager.getClient(botId);
+    const botUserId = client?.user?.id ?? null;
+
+    const msgs = await discordClientManager.fetchMessages(botId, chatId, limit);
+
+    return msgs.map((msg) =>
+      parseDiscordMessage({
+        message: msg,
+        accountId: botId,
+        guildId: msg.guild?.id ?? "",
+        channelId: chatId,
+        botUserId,
+      })
+    );
+  }
+
+  /* ------------------------------------------------------------
+   * 7) SEND MESSAGE
+   * ------------------------------------------------------------ */
+  async sendMessage(
+    botId: string,
+    chatId: string,
+    text: string,
+    userId: string
+  ) {
+    await this.ensureBotClient(botId);
+
+    const sent = await discordClientManager.sendMessage(botId, chatId, text);
+
+    const client = discordClientManager.getClient(botId);
+    const botUserId = client?.user?.id ?? null;
+
+    const parsed = parseDiscordMessage({
+      message: sent,
+      accountId: botId,
+      guildId: sent.guild?.id ?? "",
+      channelId: chatId,
+      botUserId,
+    });
+
+    getSocketGateway().emitToUser(userId, "discord:message_confirmed", {
+      platform: "discord",
+      accountId: botId,
+      chatId,
+      message: parsed,
+    });
 
     return parsed;
   }
 
-  // Send file with optional caption
+  /* ------------------------------------------------------------
+   * 8) SEND FILE
+   * ------------------------------------------------------------ */
   async sendFile(
-    accountId: string,
-    channelId: string,
-    fileBuf: Buffer,
-    fileName: string,
-    caption?: string
+    botId: string,
+    chatId: string,
+    file: Buffer,
+    originalName: string,
+    caption: string | undefined,
+    userId: string
   ) {
+    await this.ensureBotClient(botId);
+
     const sent = await discordClientManager.sendFile(
-      accountId,
-      channelId,
-      fileBuf,
-      fileName,
+      botId,
+      chatId,
+      file,
+      originalName,
       caption
     );
 
-    const parsed = parseDiscordMessage(sent, accountId);
+    const client = discordClientManager.getClient(botId);
+    const botUserId = client?.user?.id ?? null;
 
-    const account = await this.resolveAccount(accountId);
+    const parsed = parseDiscordMessage({
+      message: sent,
+      accountId: botId,
+      guildId: sent.guild?.id ?? "",
+      channelId: chatId,
+      botUserId,
+    });
 
-    if (account) {
-      getSocketGateway().emitToUser(
-        account.userId,
-        "discord:message_confirmed",
-        {
-          platform: "discord",
-          accountId,
-          timestamp: new Date().toISOString(),
-          chatId: parsed.chatId,
-          parentChatId: parsed.parentChatId ?? null,
-          tempId: parsed.messageId,
-          message: parsed,
-        }
-      );
-
-      logger.info(
-        `[DiscordService] file_confirmed → user=${account.userId} chat=${parsed.chatId} msg=${parsed.messageId}`
-      );
-    }
+    getSocketGateway().emitToUser(userId, "discord:message_confirmed", {
+      platform: "discord",
+      accountId: botId,
+      chatId,
+      message: parsed,
+    });
 
     return parsed;
+  }
+
+  /* ------------------------------------------------------------
+   * 9) EDIT MESSAGE
+   * ------------------------------------------------------------ */
+  async editMessage(
+    botId: string,
+    chatId: string,
+    messageId: string,
+    text: string,
+    userId: string
+  ) {
+    await this.ensureBotClient(botId);
+
+    const edited = await discordClientManager.editMessage(
+      botId,
+      chatId,
+      messageId,
+      text
+    );
+
+    const client = discordClientManager.getClient(botId);
+    const botUserId = client?.user?.id ?? null;
+
+    const parsed = parseDiscordMessage({
+      message: edited,
+      accountId: botId,
+      guildId: edited.guild?.id ?? "",
+      channelId: chatId,
+      botUserId,
+    });
+
+    // окремого confirm можна не надсилати, бо прийде message_edited з gateway
+    getSocketGateway().emitToUser(userId, "discord:message_edited_confirmed", {
+      platform: "discord",
+      accountId: botId,
+      chatId,
+      message: parsed,
+    });
+
+    return parsed;
+  }
+
+  /* ------------------------------------------------------------
+   * 10) DELETE MESSAGE
+   * ------------------------------------------------------------ */
+  async deleteMessage(
+    botId: string,
+    chatId: string,
+    messageId: string,
+    userId: string
+  ) {
+    await this.ensureBotClient(botId);
+
+    await discordClientManager.deleteMessage(botId, chatId, messageId);
+
+    // Gateway will send discord:message_deleted anyway,
+    // but we can confirm immediately
+    getSocketGateway().emitToUser(userId, "discord:message_deleted_confirmed", {
+      platform: "discord",
+      accountId: botId,
+      chatId,
+      messageIds: [messageId],
+    });
+
+    return { ok: true };
   }
 }
 

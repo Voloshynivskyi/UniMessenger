@@ -1,60 +1,53 @@
 // backend/routes/discord.ts
+
 import { Router } from "express";
-import { requireAuth } from "../middleware/requireAuth";
 import multer from "multer";
+import { requireAuth } from "../middleware/requireAuth";
 
 import {
-  discordAddAccount,
-  discordRemoveAccount,
-  discordGetAccounts,
+  discordRegisterBot,
+  discordListBots,
+  discordDeactivateBot,
+  discordRefreshBotGuilds,
   discordGetDialogs,
   discordGetHistory,
   discordSendMessage,
   discordSendFile,
+  discordEditMessage,
+  discordDeleteMessage,
 } from "../controllers/discordController";
 
 const upload = multer({ storage: multer.memoryStorage() });
-
 const router = Router();
 
-/**
- * @route POST /discord/addAccount
- * @desc Attach Discord bot using bot token
- */
-router.post("/addAccount", requireAuth, discordAddAccount);
+// BOTS MANAGEMENT
 
-/**
- * @route POST /discord/removeAccount
- * @desc Detach & shutdown Discord bot instance
- */
-router.post("/removeAccount", requireAuth, discordRemoveAccount);
+// Create bot (add botToken)
+router.post("/bots/register", requireAuth, discordRegisterBot);
 
-/**
- * @route GET /discord/accounts
- * @desc List Discord accounts attached to user
- */
-router.get("/accounts", requireAuth, discordGetAccounts);
+// List user's bots
+router.get("/bots", requireAuth, discordListBots);
 
-/**
- * @route GET /discord/dialogs
- * @desc Return guilds, channels & threads tree
- */
+// Deactivate bot
+router.post("/bots/deactivate", requireAuth, discordDeactivateBot);
+
+// Refresh bot's guilds list
+router.post("/bots/refresh-guilds", requireAuth, discordRefreshBotGuilds);
+
+// DIALOGS / HISTORY
+
+// Tree: bot → guilds → channels/threads
 router.get("/dialogs", requireAuth, discordGetDialogs);
 
-/**
- * @route GET /discord/history
- * @desc Fetch messages from channel/thread
- */
+// Chat history for specific bot
 router.get("/history", requireAuth, discordGetHistory);
 
-/**
- * @route POST /discord/sendMessage
- */
-router.post("/sendMessage", requireAuth, discordSendMessage);
+// MESSAGES
 
-/**
- * @route POST /discord/sendFile
- */
+router.post("/sendMessage", requireAuth, discordSendMessage);
 router.post("/sendFile", requireAuth, upload.single("file"), discordSendFile);
+
+router.post("/editMessage", requireAuth, discordEditMessage);
+router.post("/deleteMessage", requireAuth, discordDeleteMessage);
 
 export default router;

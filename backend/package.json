@@ -13,6 +13,7 @@
   "description": "",
   "dependencies": {
     "@prisma/client": "^6.17.1",
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "discord.js": "^14.25.1",
@@ -24,6 +25,7 @@
     "telegram": "^2.26.22"
   },
   "devDependencies": {
+    "@types/axios": "^0.9.36",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",

@@ -1,4 +1,5 @@
 // backend/types/unifiedMessage.types.ts
+import type { UnifiedDiscordMessage } from "./discord.types";
 import type { UnifiedTelegramMessage } from "./telegram.types";
 
 /**
@@ -38,6 +39,5 @@ export interface BaseUnifiedMessage {
  * Union type for all unified message types.
  * Frontend components should rely on this type.
  */
-export type UnifiedMessage = UnifiedTelegramMessage;
-//  | UnifiedDiscordMessage
-//  | UnifiedSlackMessage;
+
+export type UnifiedMessage = UnifiedTelegramMessage | UnifiedDiscordMessage;

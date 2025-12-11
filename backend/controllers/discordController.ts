@@ -3,195 +3,211 @@ import type { Request, Response } from "express";
 import { discordService } from "../services/discord/discordService";
 import { logger } from "../utils/logger";
 
-interface ApiSuccessResponse<T = unknown> {
-  status: "ok";
-  data: T;
+/* ============================================================
+   Helpers
+============================================================ */
+function ok(res: Response, data: any) {
+  return res.status(200).json({ status: "ok", data });
 }
 
-interface ApiErrorResponse {
-  status: "error";
-  message: string;
-  code?: string;
+function err(res: Response, message: string, code = "ERROR", http = 400) {
+  return res.status(http).json({ status: "error", message, code });
 }
 
-function sendOk<T>(res: Response, data: T, http = 200) {
-  const body: ApiSuccessResponse<T> = { status: "ok", data };
-  return res.status(http).json(body);
-}
+/* ============================================================
+   BOTS MANAGEMENT
+============================================================ */
 
-function sendError(
-  res: Response,
-  message: string,
-  code = "UNEXPECTED",
-  http = 500
-) {
-  const body: ApiErrorResponse = { status: "error", message, code };
-  return res.status(http).json(body);
-}
-
-// POST /discord/addAccount
-export async function discordAddAccount(req: Request, res: Response) {
+export async function discordRegisterBot(req: Request, res: Response) {
   try {
     const userId = req.userId!;
     const { botToken } = req.body;
 
-    if (!botToken || typeof botToken !== "string") {
-      return sendError(res, "botToken is required", "BAD_REQUEST", 400);
-    }
+    if (!botToken) return err(res, "botToken required");
 
-    const account = await discordService.addAccount(userId, botToken);
-    return sendOk(res, { account });
-  } catch (err: any) {
-    logger.error("[discordAddAccount] failed", { err });
-    return sendError(res, err.message ?? "Failed to add Discord account");
+    const bot = await discordService.registerUserBot(userId, botToken);
+    return ok(res, { bot });
+  } catch (e: any) {
+    logger.error("discordRegisterBot failed", { e });
+    return err(res, e.message ?? "Register bot failed");
   }
 }
 
-// POST /discord/removeAccount
-export async function discordRemoveAccount(req: Request, res: Response) {
-  try {
-    const { accountId } = req.body;
-
-    if (!accountId || typeof accountId !== "string") {
-      return sendError(res, "accountId is required", "BAD_REQUEST", 400);
-    }
-
-    const result = await discordService.removeAccount(accountId);
-    return sendOk(res, result);
-  } catch (err: any) {
-    logger.error("[discordRemoveAccount] failed", { err });
-    return sendError(res, err.message ?? "Failed to remove Discord account");
-  }
-}
-
-// GET /discord/accounts
-export async function discordGetAccounts(req: Request, res: Response) {
+export async function discordListBots(req: Request, res: Response) {
   try {
     const userId = req.userId!;
-    const accounts = await discordService.getAccounts(userId);
-    return sendOk(res, { accounts });
-  } catch (err: any) {
-    logger.error("[discordGetAccounts] failed", { err });
-    return sendError(res, err.message ?? "Failed to load Discord accounts");
+    const bots = await discordService.listUserBots(userId);
+    return ok(res, { bots });
+  } catch (e: any) {
+    logger.error("discordListBots failed", { e });
+    return err(res, e.message ?? "List bots failed");
   }
 }
 
-// GET /discord/dialogs
+export async function discordDeactivateBot(req: Request, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { botId } = req.body;
+
+    if (!botId) return err(res, "botId required");
+
+    await discordService.deactivateBot(userId, botId);
+    return ok(res, { success: true });
+  } catch (e: any) {
+    logger.error("discordDeactivateBot failed", { e });
+    return err(res, e.message ?? "Deactivate bot failed");
+  }
+}
+
+export async function discordRefreshBotGuilds(req: Request, res: Response) {
+  try {
+    const { botId } = req.body;
+
+    if (!botId) return err(res, "botId required");
+
+    const count = await discordService.refreshBotGuilds(botId);
+    return ok(res, { guildCount: count });
+  } catch (e: any) {
+    logger.error("discordRefreshBotGuilds failed", { e });
+    return err(res, e.message ?? "Refresh bot guilds failed");
+  }
+}
+
+/* ============================================================
+   DIALOGS / CHATS
+============================================================ */
+
 export async function discordGetDialogs(req: Request, res: Response) {
   try {
-    const { accountId } = req.query as { accountId?: string };
-
-    if (!accountId || typeof accountId !== "string") {
-      return sendError(res, "accountId is required", "BAD_REQUEST", 400);
-    }
-
-    const dialogs = await discordService.getDialogs(accountId);
-    return sendOk(res, { dialogs });
-  } catch (err: any) {
-    logger.error("[discordGetDialogs] failed", { err });
-    return sendError(res, err.message ?? "Failed to load Discord dialogs");
+    const userId = req.userId!;
+    const dialogs = await discordService.getDialogsForUser(userId);
+    return ok(res, { dialogs });
+  } catch (e: any) {
+    logger.error("discordGetDialogs failed", { e });
+    return err(res, e.message ?? "Get dialogs failed");
   }
 }
 
-// GET /discord/history
+/* ============================================================
+   HISTORY
+============================================================ */
+
 export async function discordGetHistory(req: Request, res: Response) {
   try {
-    const { accountId, channelId, limit } = req.query as {
-      accountId?: string;
-      channelId?: string;
-      limit?: string;
-    };
+    const botId = String(req.query.botId ?? "");
+    const chatId = String(req.query.chatId ?? "");
+    const limit = req.query.limit ? Number(req.query.limit) || 50 : 50;
 
-    if (!accountId || !channelId) {
-      return sendError(
-        res,
-        "accountId and channelId are required",
-        "BAD_REQUEST",
-        400
-      );
-    }
+    if (!botId || !chatId) return err(res, "botId & chatId required");
 
-    const parsedLimit = limit ? Number(limit) : 50;
-    const safeLimit =
-      Number.isFinite(parsedLimit) && parsedLimit > 0
-        ? Math.min(parsedLimit, 100)
-        : 50;
-
-    const messages = await discordService.getHistory(
-      accountId,
-      channelId,
-      safeLimit
-    );
-
-    return sendOk(res, { messages });
-  } catch (err: any) {
-    logger.error("[discordGetHistory] failed", { err });
-    return sendError(res, err.message ?? "Failed to load Discord history");
+    const messages = await discordService.getHistory(botId, chatId, limit);
+    return ok(res, { messages });
+  } catch (e: any) {
+    logger.error("discordGetHistory failed", { e });
+    return err(res, e.message ?? "Get history failed");
   }
 }
 
-// POST /discord/sendMessage
+/* ============================================================
+   SEND MESSAGE / FILE
+============================================================ */
+
 export async function discordSendMessage(req: Request, res: Response) {
   try {
-    const { accountId, channelId, text } = req.body;
+    const userId = req.userId!;
+    const { botId, chatId, text } = req.body;
 
-    if (!accountId || !channelId || !text || typeof text !== "string") {
-      return sendError(
-        res,
-        "accountId, channelId and text are required",
-        "BAD_REQUEST",
-        400
-      );
+    // text == null → undefined or null
+    if (!botId || !chatId || text == null) {
+      return err(res, "botId + chatId + text required");
     }
 
     const message = await discordService.sendMessage(
-      accountId,
-      channelId,
-      text
+      botId,
+      chatId,
+      text,
+      userId
     );
-
-    return sendOk(res, { message });
-  } catch (err: any) {
-    logger.error("[discordSendMessage] failed", { err });
-    return sendError(res, err.message ?? "Failed to send Discord message");
+    return ok(res, { message });
+  } catch (e: any) {
+    logger.error("discordSendMessage failed", { e });
+    return err(res, e.message ?? "Send message failed");
   }
 }
 
-// POST /discord/sendFile
 export async function discordSendFile(req: Request, res: Response) {
   try {
-    const { accountId, channelId, caption } = req.body;
+    const userId = req.userId!;
+    const { botId, chatId, caption } = req.body;
     const file = req.file;
 
-    if (!accountId || !channelId) {
-      return sendError(
-        res,
-        "accountId and channelId are required",
-        "BAD_REQUEST",
-        400
-      );
-    }
-
-    if (!file || !file.buffer || !file.originalname) {
-      return sendError(
-        res,
-        "file is required (multipart/form-data)",
-        "BAD_REQUEST",
-        400
-      );
+    if (!botId || !chatId || !file) {
+      return err(res, "botId + chatId + file required");
     }
 
     const message = await discordService.sendFile(
-      accountId,
-      channelId,
+      botId,
+      chatId,
       file.buffer,
       file.originalname,
-      caption
+      caption,
+      userId
     );
 
-    return sendOk(res, { message });
-  } catch (err: any) {
-    logger.error("[discordSendFile] failed", { err });
-    return sendError(res, err.message ?? "Failed to send Discord file");
+    return ok(res, { message });
+  } catch (e: any) {
+    logger.error("discordSendFile failed", { e });
+    return err(res, e.message ?? "Send file failed");
+  }
+}
+
+/* ============================================================
+   EDIT / DELETE
+============================================================ */
+
+export async function discordEditMessage(req: Request, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { botId, chatId, messageId, text } = req.body;
+
+    if (!botId || !chatId || !messageId || text == null) {
+      return err(res, "botId + chatId + messageId + text required");
+    }
+
+    const message = await discordService.editMessage(
+      botId,
+      chatId,
+      messageId,
+      text,
+      userId
+    );
+
+    return ok(res, { message });
+  } catch (e: any) {
+    logger.error("discordEditMessage failed", { e });
+    return err(res, e.message ?? "Edit message failed");
+  }
+}
+
+export async function discordDeleteMessage(req: Request, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { botId, chatId, messageId } = req.body;
+
+    if (!botId || !chatId || !messageId) {
+      return err(res, "botId + chatId + messageId required");
+    }
+
+    const result = await discordService.deleteMessage(
+      botId,
+      chatId,
+      messageId,
+      userId
+    );
+
+    return ok(res, result);
+  } catch (e: any) {
+    logger.error("discordDeleteMessage failed", { e });
+    return err(res, e.message ?? "Delete message failed");
   }
 }

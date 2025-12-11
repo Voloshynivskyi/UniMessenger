@@ -1,6 +1,4 @@
 // backend/prisma/schema.prisma
-// Database schema defining User, TelegramAccount, and TelegramSession models
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,53 +8,68 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//
+// ─────────────────────────────────────────────
+//   USER
+// ─────────────────────────────────────────────
+//
+
 model User {
-  id               String             @id @default(cuid())
-  email            String             @unique
-  passwordHash     String
-  displayName      String?
-  createdAt        DateTime           @default(now())
-  isLoggedIn       Boolean            @default(false)
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  createdAt    DateTime @default(now())
+  isLoggedIn   Boolean  @default(false)
+
   telegramAccounts TelegramAccount[]
+  discordBots      DiscordBot[]  // Each user can have their own bot
 }
 
-model TelegramAccount {
-  id            String            @id @default(cuid())
-  userId        String
-  telegramId    String            @unique
-  phoneNumber   String?
-  username      String?
-  firstName     String?
-  lastName      String?
-  isActive      Boolean           @default(false)
-  createdAt     DateTime          @default(now())
-  user          User              @relation(fields: [userId], references: [id])
-  session       TelegramSession?
+//
+// ─────────────────────────────────────────────
+//   TELEGRAM (без змін)
+// ─────────────────────────────────────────────
+//
 
-  // add relations to new tables ↓
-  messageIndex  TelegramMessageIndex[]
-  userCache     TelegramUserCache[]
+model TelegramAccount {
+  id          String   @id @default(cuid())
+  userId      String
+  telegramId  String   @unique
+
+  phoneNumber String?
+  username    String?
+  firstName   String?
+  lastName    String?
+
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+  session     TelegramSession?
+
+  messageIndex TelegramMessageIndex[]
+  userCache    TelegramUserCache[]
 }
 
 model TelegramSession {
-  id            String            @id @default(cuid())
-  accountId     String            @unique
+  id            String   @id @default(cuid())
+  accountId     String   @unique
   sessionString String
-  createdAt     DateTime          @default(now())
-  account       TelegramAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  account TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
-// MESSAGE INDEX: messageId → chatId
-
 model TelegramMessageIndex {
-  id            String   @id @default(uuid())
-  account       TelegramAccount   @relation(fields: [accountId], references: [id])
-  accountId     String
+  id        String   @id @default(uuid())
+  accountId String
+  account   TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
-  messageId     String
-  chatId        String
-  date          DateTime?
-  deleted       Boolean  @default(false)
+  messageId String
+  chatId    String
+  date      DateTime?
+  deleted   Boolean  @default(false)
 
   rawPeerType   String?
   rawPeerId     String?
@@ -65,25 +78,52 @@ model TelegramMessageIndex {
   @@unique([accountId, messageId])
 }
 
-
-//
-// ──────────────────────────────────────────────────────────────
-//   USER CACHE
-// ──────────────────────────────────────────────────────────────
-//
-
 model TelegramUserCache {
-  id         String   @id @default(cuid())
-  accountId  String
-  userId     String   // Telegram User ID (stringified)
+  id        String   @id @default(cuid())
+  accountId String
+  userId    String
 
-  firstName  String?
-  lastName   String?
-  username   String?
-  photoId    String?  
-  updatedAt  DateTime  @default(now())
+  firstName String?
+  lastName  String?
+  username  String?
+  photoId   String?
+  updatedAt DateTime @default(now())
 
-  account    TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, userId])
+}
+
+// DISCORD
+
+model DiscordBot {
+  id          String   @id @default(cuid())
+  userId      String
+  botToken    String
+  botUserId   String?
+  botUsername String?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guilds      DiscordBotGuild[]
+
+  @@index([userId])
+}
+
+// Servers where this bot is located
+model DiscordBotGuild {
+  id        String   @id @default(cuid())
+  botId     String
+  guildId   String
+  name      String?
+  icon      String?
+  createdAt DateTime @default(now())
+
+  bot       DiscordBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, guildId])
+  @@index([botId])
 }

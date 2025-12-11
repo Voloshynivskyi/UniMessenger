@@ -1,41 +1,48 @@
 // backend/services/discord/discordClientManager.ts
+
 import {
   ChannelType,
   Client,
   GatewayIntentBits,
-  Message,
-  NewsChannel,
   Partials,
   TextChannel,
+  NewsChannel,
   ThreadChannel,
-  User,
-  Embed,
   ForumChannel,
+  Message,
+  type TextBasedChannel,
+  type PartialMessage,
+  type Typing,
 } from "discord.js";
+
 import {
   emitDiscordNewMessage,
   emitDiscordEditedMessage,
   emitDiscordDeletedMessage,
-} from "../../realtime/handlers/discord/discordUpdteHandlers";
-import { emitDiscordTyping } from "../../realtime/handlers/discord/discordUpdteHandlers";
+  emitDiscordTyping,
+} from "../../realtime/handlers/discord/discordUpdateHandlers";
 
-import type { TextBasedChannel, PartialMessage, Typing } from "discord.js";
-import util from "node:util";
 import { logger } from "../../utils/logger";
 
-// Types
+/* ============================================================
+   TYPES
+============================================================ */
 
-interface DiscordBotInstance {
+interface DiscordBotRuntime {
   client: Client;
-  accountId: string;
+  token: string;
+
+  botUserId: string | null;
+  botUsername: string | null;
 
   guilds: Map<string, string>;
   channels: Map<string, TextChannel | NewsChannel | ForumChannel>;
   threads: Map<string, ThreadChannel>;
-  users: Map<string, User>;
 }
 
-// Type guards
+/* ============================================================
+   TYPE GUARDS
+============================================================ */
 
 function isForumChannel(ch: any): ch is ForumChannel {
   return ch?.type === ChannelType.GuildForum;
@@ -62,65 +69,24 @@ function isSendableChannel(
   return isTextChannel(ch) || isThreadChannel(ch);
 }
 
-// Logger helpers
-
-function serializeMessageForLog(msg: Message | PartialMessage) {
-  const attachments =
-    "attachments" in msg && msg.attachments
-      ? Array.from(msg.attachments.values()).map((a) => ({
-          id: a.id,
-          name: a.name,
-          url: a.url,
-        }))
-      : [];
-
-  const embeds =
-    "embeds" in msg && msg.embeds
-      ? msg.embeds.map((e: Embed) => ({
-          title: e.title ?? null,
-          description: e.description ?? null,
-          url: e.url ?? null,
-        }))
-      : [];
-
-  const author =
-    "author" in msg && msg.author
-      ? {
-          id: msg.author.id,
-          username: msg.author.username,
-        }
-      : null;
-
-  return {
-    id: msg.id,
-    content: "content" in msg ? msg.content : null,
-    author,
-    createdAt: "createdAt" in msg ? (msg as any).createdAt : null,
-    attachments,
-    embeds,
-  };
-}
-
-// DiscordClientManager
+/* ============================================================
+   MULTI-BOT CLIENT MANAGER
+============================================================ */
 
 export class DiscordClientManager {
-  private clients = new Map<string, DiscordBotInstance>();
+  // KEY = DiscordBot.id (з Prisma)
+  private bots: Map<string, DiscordBotRuntime> = new Map();
 
-  public isClientActive(accountId: string): boolean {
-    return this.clients.has(accountId);
-  }
+  /* ------------------------------------------------------------
+     ATTACH BOT INSTANCE
+  ------------------------------------------------------------ */
 
-  public getClient(accountId: string): Client | undefined {
-    return this.clients.get(accountId)?.client;
-  }
-
-  // Attach bot
-  public async attachAccount(accountId: string, botToken: string) {
-    if (this.clients.has(accountId)) {
+  public async attachBot(botId: string, botToken: string) {
+    if (this.bots.has(botId)) {
       logger.info(
-        `[DiscordClientManager] attachAccount: client already active for ${accountId}`
+        `[DiscordClientManager] Bot already attached for id=${botId}`
       );
-      return;
+      return this.bots.get(botId)!.client;
     }
 
     const client = new Client({
@@ -130,507 +96,426 @@ export class DiscordClientManager {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageTyping,
-        GatewayIntentBits.GuildMessageReactions,
-
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.DirectMessageTyping,
       ],
       partials: [Partials.Channel, Partials.Message, Partials.User],
     });
 
-    const instance: DiscordBotInstance = {
+    const runtime: DiscordBotRuntime = {
       client,
-      accountId,
+      token: botToken,
+      botUserId: null,
+      botUsername: null,
       guilds: new Map(),
       channels: new Map(),
       threads: new Map(),
-      users: new Map(),
     };
 
-    this.registerEventHandlers(instance);
+    this.registerEvents(botId, runtime);
 
-    try {
-      await client.login(botToken);
-      logger.info(
-        `[DiscordClientManager] Logged in as ${client.user?.tag} for account=${accountId}`
-      );
-    } catch (err) {
-      logger.error(
-        `[DiscordClientManager] Login failed for account=${accountId}`,
-        { err }
-      );
-      return;
-    }
+    logger.info(`[DiscordClientManager] Logging in bot ${botId}...`);
+    await client.login(botToken);
 
-    try {
-      await this.preloadStructures(instance);
-    } catch (err) {
-      logger.warn(
-        `[DiscordClientManager] preloadStructures failed for account=${accountId}`,
-        { err }
-      );
-    }
-
-    this.clients.set(accountId, instance);
-    logger.info(`[DiscordClientManager] READY for ${accountId}`);
-  }
-
-  // Detach bot
-  public async detachAccount(accountId: string): Promise<void> {
-    const inst = this.clients.get(accountId);
-    if (!inst) return;
-
-    try {
-      await inst.client.destroy();
-    } catch (err) {
-      logger.warn(`[DiscordClientManager] Destroy error`, { err });
-    }
-
-    this.clients.delete(accountId);
-    logger.info(`[DiscordClientManager] Detached ${accountId}`);
-  }
-
-  // Preload guilds + channels + ALL THREADS (forums + text)
-  private async preloadStructures(inst: DiscordBotInstance) {
-    const client = inst.client;
+    runtime.botUserId = client.user?.id ?? null;
+    runtime.botUsername = client.user?.username ?? null;
 
     logger.info(
-      `[DiscordClientManager] preloadStructures START for account=${inst.accountId}`
+      `[DiscordClientManager] Bot ${botId} logged in as ${client.user?.tag}`
     );
 
-    for (const [, guild] of client.guilds.cache) {
+    await this.preloadStructures(runtime);
+
+    this.bots.set(botId, runtime);
+    return client;
+  }
+
+  /* ------------------------------------------------------------
+     DETACH BOT
+  ------------------------------------------------------------ */
+
+  public async detachBot(botId: string) {
+    const bot = this.bots.get(botId);
+    if (!bot) return;
+
+    logger.info(`[DiscordClientManager] Destroying bot ${botId}`);
+    await bot.client.destroy();
+    this.bots.delete(botId);
+  }
+
+  /* ------------------------------------------------------------
+     HELPERS
+  ------------------------------------------------------------ */
+
+  public isBotReady(botId: string): boolean {
+    return this.bots.has(botId);
+  }
+
+  public getClient(botId: string): Client | null {
+    return this.bots.get(botId)?.client ?? null;
+  }
+
+  public getBotMeta(
+    botId: string
+  ): { botUserId: string | null; botUsername: string | null } | null {
+    const inst = this.bots.get(botId);
+    if (!inst) return null;
+    return {
+      botUserId: inst.botUserId,
+      botUsername: inst.botUsername,
+    };
+  }
+
+  /* ------------------------------------------------------------
+     PRELOAD STRUCTURES
+  ------------------------------------------------------------ */
+
+  private async preloadStructures(inst: DiscordBotRuntime) {
+    logger.info("[DiscordClientManager] preload START");
+
+    const c = inst.client;
+
+    for (const [, guild] of c.guilds.cache) {
       inst.guilds.set(guild.id, guild.name);
 
-      logger.info(
-        `[DiscordClientManager] preload guild=${guild.name} (${guild.id})`
-      );
-
       const channels = await guild.channels.fetch();
-      logger.info(
-        `[DiscordClientManager] guild=${guild.name} rawChannels=${channels.size}`
-      );
 
       for (const ch of channels.values()) {
         if (!ch) continue;
 
-        const typeName =
-          typeof ch.type === "number"
-            ? ChannelType[ch.type]
-            : String((ch as any).type);
-
-        logger.info(
-          `[DiscordClientManager]   [RAW] id=${ch.id} name=${
-            (ch as any).name ?? "no-name"
-          } type=${ch.type} (${typeName})`
-        );
-
-        // TEXT / ANNOUNCEMENT
-        if (isTextChannel(ch)) {
+        if (isTextChannel(ch) || isForumChannel(ch)) {
           inst.channels.set(ch.id, ch);
-          logger.info(
-            `[DiscordClientManager]   -> TEXT/ANN stored id=${ch.id} name=${ch.name}`
-          );
-
-          // 🔥 Threads, створені з цього текстового / announcement каналу
-          try {
-            const active = await ch.threads.fetchActive();
-            active.threads.forEach((t: ThreadChannel) => {
-              inst.threads.set(t.id, t);
-              logger.info(
-                `[DiscordClientManager]   -> THREAD (active) id=${t.id} name=${t.name} parentId=${t.parentId}`
-              );
-            });
-
-            const archived = await ch.threads.fetchArchived();
-            archived.threads.forEach((t: ThreadChannel) => {
-              inst.threads.set(t.id, t);
-              logger.info(
-                `[DiscordClientManager]   -> THREAD (archived) id=${t.id} name=${t.name} parentId=${t.parentId}`
-              );
-            });
-          } catch (err) {
-            logger.warn(
-              `[DiscordClientManager] Failed to load text-channel threads for ch=${ch.id}`,
-              { err }
-            );
-          }
         }
 
-        // FORUM + його пости (threads)
-        if (isForumChannel(ch)) {
-          inst.channels.set(ch.id, ch);
-          logger.info(
-            `[DiscordClientManager]   -> FORUM stored id=${ch.id} name=${ch.name}`
-          );
-
+        // threads під текстовими каналами та форумами
+        if (isTextChannel(ch) || isForumChannel(ch)) {
           try {
             const active = await ch.threads.fetchActive();
-            active.threads.forEach((t: ThreadChannel) => {
-              inst.threads.set(t.id, t);
-              logger.info(
-                `[DiscordClientManager]   -> FORUM THREAD (active) id=${t.id} name=${t.name} parentId=${t.parentId}`
-              );
-            });
+            active.threads.forEach((t) => inst.threads.set(t.id, t));
 
             const archived = await ch.threads.fetchArchived();
-            archived.threads.forEach((t: ThreadChannel) => {
-              inst.threads.set(t.id, t);
-              logger.info(
-                `[DiscordClientManager]   -> FORUM THREAD (archived) id=${t.id} name=${t.name} parentId=${t.parentId}`
-              );
-            });
+            archived.threads.forEach((t) => inst.threads.set(t.id, t));
           } catch (err) {
-            logger.warn(
-              `[DiscordClientManager] Failed to load forum threads for ch=${ch.id}`,
-              { err }
-            );
+            logger.warn("[DiscordClientManager] threads preload failed", {
+              guildId: guild.id,
+              channelId: ch.id,
+              err,
+            });
           }
         }
       }
     }
 
     logger.info(
-      `[DiscordClientManager] preload DONE for account=${inst.accountId}: guilds=${inst.guilds.size}, channels=${inst.channels.size}, threads=${inst.threads.size}`
+      `[DiscordClientManager] preload DONE: guilds=${inst.guilds.size} channels=${inst.channels.size} threads=${inst.threads.size}`
     );
   }
 
-  // Event handlers
-  private registerEventHandlers(inst: DiscordBotInstance) {
+  /* ------------------------------------------------------------
+     EVENT HANDLERS FOR EACH BOT SEPARATELY
+  ------------------------------------------------------------ */
+
+  private registerEvents(botId: string, inst: DiscordBotRuntime) {
     const client = inst.client;
-    const acc = inst.accountId;
 
     client.on("ready", () => {
       logger.info(
-        `[DiscordClientManager] Client ready for ${acc} as ${client.user?.tag}`
+        `[DiscordClientManager] Bot READY (${botId}) as ${client.user?.tag}`
       );
     });
 
-    client.on("error", (err) => {
-      logger.error(`[DiscordClientManager] Client error`, { err });
-    });
-
-    // NEW MESSAGE
-    client.on("messageCreate", async (msg: Message) => {
+    client.on("messageCreate", (msg) => {
       if (!msg.guild) return;
 
-      inst.users.set(msg.author.id, msg.author);
-
-      const channelName = (msg.channel as any)?.name ?? "unknown";
-
-      logger.info(
-        `[Discord][${acc}] NEW message in #${channelName} (chId=${msg.channelId})`
-      );
-
-      // If message is in a thread — register that thread
-      const ch = msg.channel;
-      if (isThreadChannel(ch)) {
-        const thread = ch as ThreadChannel;
-        if (!inst.threads.has(thread.id)) {
-          inst.threads.set(thread.id, thread);
-          logger.info(
-            `[Discord][${acc}] Registered THREAD from messageCreate: ${thread.name} (${thread.id}) parent=${thread.parentId}`
-          );
-        }
-      }
-
-      const raw = serializeMessageForLog(msg);
-      logger.info(
-        `[Discord][${acc}] RAW MESSAGE:\n${util.inspect(raw, {
-          depth: 5,
-          colors: false,
-        })}`
-      );
-
-      try {
-        await emitDiscordNewMessage(acc, msg);
-      } catch (err) {
-        logger.error(`[Discord][${acc}] emitDiscordNewMessage failed`, { err });
-      }
+      emitDiscordNewMessage({
+        accountId: botId,
+        guildId: msg.guild.id,
+        channelId: msg.channelId,
+        message: msg,
+        botUserId: client.user?.id ?? null,
+      });
     });
 
-    // EDIT MESSAGE
-    client.on("messageUpdate", async (oldMsg, newMsg) => {
-      const msg = newMsg as Message | PartialMessage;
+    client.on("messageUpdate", (_, newMsg) => {
+      const msg = newMsg as Message;
+      if (!msg.guild) return;
 
-      const channelName =
-        (msg.channel as any)?.name ??
-        (oldMsg.channel as any)?.name ??
-        "unknown";
-
-      logger.info(
-        `[Discord][${acc}] EDIT message ${msg.id} in #${channelName}`
-      );
-
-      const raw = {
-        old: serializeMessageForLog(oldMsg as Message | PartialMessage),
-        new: serializeMessageForLog(msg),
-      };
-
-      logger.info(
-        `[Discord][${acc}] RAW EDIT:\n${util.inspect(raw, {
-          depth: 5,
-          colors: false,
-        })}`
-      );
-
-      try {
-        await emitDiscordEditedMessage(acc, msg as any);
-      } catch (err) {
-        logger.error(`[Discord][${acc}] emitDiscordEditedMessage failed`, {
-          err,
-        });
-      }
+      emitDiscordEditedMessage({
+        accountId: botId,
+        guildId: msg.guild.id,
+        channelId: msg.channelId,
+        message: msg,
+        botUserId: client.user?.id ?? null,
+      });
     });
 
-    // DELETE MESSAGE
-    client.on("messageDelete", async (msg: Message | PartialMessage) => {
-      const channelName = (msg.channel as any)?.name ?? "unknown";
+    client.on("messageDelete", (msg) => {
+      const m = msg as PartialMessage;
+      if (!m.guild || !m.channel?.id) return;
 
-      logger.info(
-        `[Discord][${acc}] DELETE message ${msg.id} in #${channelName}`
-      );
-
-      const raw = serializeMessageForLog(msg);
-      logger.info(
-        `[Discord][${acc}] RAW DELETE:\n${util.inspect(raw, {
-          depth: 5,
-          colors: false,
-        })}`
-      );
-
-      try {
-        const channelId = (msg.channel as any)?.id;
-        if (channelId && msg.id) {
-          await emitDiscordDeletedMessage(acc, channelId, msg.id);
-        }
-      } catch (err) {
-        logger.error(`[Discord][${acc}] emitDiscordDeletedMessage failed`, {
-          err,
-        });
-      }
+      emitDiscordDeletedMessage({
+        accountId: botId,
+        guildId: m.guild.id,
+        channelId: m.channel.id,
+        messageId: m.id ?? "",
+      });
     });
 
-    // TYPING
-    client.on("typingStart", async (typing: Typing) => {
-      const chName = (typing.channel as any)?.name ?? "unknown";
-
-      logger.info(
-        `[Discord][${acc}] TYPING in #${chName} by ${typing.user?.username}`
-      );
-
-      const chatId = typing.channel?.id;
-      const userId = typing.user?.id;
-      const username = typing.user?.username;
-
-      if (chatId && userId && username) {
-        try {
-          await emitDiscordTyping(acc, chatId, userId, username, true);
-        } catch (err) {
-          logger.error(`[Discord][${acc}] emitDiscordTyping failed`, { err });
-        }
-      }
+    client.on("typingStart", (typing: Typing) => {
+      emitDiscordTyping({
+        accountId: botId,
+        guildId: typing.guild?.id ?? "",
+        channelId: typing.channel.id,
+        userId: typing.user?.id ?? "",
+        username: typing.user?.username ?? "",
+        isTyping: true,
+      });
     });
-
-    // THREAD CREATE
-    client.on("threadCreate", (thread: ThreadChannel) => {
-      inst.threads.set(thread.id, thread);
-
+    client.on("guildCreate", async (guild) => {
       logger.info(
-        `[Discord][${acc}] THREAD created: ${thread.name} (${thread.id}) parent=${thread.parentId}`
+        `[DiscordClientManager] Bot added to new guild: ${guild.id} (${guild.name})`
       );
 
-      const raw = {
-        id: thread.id,
-        name: thread.name,
-        parentId: thread.parentId,
-        guildId: thread.guildId,
-        archived: thread.archived,
-        locked: thread.locked,
-        ownerId: thread.ownerId,
-        createdAt: (thread as any).createdAt ?? null,
-      };
+      // Add guild to runtime
+      inst.guilds.set(guild.id, guild.name);
 
-      logger.info(
-        `[Discord][${acc}] RAW THREAD:\n${util.inspect(raw, {
-          depth: 5,
-          colors: false,
-        })}`
-      );
-    });
-  }
-
-  // Fetch messages
-  public async fetchMessages(
-    accountId: string,
-    channelId: string,
-    limit = 50
-  ): Promise<Message[]> {
-    const inst = this.clients.get(accountId);
-    if (!inst) throw new Error(`Account not attached`);
-
-    const ch = await inst.client.channels.fetch(channelId);
-    if (!ch || !("messages" in ch)) {
-      throw new Error(`Channel has no messages (id=${channelId})`);
-    }
-
-    const messages = await (ch as TextBasedChannel).messages.fetch({ limit });
-    return Array.from(messages.values());
-  }
-
-  /* ------------------------------------------------------------ */
-  /* Send message */
-  // Send message
-  public async sendMessage(
-    accountId: string,
-    channelId: string,
-    text: string
-  ): Promise<Message> {
-    const inst = this.clients.get(accountId);
-    if (!inst) throw new Error(`Account not attached`);
-
-    const ch = await inst.client.channels.fetch(channelId);
-    if (!isSendableChannel(ch)) {
-      throw new Error(`Cannot send to channel (id=${channelId})`);
-    }
-
-    const sent = await ch.send(text);
-    logger.info(
-      `[DiscordClientManager] Sent message ${sent.id} to channel ${channelId}`
-    );
-
-    return sent;
-  }
-
-  // Send file
-  public async sendFile(
-    accountId: string,
-    channelId: string,
-    fileBuf: Buffer,
-    fileName: string,
-    caption?: string
-  ): Promise<Message> {
-    const inst = this.clients.get(accountId);
-    if (!inst) throw new Error(`Account not attached`);
-
-    const ch = await inst.client.channels.fetch(channelId);
-    if (!ch || !("send" in ch)) {
-      throw new Error(`Cannot send file to this channel (id=${channelId})`);
-    }
-
-    const sent = await (ch as any).send({
-      content: caption ?? "",
-      files: [{ attachment: fileBuf, name: fileName }],
-    });
-
-    logger.info(
-      `[DiscordClientManager] Sent file ${fileName} to channel ${channelId} msgId=${sent.id}`
-    );
-
-    return sent as Message;
-  }
-
-  // Get dialogs tree
-  public async getDialogsTree(accountId: string) {
-    const inst = this.clients.get(accountId);
-    if (!inst) throw new Error("Discord client not active");
-
-    const result: {
-      guildId: string;
-      guildName: string;
-      channels: {
-        id: string;
-        name: string;
-        type: "text" | "announcement" | "forum" | "thread";
-        parentId: string | null;
-      }[];
-    }[] = [];
-
-    logger.info(
-      `[DiscordClientManager] getDialogsTree for account=${accountId} ` +
-        `(guilds=${inst.guilds.size}, channels=${inst.channels.size}, threads=${inst.threads.size})`
-    );
-
-    const client = inst.client;
-
-    for (const [, guild] of client.guilds.cache) {
-      const entries: {
-        id: string;
-        name: string;
-        type: "text" | "announcement" | "forum" | "thread";
-        parentId: string | null;
-      }[] = [];
-
-      logger.info(
-        `[DiscordClientManager] getDialogsTree: guild=${guild.name} (${guild.id})`
-      );
-
+      // Load channels and threads
       const channels = await guild.channels.fetch();
 
-      channels.forEach((ch) => {
-        if (!ch) return;
+      for (const ch of channels.values()) {
+        if (!ch) continue;
 
-        const typeName =
-          typeof ch.type === "number"
-            ? ChannelType[ch.type]
-            : String((ch as any).type);
+        if (isTextChannel(ch) || isForumChannel(ch)) {
+          inst.channels.set(ch.id, ch);
 
-        logger.info(
-          `[DiscordClientManager]   [DLG RAW] id=${ch.id} name=${
-            (ch as any).name ?? "no-name"
-          } type=${ch.type} (${typeName})`
-        );
+          // Завантажити активні/архівні треди
+          try {
+            const active = await ch.threads.fetchActive();
+            active.threads.forEach((t) => inst.threads.set(t.id, t));
 
-        if (isTextChannel(ch)) {
-          const typeLabel: "text" | "announcement" =
-            ch.type === ChannelType.GuildAnnouncement ? "announcement" : "text";
-
-          entries.push({
-            id: ch.id,
-            name: ch.name,
-            type: typeLabel,
-            parentId: null,
-          });
+            const archived = await ch.threads.fetchArchived();
+            archived.threads.forEach((t) => inst.threads.set(t.id, t));
+          } catch (err) {
+            logger.warn(`[guildCreate] Thread preload failed`, {
+              guildId: guild.id,
+              channelId: ch.id,
+              err,
+            });
+          }
         }
-
-        if (isForumChannel(ch)) {
-          entries.push({
-            id: ch.id,
-            name: ch.name,
-            type: "forum",
-            parentId: null,
-          });
-        }
-      });
-
-      inst.threads.forEach((thread) => {
-        if (thread.guildId !== guild.id) return;
-
-        entries.push({
-          id: thread.id,
-          name: thread.name,
-          type: "thread",
-          parentId: thread.parentId ?? null,
-        });
-      });
+      }
 
       logger.info(
-        `[DiscordClientManager]   RESULT guild=${guild.name}: entries=${entries.length}`
+        `[DiscordClientManager] Guild added → guilds=${inst.guilds.size} channels=${inst.channels.size} threads=${inst.threads.size}`
+      );
+    });
+
+    client.on("guildDelete", (guild) => {
+      logger.info(
+        `[DiscordClientManager] Bot removed from guild: ${guild.id} (${guild.name})`
       );
 
-      result.push({
-        guildId: guild.id,
-        guildName: guild.name,
-        channels: entries,
-      });
-    }
+      inst.guilds.delete(guild.id);
 
-    logger.info(
-      `[DiscordClientManager] getDialogsTree DONE for account=${accountId}, guilds=${result.length}`
-    );
+      // Видаляємо канали та треди цієї гільдії
+      for (const [id, ch] of inst.channels.entries()) {
+        if (ch.guildId === guild.id) inst.channels.delete(id);
+      }
+
+      for (const [id, t] of inst.threads.entries()) {
+        if (t.guildId === guild.id) inst.threads.delete(id);
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------
+     DIALOG TREE — FOR SPECIFIC BOT
+     Структура:
+     [
+       {
+         guildId,
+         guildName,
+         accountId: botId,
+         channels: [
+           {
+             platform: "discord",
+             accountId: botId,
+             guildId,
+             chatId: channel.id,
+             name: channel.name,
+             discordType: "text" | "forum",
+             isThread: false,
+             parentId: null,
+             threads: [
+               {
+                 platform: "discord",
+                 accountId: botId,
+                 guildId,
+                 chatId: thread.id,
+                 name: thread.name,
+                 discordType: "thread",
+                 isThread: true,
+                 parentId: channel.id,
+               }
+             ]
+           }
+         ]
+       }
+     ]
+  ------------------------------------------------------------ */
+
+  public async getDialogsTree(botId: string) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const result: any[] = [];
+
+    for (const [guildId, guildName] of inst.guilds.entries()) {
+      const guildBlock = {
+        guildId,
+        guildName,
+        accountId: botId,
+        channels: [] as any[],
+      };
+
+      for (const ch of inst.channels.values()) {
+        if (ch.guildId !== guildId) continue;
+
+        const cb = {
+          platform: "discord" as const,
+          accountId: botId,
+          guildId,
+          chatId: ch.id,
+          name: ch.name,
+          discordType: isForumChannel(ch)
+            ? ("forum" as const)
+            : ("text" as const),
+          isThread: false,
+          parentId: null as string | null,
+          threads: [] as any[],
+        };
+
+        for (const t of inst.threads.values()) {
+          if (t.parentId !== ch.id) continue;
+
+          cb.threads.push({
+            platform: "discord" as const,
+            accountId: botId,
+            guildId,
+            chatId: t.id,
+            name: t.name,
+            discordType: "thread" as const,
+            isThread: true,
+            parentId: ch.id,
+          });
+        }
+
+        guildBlock.channels.push(cb);
+      }
+
+      result.push(guildBlock);
+    }
 
     return result;
   }
+
+  /* ------------------------------------------------------------
+     FETCH HISTORY FOR SPECIFIC BOT
+  ------------------------------------------------------------ */
+
+  public async fetchMessages(botId: string, channelId: string, limit = 50) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const ch = await inst.client.channels.fetch(channelId);
+
+    if (!ch || !("messages" in ch)) {
+      throw new Error(`Channel has no messages: ${channelId}`);
+    }
+
+    const msgs = await (ch as TextBasedChannel).messages.fetch({ limit });
+    return Array.from(msgs.values());
+  }
+
+  /* ------------------------------------------------------------
+     SEND MESSAGE — SPECIFIC BOT
+  ------------------------------------------------------------ */
+
+  public async sendMessage(botId: string, channelId: string, text: string) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const ch = await inst.client.channels.fetch(channelId);
+    if (!isSendableChannel(ch)) throw new Error("Channel not sendable");
+
+    return ch.send(text);
+  }
+
+  public async sendFile(
+    botId: string,
+    channelId: string,
+    file: Buffer,
+    name: string,
+    caption?: string
+  ) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const ch = await inst.client.channels.fetch(channelId);
+    if (!isSendableChannel(ch)) throw new Error("Channel not sendable");
+
+    return ch.send({
+      content: caption ?? "",
+      files: [{ attachment: file, name }],
+    });
+  }
+
+  /* ------------------------------------------------------------
+     EDIT / DELETE MESSAGE
+  ------------------------------------------------------------ */
+
+  public async editMessage(
+    botId: string,
+    channelId: string,
+    messageId: string,
+    text: string
+  ) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const ch = await inst.client.channels.fetch(channelId);
+
+    if (!ch) {
+      throw new Error(`Channel not found: ${channelId}`);
+    }
+
+    if (!isSendableChannel(ch)) {
+      throw new Error(`Channel not sendable: ${channelId}`);
+    }
+
+    const msg = await (ch as TextBasedChannel).messages.fetch(messageId);
+    return msg.edit(text);
+  }
+
+  public async deleteMessage(
+    botId: string,
+    channelId: string,
+    messageId: string
+  ) {
+    const inst = this.bots.get(botId);
+    if (!inst) throw new Error("Bot not attached for this id");
+
+    const ch = await inst.client.channels.fetch(channelId);
+
+    if (!ch) {
+      throw new Error(`Channel not found: ${channelId}`);
+    }
+
+    if (!isSendableChannel(ch)) {
+      throw new Error(`Channel not sendable: ${channelId}`);
+    }
+
+    const msg = await (ch as TextBasedChannel).messages.fetch(messageId);
+    await msg.delete();
+  }
 }
 
-const discordClientManager = new DiscordClientManager();
-export default discordClientManager;
+export const discordClientManager = new DiscordClientManager();

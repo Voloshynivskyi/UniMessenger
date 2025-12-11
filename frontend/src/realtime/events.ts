@@ -117,7 +117,7 @@ export interface DiscordMessageEditedPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
   messageId: string;
-  /** Optional, because edit може бути лише медіа/embeds */
+  /** Optional, because edit can be only media/embeds */
   newText?: string | null;
 
   updated?: UnifiedDiscordMessage;
@@ -180,7 +180,7 @@ export interface ServerToClientEvents {
   "discord:message_deleted": (data: DiscordMessageDeletedPayload) => void;
   "discord:message_confirmed": (data: DiscordMessageConfirmedPayload) => void;
 
-  // Generic system error (можемо використовувати будь-який payload)
+  // Generic system error (can use any payload)
   "system:error": (data: TelegramErrorPayload | DiscordErrorPayload) => void;
 }
 

@@ -1,168 +1,96 @@
 // frontend/src/api/discordApi.ts
-
 import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
-/**
- * Один Discord-акаунт (бот) у системі
- * Відповідає backend/prisma/schema.prisma::DiscordAccount
- */
-export interface DiscordAccount {
-  id: string;
-  userId: string;
-
-  botToken: string; // ⚠ бек зараз реально віддає
-  botUserId: string | null;
-  botUsername: string | null;
-
-  isActive: boolean;
-  createdAt: string; // ISO
-  updatedAt: string; // ISO
-}
-
-/**
- * Канал/тред з /discord/dialogs
- */
-export interface DiscordDialogChannel {
-  id: string;
-  name: string;
-  type: "text" | "announcement" | "forum" | "thread";
-  parentId: string | null;
-}
-
-/**
- * Один guild із каналами
- */
-export interface DiscordDialogGuild {
-  guildId: string;
-  guildName: string;
-  channels: DiscordDialogChannel[];
-}
-
 export const discordApi = {
-  // ADD ACCOUNT
-  // POST /api/discord/addAccount
-  async addAccount(botToken: string): Promise<DiscordAccount> {
-    if (!botToken) throw new Error("botToken is required");
+  /* ---------------------- BOTS ---------------------- */
 
-    const response = await apiClient.post("/api/discord/addAccount", {
+  async registerBot(botToken: string) {
+    const res = await apiClient.post("/api/discord/bots/register", {
       botToken,
     });
-
-    const data = handleApiResponse<{ account: DiscordAccount }>(response);
-    return data.account;
+    return handleApiResponse<{ bot: any }>(res);
   },
 
-  // REMOVE / DEACTIVATE
-  // POST /api/discord/removeAccount
-  async removeAccount(accountId: string): Promise<{ status: string }> {
-    if (!accountId) throw new Error("accountId is required");
+  async listBots() {
+    const res = await apiClient.get("/api/discord/bots");
+    return handleApiResponse<{ bots: any[] }>(res);
+  },
 
-    const response = await apiClient.post("/api/discord/removeAccount", {
-      accountId,
+  async deactivateBot(botId: string) {
+    const res = await apiClient.post("/api/discord/bots/deactivate", { botId });
+    return handleApiResponse<{ success: boolean }>(res);
+  },
+
+  async refreshGuilds(botId: string) {
+    const res = await apiClient.post("/api/discord/bots/refresh-guilds", {
+      botId,
     });
-
-    return handleApiResponse<{ status: string }>(response);
+    return handleApiResponse<{ guildCount: number }>(res);
   },
 
-  // LIST ACCOUNTS
-  // GET /api/discord/accounts
-  async getAccounts(): Promise<DiscordAccount[]> {
-    const response = await apiClient.get("/api/discord/accounts");
-    const data = handleApiResponse<{ accounts: DiscordAccount[] }>(response);
-    return data.accounts;
+  /* ---------------------- DIALOGS + TREE ---------------------- */
+
+  async getDialogs() {
+    const res = await apiClient.get("/api/discord/dialogs");
+    return handleApiResponse<{ dialogs: any[] }>(res);
   },
 
-  // LIST GUILDS + CHANNELS + THREADS
-  // GET /api/discord/dialogs
-  async getDialogs(accountId: string): Promise<DiscordDialogGuild[]> {
-    if (!accountId) throw new Error("accountId is required");
+  /* ---------------------- HISTORY ---------------------- */
 
-    const response = await apiClient.get("/api/discord/dialogs", {
-      params: { accountId },
+  async getHistory(botId: string, chatId: string) {
+    const res = await apiClient.get("/api/discord/history", {
+      params: { botId, chatId },
     });
-
-    const data = handleApiResponse<{ dialogs: DiscordDialogGuild[] }>(response);
-    return data.dialogs;
+    return handleApiResponse<{ messages: UnifiedDiscordMessage[] }>(res);
   },
 
-  // MESSAGE HISTORY
-  // GET /api/discord/history
-  async getHistory(params: {
-    accountId: string;
-    channelId: string;
-    limit?: number;
-  }): Promise<UnifiedDiscordMessage[]> {
-    const { accountId, channelId, limit = 50 } = params;
+  /* ---------------------- SEND MESSAGE ---------------------- */
 
-    if (!accountId || !channelId) {
-      throw new Error("accountId and channelId are required");
-    }
-
-    const response = await apiClient.get("/api/discord/history", {
-      params: { accountId, channelId, limit },
-    });
-
-    const data = handleApiResponse<{ messages: UnifiedDiscordMessage[] }>(
-      response
-    );
-
-    return data.messages;
-  },
-
-  // SEND TEXT
-  // POST /api/discord/sendMessage
-  async sendText(params: {
-    accountId: string;
-    channelId: string;
-    text: string;
-  }): Promise<UnifiedDiscordMessage> {
-    const { accountId, channelId, text } = params;
-
-    if (!accountId || !channelId || !text) {
-      throw new Error("accountId, channelId and text are required");
-    }
-
-    const response = await apiClient.post("/api/discord/sendMessage", {
-      accountId,
-      channelId,
+  async sendText(botId: string, chatId: string, text: string) {
+    const res = await apiClient.post("/api/discord/sendMessage", {
+      botId,
+      chatId,
       text,
     });
-
-    const data = handleApiResponse<{ message: UnifiedDiscordMessage }>(
-      response
-    );
-
-    return data.message;
+    return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
   },
 
-  // SEND FILE
-  // POST /api/discord/sendFile (multipart)
-  async sendFile(params: {
-    accountId: string;
-    channelId: string;
-    file: File;
-    caption?: string;
-  }): Promise<UnifiedDiscordMessage> {
-    const { accountId, channelId, file, caption } = params;
-
-    if (!accountId || !channelId || !file) {
-      throw new Error("accountId, channelId and file are required");
-    }
-
+  async sendFile(botId: string, chatId: string, file: File, caption?: string) {
     const form = new FormData();
-    form.append("accountId", accountId);
-    form.append("channelId", channelId);
+    form.append("botId", botId);
+    form.append("chatId", chatId);
     if (caption) form.append("caption", caption);
     form.append("file", file);
 
-    const response = await apiClient.post("/api/discord/sendFile", form);
+    const res = await apiClient.post("/api/discord/sendFile", form);
+    return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
+  },
 
-    const data = handleApiResponse<{ message: UnifiedDiscordMessage }>(
-      response
-    );
+  /* ---------------------- EDIT + DELETE ---------------------- */
 
-    return data.message;
+  async editMessage(
+    botId: string,
+    chatId: string,
+    messageId: string,
+    text: string
+  ) {
+    const res = await apiClient.post("/api/discord/editMessage", {
+      botId,
+      chatId,
+      messageId,
+      text,
+    });
+    return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
+  },
+
+  async deleteMessage(botId: string, chatId: string, messageId: string) {
+    const res = await apiClient.post("/api/discord/deleteMessage", {
+      botId,
+      chatId,
+      messageId,
+    });
+    return handleApiResponse<{ ok: boolean }>(res);
   },
 };

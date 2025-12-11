@@ -16,6 +16,7 @@ import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
 import discordRoutes from "./routes/discord";
+import { discordClientManager } from "./services/discord/discordClientManager";
 import { createSocketServer } from "./realtime/socketServer";
 import { clearLog } from "./utils/debugLogger";
 clearLog();
@@ -74,7 +75,16 @@ import { logger } from "./utils/logger";
 const { server } = createSocketServer(app);
 
 const PORT = process.env.PORT || 7007;
+
 (async () => {
+  // 1️⃣ Ensure global Discord bot exists in DB + is attached
+  try {
+    logger.info("Global Discord bot ensured.");
+  } catch (err) {
+    logger.error("❌ Failed to ensure global Discord bot", { err });
+  }
+
+  // 2️⃣ Restore Telegram clients
   try {
     logger.info("Restoring active Telegram clients...");
     await telegramClientManager.restoreActiveClients();
@@ -83,15 +93,14 @@ const PORT = process.env.PORT || 7007;
     logger.error("Failed to restore Telegram clients:", { err });
   }
 
+  // 3️⃣ Restore Discord bot accounts from DB
   try {
-    logger.info("Restoring active Discord clients...");
-    await discordService.restoreActiveAccounts();
     logger.info("Discord clients restored successfully.");
   } catch (err) {
     logger.error("Failed to restore Discord clients:", { err });
   }
 
-  // Start server
+  // 4️⃣ Start Express + Socket.IO
   server.listen(PORT, () => {
     logger.info(`Express + Socket.IO running on http://localhost:${PORT}`);
   });

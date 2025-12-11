@@ -29,8 +29,7 @@ interface Props {
 --------------------------------------------------------- */
 
 function isNearBottom(el: HTMLDivElement) {
-  // Bottom 15% height threshold
-  const threshold = el.clientHeight * 0.15;
+  const threshold = el.clientHeight * 0.2;
   return el.scrollHeight - (el.scrollTop + el.clientHeight) < threshold;
 }
 
@@ -43,15 +42,22 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
 
   const { fetchOlderMessages, loadingByChat, fullyLoadedByChat } =
     useMessages();
+
   const isLoading = !!loadingByChat[chatKey];
   const fullyLoaded = !!fullyLoadedByChat[chatKey];
 
   const wasAtBottomRef = useRef(true);
   const initializedRef = useRef(false);
-  const prevFirstMessageIdRef = useRef<string | number | null>(null);
+  const prevLastMessageIdRef = useRef<string | number | bigint | null>(null);
+
+  // ✅ ЯКІР ДЛЯ БЕЗШОВНОГО PREPEND
+  const anchorRef = useRef<{
+    messageId: string | number | bigint;
+    top: number;
+  } | null>(null);
 
   /* ---------------------------------------------------------
-     Scroll handler (user scroll + load older)
+     Scroll handler + seamless prepend trigger
   --------------------------------------------------------- */
 
   const handleScroll = useCallback(() => {
@@ -60,7 +66,19 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
 
     wasAtBottomRef.current = isNearBottom(el);
 
-    if (!isLoading && !fullyLoaded && el.scrollTop < 80) {
+    if (!isLoading && !fullyLoaded && el.scrollTop <= 60) {
+      // ✅ ФІКСУЄМО ВІЗУАЛЬНИЙ ЯКІР
+      const firstVisible = el.querySelector("[data-message-id]");
+      if (firstVisible) {
+        const rect = firstVisible.getBoundingClientRect();
+        const containerRect = el.getBoundingClientRect();
+
+        anchorRef.current = {
+          messageId: (firstVisible as HTMLElement).dataset.messageId!,
+          top: rect.top - containerRect.top,
+        };
+      }
+
       fetchOlderMessages({
         chatKey,
         accountId: chat.accountId,
@@ -86,69 +104,78 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
 
   useLayoutEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || initializedRef.current || messages.length === 0) return;
 
-    if (!initializedRef.current && messages.length > 0) {
-      initializedRef.current = true;
-      el.scrollTop = el.scrollHeight;
-      prevFirstMessageIdRef.current = messages[0].messageId;
-    }
+    initializedRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    wasAtBottomRef.current = true;
+
+    prevLastMessageIdRef.current =
+      messages[messages.length - 1]?.messageId ?? null;
   }, [messages]);
 
   /* ---------------------------------------------------------
-     Smooth auto-scroll on container resize (media load)
-  --------------------------------------------------------- */
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (!wasAtBottomRef.current) return;
-
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-
-      setTimeout(() => {
-        if (wasAtBottomRef.current) {
-          el.scrollTop = el.scrollHeight;
-        }
-      }, 120);
-    });
-
-    resizeObserver.observe(el);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  /* ---------------------------------------------------------
-     Maintain scroll position when older messages load
+     ✅ SEAMLESS SCROLL RESTORE AFTER PREPEND
   --------------------------------------------------------- */
 
   useLayoutEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    const anchor = anchorRef.current;
 
-    if (!messages.length) {
-      prevFirstMessageIdRef.current = null;
+    if (!el || !anchor) return;
+
+    const anchorEl = el.querySelector(
+      `[data-message-id="${anchor.messageId}"]`
+    ) as HTMLElement | null;
+
+    if (!anchorEl) {
+      anchorRef.current = null;
       return;
     }
 
-    const newFirstId = messages[0]?.messageId;
-    const prevFirstId = prevFirstMessageIdRef.current;
+    const rect = anchorEl.getBoundingClientRect();
+    const containerRect = el.getBoundingClientRect();
 
-    if (
-      prevFirstId !== null &&
-      newFirstId !== null &&
-      newFirstId !== prevFirstId
-    ) {
-      const prevHeight = el.scrollHeight;
+    const newTop = rect.top - containerRect.top;
+    const diff = newTop - anchor.top;
 
+    el.scrollTop += diff;
+
+    anchorRef.current = null;
+  }, [messages]);
+
+  /* ---------------------------------------------------------
+     Auto-scroll on NEW message only
+  --------------------------------------------------------- */
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || messages.length === 0) return;
+
+    const lastMsg = messages[messages.length - 1];
+    const lastId = lastMsg?.messageId ?? null;
+
+    if (prevLastMessageIdRef.current === null) {
+      prevLastMessageIdRef.current = lastId;
+      return;
+    }
+
+    if (lastId === prevLastMessageIdRef.current) return;
+
+    const isSelf = lastMsg?.isOutgoing;
+    const shouldScroll = isSelf || wasAtBottomRef.current || isNearBottom(el);
+
+    if (shouldScroll) {
       requestAnimationFrame(() => {
-        const newHeight = el.scrollHeight;
-        el.scrollTop += newHeight - prevHeight;
+        const inner = containerRef.current;
+        if (!inner) return;
+
+        inner.scrollTop = inner.scrollHeight;
+        wasAtBottomRef.current = true;
       });
     }
 
-    prevFirstMessageIdRef.current = newFirstId;
+    prevLastMessageIdRef.current = lastId;
   }, [messages]);
 
   /* ---------------------------------------------------------
@@ -158,32 +185,9 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
   useEffect(() => {
     initializedRef.current = false;
     wasAtBottomRef.current = true;
-    prevFirstMessageIdRef.current = null;
+    prevLastMessageIdRef.current = null;
+    anchorRef.current = null;
   }, [chatKey]);
-
-  /* ---------------------------------------------------------
-     Auto-scroll on NEW MESSAGE (incoming or outgoing)
-     — behaves exactly like Telegram
-  --------------------------------------------------------- */
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    if (messages.length === 0) return;
-
-    const lastMsg = messages[messages.length - 1];
-    const isSelfSent = lastMsg?.isOutgoing;
-
-    const shouldScroll =
-      wasAtBottomRef.current || isNearBottom(el) || isSelfSent;
-
-    if (shouldScroll) {
-      requestAnimationFrame(() => {
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      });
-    }
-  }, [messages]);
 
   /* ---------------------------------------------------------
      Render
@@ -223,17 +227,21 @@ export default function MessageList({ chatKey, messages, chat }: Props) {
         return (
           <Fragment key={m.messageId}>
             {needSeparator && <MessageDaySeparator date={m.date} />}
-            <MessageRow
-              message={m}
-              isSelf={m.isOutgoing}
-              prevMessage={prevMsg}
-              peerType={chat.peerType}
-            />
+
+            {/* ✅ КРИТИЧНО: messageId у DOM */}
+            <div data-message-id={String(m.messageId)}>
+              <MessageRow
+                message={m}
+                isSelf={m.isOutgoing}
+                prevMessage={prevMsg}
+                peerType={chat.peerType}
+              />
+            </div>
           </Fragment>
         );
       })}
 
-      <Box sx={{ height: 8 }} />
+      <Box sx={{ height: 12 }} />
     </Box>
   );
 }

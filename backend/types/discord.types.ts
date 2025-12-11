@@ -74,28 +74,22 @@ export interface DiscordMedia {
 export interface UnifiedDiscordMessage extends BaseUnifiedMessage {
   platform: "discord";
 
-  /** Discord channel or thread ID */
-  chatId: string;
+  /** Guild (server) where message originated */
+  guildId: string;
 
-  /** If thread, parent channel ID */
+  /** If this message comes from a thread */
   parentChatId?: string | null;
 
-  /** Discord message ID */
-  messageId: string;
-
-  /** Sender */
-  senderId: string | null;
-
-  /** Message type */
+  /** Discord-specific message type */
   type: UnifiedDiscordMessageType;
 
-  /** Text content */
-  text?: string;
+  /** Original Discord sender ID */
+  senderId: string;
 
-  /** Media (photo, video, file) — always extracted from attachments[] */
+  /** Attachments (images, videos, files) */
   media?: DiscordMedia[] | null;
 
-  /** For embeds (links, GIF previews) */
+  /** Embeds (links, GIF previews) */
   embeds?:
     | {
         url?: string | null;
@@ -104,4 +98,8 @@ export interface UnifiedDiscordMessage extends BaseUnifiedMessage {
         type?: "link" | "gif" | null;
       }[]
     | null;
+
+  /** Optional thread-specific UI helpers */
+  threadName?: string;
+  parentType?: "thread";
 }
