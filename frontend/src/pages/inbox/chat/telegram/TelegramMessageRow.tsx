@@ -2,11 +2,11 @@
 import React, { useMemo } from "react";
 import { Box, Typography } from "@mui/material";
 
-import MessageBubble from "./MessageBubble";
-import MediaRenderer from "./MediaRenderer";
-import ServiceMessage from "./ServiceMessage";
+import MessageBubble from "./TelegramMessageBubble";
+import MediaRenderer from "./TelegramMediaRenderer";
+import ServiceMessage from "./TelegramServiceMessage";
 
-import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import type { UnifiedTelegramMessage } from "../../../../types/telegram.types";
 
 interface Props {
   message: UnifiedTelegramMessage;
@@ -60,7 +60,7 @@ function shouldShowHeader(
 /* ---------------------------------------------------------
    MAIN
 --------------------------------------------------------- */
-function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
+function TelegramMessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
   const isService = message.type === "service";
 
   const hasMedia = !!message.media;
@@ -130,7 +130,7 @@ function MessageRowBase({ message, isSelf, prevMessage, peerType }: Props) {
 /* ---------------------------------------------------------
    React.memo optimization
 --------------------------------------------------------- */
-export default React.memo(MessageRowBase, (prev, next) => {
+export default React.memo(TelegramMessageRowBase, (prev, next) => {
   return (
     prev.message.messageId === next.message.messageId &&
     prev.message.date === next.message.date &&

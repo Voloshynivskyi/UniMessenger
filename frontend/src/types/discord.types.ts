@@ -1,4 +1,4 @@
-// backend/types/discord.types.ts
+// frontend/src/types/discord.types.ts
 import type { BaseUnifiedChat } from "./unifiedChat.types";
 import type { BaseUnifiedMessage } from "./unifiedMessage.types";
 

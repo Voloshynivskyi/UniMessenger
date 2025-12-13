@@ -3,6 +3,11 @@ import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
+interface DiscordHistoryParams {
+  beforeMessageId?: string;
+  limit?: number;
+}
+
 export const discordApi = {
   /* ---------------------- BOTS ---------------------- */
 
@@ -19,7 +24,9 @@ export const discordApi = {
   },
 
   async deactivateBot(botId: string) {
-    const res = await apiClient.post("/api/discord/bots/deactivate", { botId });
+    const res = await apiClient.post("/api/discord/bots/deactivate", {
+      botId,
+    });
     return handleApiResponse<{ success: boolean }>(res);
   },
 
@@ -39,10 +46,22 @@ export const discordApi = {
 
   /* ---------------------- HISTORY ---------------------- */
 
-  async getHistory(botId: string, chatId: string) {
+  async getHistory(
+    botId: string,
+    chatId: string,
+    params?: DiscordHistoryParams
+  ) {
     const res = await apiClient.get("/api/discord/history", {
-      params: { botId, chatId },
+      params: {
+        botId,
+        chatId,
+        ...(params?.beforeMessageId
+          ? { beforeMessageId: params.beforeMessageId }
+          : {}),
+        ...(typeof params?.limit === "number" ? { limit: params.limit } : {}),
+      },
     });
+
     return handleApiResponse<{ messages: UnifiedDiscordMessage[] }>(res);
   },
 
@@ -54,17 +73,36 @@ export const discordApi = {
       chatId,
       text,
     });
+
     return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
   },
 
+  /**
+   * SEND FILE (multipart/form-data)
+   *
+   * ⚠️ ВАЖЛИВО:
+   * - НЕ ставимо Content-Type вручну
+   * - apiClient (axios) сам виставить boundary
+   * - поле "file" має збігатись з multer.single("file") на бекенді
+   */
   async sendFile(botId: string, chatId: string, file: File, caption?: string) {
     const form = new FormData();
+
     form.append("botId", botId);
     form.append("chatId", chatId);
-    if (caption) form.append("caption", caption);
-    form.append("file", file);
 
-    const res = await apiClient.post("/api/discord/sendFile", form);
+    if (caption && caption.trim().length > 0) {
+      form.append("caption", caption);
+    }
+
+    // ключове поле — має відповідати multer.single("file")
+    form.append("file", file, file.name);
+
+    const res = await apiClient.post("/api/discord/sendFile", form, {
+      // ❗ НІЯКИХ headers тут не треба
+      // axios сам поставить multipart/form-data + boundary
+    });
+
     return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
   },
 
@@ -82,6 +120,7 @@ export const discordApi = {
       messageId,
       text,
     });
+
     return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);
   },
 
@@ -91,6 +130,7 @@ export const discordApi = {
       chatId,
       messageId,
     });
+
     return handleApiResponse<{ ok: boolean }>(res);
   },
 };

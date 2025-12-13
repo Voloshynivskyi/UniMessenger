@@ -13,6 +13,7 @@ import {
   type TextBasedChannel,
   type PartialMessage,
   type Typing,
+  Collection,
 } from "discord.js";
 
 import {
@@ -362,13 +363,26 @@ export class DiscordClientManager {
      ]
   ------------------------------------------------------------ */
 
+  /* ------------------------------------------------------------
+   DIALOG TREE — FOR SPECIFIC BOT (FIXED VERSION)
+   Джерело правди: Discord client.guilds.cache
+------------------------------------------------------------ */
+
   public async getDialogsTree(botId: string) {
     const inst = this.bots.get(botId);
     if (!inst) throw new Error("Bot not attached for this id");
 
+    const client = inst.client;
+
     const result: any[] = [];
 
-    for (const [guildId, guildName] of inst.guilds.entries()) {
+    /* ------------------------------------------------------------
+     * 1) Collect guilds from Discord API (SOURCE OF TRUTH)
+     * ------------------------------------------------------------ */
+    for (const guild of client.guilds.cache.values()) {
+      const guildId = guild.id;
+      const guildName = guild.name;
+
       const guildBlock = {
         guildId,
         guildName,
@@ -376,10 +390,13 @@ export class DiscordClientManager {
         channels: [] as any[],
       };
 
+      /* ------------------------------------------------------------
+       * 2) Channels (text / forum)
+       * ------------------------------------------------------------ */
       for (const ch of inst.channels.values()) {
         if (ch.guildId !== guildId) continue;
 
-        const cb = {
+        const channelBlock = {
           platform: "discord" as const,
           accountId: botId,
           guildId,
@@ -393,10 +410,13 @@ export class DiscordClientManager {
           threads: [] as any[],
         };
 
+        /* ------------------------------------------------------------
+         * 3) Threads under channel
+         * ------------------------------------------------------------ */
         for (const t of inst.threads.values()) {
           if (t.parentId !== ch.id) continue;
 
-          cb.threads.push({
+          channelBlock.threads.push({
             platform: "discord" as const,
             accountId: botId,
             guildId,
@@ -408,10 +428,15 @@ export class DiscordClientManager {
           });
         }
 
-        guildBlock.channels.push(cb);
+        guildBlock.channels.push(channelBlock);
       }
 
-      result.push(guildBlock);
+      /* ------------------------------------------------------------
+       * 4) Push guild ONLY if it has channels
+       * ------------------------------------------------------------ */
+      if (guildBlock.channels.length > 0) {
+        result.push(guildBlock);
+      }
     }
 
     return result;
@@ -421,7 +446,14 @@ export class DiscordClientManager {
      FETCH HISTORY FOR SPECIFIC BOT
   ------------------------------------------------------------ */
 
-  public async fetchMessages(botId: string, channelId: string, limit = 50) {
+  public async fetchMessages(
+    botId: string,
+    channelId: string,
+    options?: {
+      limit?: number;
+      beforeMessageId?: string;
+    }
+  ): Promise<Message<boolean>[]> {
     const inst = this.bots.get(botId);
     if (!inst) throw new Error("Bot not attached for this id");
 
@@ -431,8 +463,27 @@ export class DiscordClientManager {
       throw new Error(`Channel has no messages: ${channelId}`);
     }
 
-    const msgs = await (ch as TextBasedChannel).messages.fetch({ limit });
-    return Array.from(msgs.values());
+    const channel = ch as TextBasedChannel;
+
+    const fetchOptions: {
+      limit: number;
+      before?: string;
+    } = {
+      limit: options?.limit ?? 50,
+    };
+
+    if (options?.beforeMessageId) {
+      fetchOptions.before = options.beforeMessageId;
+    }
+
+    const msgs: Collection<
+      string,
+      Message<boolean>
+    > = await channel.messages.fetch(fetchOptions);
+
+    return Array.from(msgs.values()).sort(
+      (a, b) => a.createdTimestamp - b.createdTimestamp
+    );
   }
 
   /* ------------------------------------------------------------

@@ -10,7 +10,7 @@ interface Props {
   src: string;
 }
 
-export default function RoundVideoNote({ src }: Props) {
+export default function TelegramRoundVideoNote({ src }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);

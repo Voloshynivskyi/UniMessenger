@@ -97,10 +97,17 @@ export async function discordGetHistory(req: Request, res: Response) {
     const botId = String(req.query.botId ?? "");
     const chatId = String(req.query.chatId ?? "");
     const limit = req.query.limit ? Number(req.query.limit) || 50 : 50;
-
+    const beforeMessageId = req.query.beforeMessageId
+      ? String(req.query.beforeMessageId)
+      : undefined;
     if (!botId || !chatId) return err(res, "botId & chatId required");
 
-    const messages = await discordService.getHistory(botId, chatId, limit);
+    const messages = await discordService.getHistory(
+      botId,
+      chatId,
+      limit,
+      beforeMessageId
+    );
     return ok(res, { messages });
   } catch (e: any) {
     logger.error("discordGetHistory failed", { e });

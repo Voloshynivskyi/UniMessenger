@@ -9,10 +9,10 @@ import MicIcon from "@mui/icons-material/Mic";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CloseIcon from "@mui/icons-material/Close";
 
-import { telegramApi } from "../../../api/telegramApi";
-import { useMessages } from "../../../context/UnifiedMessagesContext";
-import { useUnifiedDialogs } from "../../../context/UnifiedDialogsContext";
-import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import { telegramApi } from "../../../../api/telegramApi";
+import { useMessages } from "../../../../context/UnifiedMessagesContext";
+import { useUnifiedDialogs } from "../../../../context/UnifiedDialogsContext";
+import type { UnifiedTelegramMessage } from "../../../../types/telegram.types";
 
 import EmojiPicker from "./recorders/EmojiPicker";
 import VoiceRecorderUI from "./recorders/VoiceRecorderUI";
@@ -28,7 +28,7 @@ interface MessageInputProps {
 
 type RecorderMode = "voice" | "video" | null;
 
-export default function MessageInput({
+export default function TelegramMessageInput({
   chatKey,
   accountId,
   peerType,

@@ -6,6 +6,8 @@ import { parseDiscordMessage } from "../../utils/discord/parseDiscordMessage";
 import { getSocketGateway } from "../../realtime/socketGateway";
 import { logger } from "../../utils/logger";
 import { Client, GatewayIntentBits } from "discord.js";
+import { appendFile } from "fs";
+import { appendLog } from "../../utils/debugLogger";
 
 // DISCORD SERVICE - BOT ONLY
 // - bot registration (store token)
@@ -188,20 +190,38 @@ export class DiscordService {
         guilds: tree,
       });
     }
-
+    appendLog(JSON.stringify(dialogs), "discord_getDialogsForUser");
     return dialogs;
   }
 
   /* ------------------------------------------------------------
    * 6) HISTORY (per bot, per chat)
    * ------------------------------------------------------------ */
-  async getHistory(botId: string, chatId: string, limit = 50) {
+  async getHistory(
+    botId: string,
+    chatId: string,
+    limit = 50,
+    beforeMessageId?: string
+  ) {
     await this.ensureBotClient(botId);
 
     const client = discordClientManager.getClient(botId);
     const botUserId = client?.user?.id ?? null;
 
-    const msgs = await discordClientManager.fetchMessages(botId, chatId, limit);
+    const options: {
+      limit?: number;
+      beforeMessageId?: string;
+    } = { limit };
+
+    if (beforeMessageId) {
+      options.beforeMessageId = beforeMessageId;
+    }
+
+    const msgs = await discordClientManager.fetchMessages(
+      botId,
+      chatId,
+      options
+    );
 
     return msgs.map((msg) =>
       parseDiscordMessage({

@@ -10,7 +10,7 @@ interface Props {
   onClose: () => void;
 }
 
-export default function MediaViewerModal({ open, type, src, onClose }: Props) {
+export default function TelegramMediaViewerModal({ open, type, src, onClose }: Props) {
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();

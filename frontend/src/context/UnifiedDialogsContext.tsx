@@ -5,6 +5,7 @@ import {
   useState,
   useEffect,
   useRef,
+  useCallback,
   type ReactNode,
 } from "react";
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
@@ -13,6 +14,7 @@ import type {
   UnifiedChat,
 } from "../types/unifiedChat.types";
 import { telegramApi } from "../api/telegramApi";
+import { discordApi } from "../api/discordApi";
 import { socketBus } from "../realtime/eventBus";
 
 import type {
@@ -29,9 +31,52 @@ import type {
 import { useTelegram } from "./TelegramAccountContext";
 import { buildChatKey, parseChatKey } from "../pages/inbox/utils/chatUtils";
 
-// Helpers for sidebar lastMessage
+/* ====================================================================== */
+/* Helpers */
+/* ====================================================================== */
 
-// Map Telegram message type to sidebar "kind"
+/** Map Discord message type to sidebar "kind" */
+function mapDiscordMessageTypeToSidebarType(t: string) {
+  switch (t) {
+    case "text":
+      return "text";
+    case "photo":
+      return "photo";
+    case "video":
+      return "video";
+    case "file":
+      return "file";
+    case "gif":
+      return "video";
+    case "link":
+      return "link";
+    default:
+      return "unknown";
+  }
+}
+
+/** If Discord text is empty — show media placeholder */
+function buildDiscordPreviewText(text?: string | null, type?: string) {
+  const trimmed = text?.trim();
+  if (trimmed) return trimmed;
+
+  switch (type) {
+    case "photo":
+      return "📷 Photo";
+    case "video":
+      return "🎬 Video";
+    case "gif":
+      return "🎞 GIF";
+    case "file":
+      return "📎 File";
+    case "link":
+      return "🔗 Link";
+    default:
+      return "";
+  }
+}
+
+/** Map Telegram message type to sidebar "kind" */
 function mapMessageTypeToSidebarType(t: UnifiedTelegramMessage["type"]) {
   switch (t) {
     case "text":
@@ -56,9 +101,7 @@ function mapMessageTypeToSidebarType(t: UnifiedTelegramMessage["type"]) {
   }
 }
 
-/**
- * Variant B — emoji + label for media if no text
- */
+/** Emoji + label for media if no text (Telegram) */
 function buildSidebarPreviewText(
   text: string | null | undefined,
   type?: UnifiedTelegramMessage["type"]
@@ -90,7 +133,7 @@ function buildSidebarPreviewText(
   }
 }
 
-/* Sort chats utility */
+/** Sort chats (used і для Telegram, і для Discord) */
 function sortChats(
   chats: Record<string, UnifiedChat>
 ): Record<string, UnifiedChat> {
@@ -108,12 +151,31 @@ function sortChats(
   return Object.fromEntries(sortedEntries);
 }
 
+/* ====================================================================== */
+/* Types */
+/* ====================================================================== */
+
+interface DiscordBotDialogs {
+  botId: string;
+  botUserId?: string | null;
+  botUsername?: string | null;
+  guilds: any[]; // структура з DiscordClientManager.getDialogsTree
+}
+
 interface UnifiedDialogsContextType {
+  /* Telegram + Discord чати (уніфікований список, зараз для сайдбару використовується тільки Telegram) */
   chatsByAccount: Record<string, Record<string, UnifiedChat>>;
+
+  /* Typing по всіх платформах (ключ — chatKey) */
   typingByChat: Record<string, { users: { id: string; name: string }[] }>;
+
+  /* Поточно вибраний чат (telegram:acc:chat або discord:botId:channelId) */
   selectedChatKey: string | null;
+
   loading: boolean;
   error: string | null;
+
+  /* Telegram dialogs */
   fetchDialogs: (
     platform: UnifiedChatPlatform,
     accountId: string
@@ -123,11 +185,16 @@ interface UnifiedDialogsContextType {
     accountId: string
   ) => Promise<void>;
   selectChat: (chatKey: string | null) => void;
-  /** Optimistically bump lastMessage for outgoing pending message */
+
+  /* Optimistic update для Telegram outgoing */
   applyOptimisticOutgoing: (
     chatKey: string,
     message: UnifiedTelegramMessage
   ) => void;
+
+  /* Discord dialogs — дерево бот → гільдії → канали/треди */
+  discordDialogsByBot: Record<string, DiscordBotDialogs>;
+  fetchDiscordDialogs: () => Promise<void>;
 }
 
 const UnifiedDialogsContext = createContext<UnifiedDialogsContextType | null>(
@@ -139,12 +206,17 @@ export const UnifiedDialogsProvider = ({
 }: {
   children: ReactNode;
 }) => {
+  /* Telegram + Discord чати за accountId/botId */
   const [chatsByAccount, setChatsByAccount] = useState<
     Record<string, Record<string, UnifiedChat>>
   >({});
+
+  /* Telegram dialog pagination offsets */
   const [nextOffsetByAccount, setNextOffsetByAccount] = useState<
     Record<string, any | null>
   >({});
+
+  /* Typing (Telegram + Discord) */
   const [typingByChat, setTypingByChat] = useState<
     Record<string, { users: { id: string; name: string }[] }>
   >({});
@@ -157,8 +229,17 @@ export const UnifiedDialogsProvider = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /* Discord dialogs дерево (окрема секція в UI) */
+  const [discordDialogsByBot, setDiscordDialogsByBot] = useState<
+    Record<string, DiscordBotDialogs>
+  >({});
+
   const { accounts } = useTelegram();
 
+  /* ============================================================
+   * При виборі Telegram-чату тригеримо read-updates на бек
+   * (для Discord тут нічого не робимо)
+   * ============================================================ */
   useEffect(() => {
     if (!selectedChatKey) return;
 
@@ -167,37 +248,33 @@ export const UnifiedDialogsProvider = ({
 
     const chat = chatsByAccount[accountId]?.[selectedChatKey];
     if (!chat) return;
-
-    // VALIDATION (should not happen)
     if (!chat.peerType) return;
 
     telegramApi.getMessageHistory({
       accountId,
       peerType: chat.peerType,
       peerId: chat.chatId,
-      accessHash: chat.accessHash ?? null,
+      accessHash: (chat as any).accessHash ?? null,
     });
   }, [selectedChatKey, chatsByAccount]);
 
-  // SOCKET EVENTS
+  /* ============================================================
+   * SOCKET EVENTS — TELEGRAM + DISCORD (typing + lastMessage)
+   * ============================================================ */
   useEffect(() => {
-    if (!accounts?.length) return;
+    if (!accounts?.length) {
+      // Telegram акаунтів немає — але Discord все одно може працювати
+    }
 
-    const updateAccountChats = (
-      accountId: string,
-      newData: Record<string, UnifiedChat>
-    ) => {
-      setChatsByAccount((prev) => {
-        const updated = { ...(prev[accountId] || {}), ...newData };
-        return { ...prev, [accountId]: sortChats(updated) };
-      });
-    };
+    /* ------------------- TELEGRAM EVENTS ------------------- */
 
     const handleNewMessage = (data: TelegramNewMessagePayload) => {
       const chatKey = buildChatKey(data.platform, data.accountId, data.chatId);
+
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId] || {};
         const existing = accountChats[chatKey];
+
         const baseChat: UnifiedChat = existing || {
           platform: data.platform,
           accountId: data.accountId,
@@ -232,19 +309,19 @@ export const UnifiedDialogsProvider = ({
           unreadCount: newUnreadCount,
         };
 
-        // Remove all typing indicators in this chat
+        // Скидаємо typing для цього чату
         setTypingByChat((prevTyping) => {
           const copy = { ...prevTyping };
           delete copy[chatKey];
           return copy;
         });
+
         const merged = { ...accountChats, [chatKey]: updatedChat };
         return { ...prev, [data.accountId]: sortChats(merged) };
       });
     };
 
     const handleMessageEdited = (data: TelegramMessageEditedPayload) => {
-      console.log("Handle message edited", data);
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
@@ -257,16 +334,13 @@ export const UnifiedDialogsProvider = ({
         const existing = accountChats[chatKey];
         if (!existing?.lastMessage) return prev;
 
-        // Only update if the edited message is the last message
         const lastId = String(existing.lastMessage.id);
         const editedId = String(data.messageId);
         if (lastId !== editedId) return prev;
 
         const updatedText = buildSidebarPreviewText(
           data.newText,
-          existing.lastMessage.type as
-            | UnifiedTelegramMessage["type"]
-            | undefined
+          existing.lastMessage.type as UnifiedTelegramMessage["type"]
         );
 
         const updatedChat: UnifiedChat = {
@@ -287,7 +361,6 @@ export const UnifiedDialogsProvider = ({
     };
 
     const handleMessageDeleted = (data: TelegramMessageDeletedPayload) => {
-      console.log("Handle message deleted", data);
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
@@ -328,9 +401,15 @@ export const UnifiedDialogsProvider = ({
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
-        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+        const chatKey = buildChatKey(
+          data.platform,
+          data.accountId,
+          data.chatId
+        );
         const existing = accountChats[chatKey];
         if (!existing) return prev;
+
         const updated = {
           ...accountChats,
           [chatKey]: { ...existing, unreadCount: 0 },
@@ -343,9 +422,15 @@ export const UnifiedDialogsProvider = ({
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
-        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+        const chatKey = buildChatKey(
+          data.platform,
+          data.accountId,
+          data.chatId
+        );
         const existing = accountChats[chatKey];
         if (!existing) return prev;
+
         const updated = {
           ...accountChats,
           [chatKey]: { ...existing, pinned: data.pinned },
@@ -358,13 +443,19 @@ export const UnifiedDialogsProvider = ({
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
         if (!accountChats) return prev;
-        const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+
+        const chatKey = buildChatKey(
+          data.platform,
+          data.accountId,
+          data.chatId
+        );
         const existing = accountChats[chatKey];
         if (
           !existing?.lastMessage ||
           existing.lastMessage.id !== data.messageId
         )
           return prev;
+
         const updated = {
           ...accountChats,
           [chatKey]: {
@@ -380,7 +471,6 @@ export const UnifiedDialogsProvider = ({
       console.log(`[Account ${data.accountId}] Status: ${data.status}`);
     };
 
-    // Message confirmation — update id + date in preview
     const handleMessageConfirmed = (data: TelegramMessageConfirmedPayload) => {
       setChatsByAccount((prev) => {
         const accountChats = prev[data.accountId];
@@ -408,11 +498,12 @@ export const UnifiedDialogsProvider = ({
       });
     };
 
+    /* ------------------- TELEGRAM TYPING ------------------- */
+
     const handleTyping = (data: TelegramTypingPayload) => {
-      const chatKey = `${data.platform}:${data.accountId}:${data.chatId}`;
+      const chatKey = buildChatKey(data.platform, data.accountId, data.chatId);
       const userKey = `${chatKey}:${data.userId}`;
 
-      // if "stopped typing" event received — remove immediately
       if (!data.isTyping) {
         if (typingTimeouts.current[userKey]) {
           clearTimeout(typingTimeouts.current[userKey]);
@@ -443,7 +534,6 @@ export const UnifiedDialogsProvider = ({
         return { ...prevTyping, [chatKey]: { users: updated } };
       });
 
-      // restart the timer
       if (typingTimeouts.current[userKey]) {
         clearTimeout(typingTimeouts.current[userKey]);
       }
@@ -466,6 +556,187 @@ export const UnifiedDialogsProvider = ({
       }, 5000);
     };
 
+    /* ------------------- DISCORD EVENTS ------------------- */
+
+    // { platform:"discord", accountId:botId, chatId, message:{...} }
+    const handleDiscordNewMessage = (data: any) => {
+      if (data.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", data.accountId, data.chatId);
+      const msg = data.message;
+
+      const preview = buildDiscordPreviewText(msg.text, msg.type);
+
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId] || {};
+        const existing = accountChats[chatKey];
+
+        const baseChat: UnifiedChat =
+          existing ||
+          ({
+            platform: "discord",
+            accountId: data.accountId,
+            chatId: data.chatId,
+            title: msg.channelName ?? "Unknown",
+            displayName: msg.channelName ?? "Unknown",
+            unreadCount: 0,
+            pinned: false,
+          } as UnifiedChat);
+
+        const updated: UnifiedChat = {
+          ...baseChat,
+          lastMessage: {
+            id: String(msg.messageId),
+            text: preview,
+            type: mapDiscordMessageTypeToSidebarType(msg.type),
+            date: msg.date,
+            from: msg.from,
+            isOutgoing: msg.isOutgoing,
+          },
+          unreadCount: msg.isOutgoing
+            ? baseChat.unreadCount ?? 0
+            : (baseChat.unreadCount ?? 0) + 1,
+        };
+
+        return {
+          ...prev,
+          [data.accountId]: sortChats({
+            ...accountChats,
+            [chatKey]: updated,
+          }),
+        };
+      });
+    };
+
+    const handleDiscordDeletedMessage = (data: any) => {
+      if (data.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", data.accountId, data.chatId);
+
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+
+        const existing = accountChats[chatKey];
+        if (!existing?.lastMessage) return prev;
+
+        const deletedIds = (data.messageIds ?? []).map((id: any) => String(id));
+        if (!deletedIds.includes(String(existing.lastMessage.id))) return prev;
+
+        const updatedChat: UnifiedChat = {
+          ...existing,
+          lastMessage: {
+            ...existing.lastMessage,
+            text: "Message deleted",
+          },
+        };
+
+        return {
+          ...prev,
+          [data.accountId]: sortChats({
+            ...accountChats,
+            [chatKey]: updatedChat,
+          }),
+        };
+      });
+    };
+
+    const handleDiscordEditedMessage = (data: any) => {
+      if (data.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", data.accountId, data.chatId);
+
+      setChatsByAccount((prev) => {
+        const accountChats = prev[data.accountId];
+        if (!accountChats) return prev;
+
+        const existing = accountChats[chatKey];
+        if (!existing?.lastMessage) return prev;
+
+        if (String(existing.lastMessage.id) !== String(data.messageId))
+          return prev;
+
+        const updatedChat: UnifiedChat = {
+          ...existing,
+          lastMessage: {
+            ...existing.lastMessage,
+            text: buildDiscordPreviewText(
+              data.updated?.text,
+              data.updated?.type
+            ),
+          },
+        };
+
+        return {
+          ...prev,
+          [data.accountId]: sortChats({
+            ...accountChats,
+            [chatKey]: updatedChat,
+          }),
+        };
+      });
+    };
+
+    // { platform:"discord", accountId:botId, chatId, userId, username, isTyping }
+    const handleDiscordTyping = (data: any) => {
+      if (data.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", data.accountId, data.chatId);
+      const userKey = `${chatKey}:${data.userId}`;
+
+      if (!data.isTyping) {
+        if (typingTimeouts.current[userKey]) {
+          clearTimeout(typingTimeouts.current[userKey]);
+          delete typingTimeouts.current[userKey];
+        }
+
+        setTypingByChat((prevTyping) => {
+          const existing = prevTyping[chatKey]?.users ?? [];
+          const filtered = existing.filter((u) => u.id !== data.userId);
+
+          if (filtered.length === 0) {
+            const copy = { ...prevTyping };
+            delete copy[chatKey];
+            return copy;
+          }
+
+          return { ...prevTyping, [chatKey]: { users: filtered } };
+        });
+
+        return;
+      }
+
+      setTypingByChat((prevTyping) => {
+        const existing = prevTyping[chatKey]?.users ?? [];
+        const filtered = existing.filter((u) => u.id !== data.userId);
+        const updated = [...filtered, { id: data.userId, name: data.username }];
+        return { ...prevTyping, [chatKey]: { users: updated } };
+      });
+
+      if (typingTimeouts.current[userKey]) {
+        clearTimeout(typingTimeouts.current[userKey]);
+      }
+
+      typingTimeouts.current[userKey] = setTimeout(() => {
+        setTypingByChat((prevTyping) => {
+          const existing = prevTyping[chatKey]?.users ?? [];
+          const filtered = existing.filter((u) => u.id !== data.userId);
+
+          if (filtered.length === 0) {
+            const copy = { ...prevTyping };
+            delete copy[chatKey];
+            return copy;
+          }
+
+          return { ...prevTyping, [chatKey]: { users: filtered } };
+        });
+
+        delete typingTimeouts.current[userKey];
+      }, 5000);
+    };
+
+    /* ------------------- SUBSCRIBE ------------------- */
+
     socketBus.on("telegram:new_message", handleNewMessage);
     socketBus.on("telegram:typing", handleTyping);
     socketBus.on("telegram:message_edited", handleMessageEdited);
@@ -475,6 +746,11 @@ export const UnifiedDialogsProvider = ({
     socketBus.on("telegram:pinned_messages", handlePinnedMessages);
     socketBus.on("telegram:account_status", handleAccountStatus);
     socketBus.on("telegram:message_confirmed", handleMessageConfirmed);
+
+    socketBus.on("discord:new_message", handleDiscordNewMessage);
+    socketBus.on("discord:message_edited", handleDiscordEditedMessage);
+    socketBus.on("discord:message_deleted", handleDiscordDeletedMessage);
+    socketBus.on("discord:typing", handleDiscordTyping);
 
     return () => {
       socketBus.off("telegram:new_message", handleNewMessage);
@@ -487,19 +763,28 @@ export const UnifiedDialogsProvider = ({
       socketBus.off("telegram:account_status", handleAccountStatus);
       socketBus.off("telegram:message_confirmed", handleMessageConfirmed);
 
+      socketBus.off("discord:new_message", handleDiscordNewMessage);
+      socketBus.off("discord:message_edited", handleDiscordEditedMessage);
+      socketBus.off("discord:message_deleted", handleDiscordDeletedMessage);
+      socketBus.off("discord:typing", handleDiscordTyping);
+
       for (const key of Object.keys(typingTimeouts.current)) {
         clearTimeout(typingTimeouts.current[key]);
       }
       typingTimeouts.current = {};
     };
-  }, [accounts?.length]);
+  }, [accounts?.length, chatsByAccount]);
 
-  // FETCH DIALOGS
+  /* ============================================================
+   * FETCH DIALOGS — TELEGRAM
+   * ============================================================ */
   const fetchDialogs = async (
     platform: UnifiedChatPlatform,
     accountId: string
   ) => {
     if (!accountId) return;
+    if (platform !== "telegram") return; // Discord dialogs тягнемо окремо
+
     try {
       setLoading(true);
       let res;
@@ -549,11 +834,15 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
-  // FETCH MORE
+  /* ============================================================
+   * FETCH MORE — TELEGRAM
+   * ============================================================ */
   const fetchMoreDialogs = async (
     platform: UnifiedChatPlatform,
     accountId: string
   ) => {
+    if (platform !== "telegram") return;
+
     const nextOffset = nextOffsetByAccount[accountId];
     if (!nextOffset) return;
     try {
@@ -569,17 +858,16 @@ export const UnifiedDialogsProvider = ({
 
       const newChats: Record<string, UnifiedChat> = {};
       for (const chat of res.dialogs) {
-        const chatKey = `${platform}:${accountId}:${chat.chatId}`;
+        const chatKey = buildChatKey(platform, accountId, chat.chatId);
 
         const lm = chat.lastMessage;
         const lmType = (lm?.type as UnifiedTelegramMessage["type"]) || "text";
         const lmText = buildSidebarPreviewText(lm?.text, lmType);
 
         newChats[chatKey] = {
+          ...chat,
           platform,
           accountId,
-          chatId: chat.chatId,
-          title: chat.displayName || chat.title,
           lastMessage: lm
             ? {
                 ...lm,
@@ -587,8 +875,6 @@ export const UnifiedDialogsProvider = ({
                 text: lmText,
               }
             : undefined,
-          unreadCount: chat.unreadCount || 0,
-          pinned: chat.pinned || false,
         };
       }
 
@@ -609,9 +895,34 @@ export const UnifiedDialogsProvider = ({
     }
   };
 
+  /* ============================================================
+   * DISCORD DIALOGS — дерево бот → гільдії → канали/треди
+   * ============================================================ */
+  const fetchDiscordDialogs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { dialogs } = await discordApi.getDialogs();
+
+      const map: Record<string, DiscordBotDialogs> = {};
+      for (const d of dialogs as DiscordBotDialogs[]) {
+        map[d.botId] = d;
+      }
+      setDiscordDialogsByBot(map);
+    } catch (err) {
+      console.error("Failed to fetch Discord dialogs", err);
+      setError("Failed to load Discord dialogs");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /* ============================================================
+   * Helpers
+   * ============================================================ */
+
   const selectChat = (chatKey: string | null) => setSelectedChatKey(chatKey);
 
-  // Optimistic lastMessage update for outgoing pending messages
+  // Optimistic lastMessage update for outgoing pending Telegram messages
   const applyOptimisticOutgoing = (
     chatKey: string,
     message: UnifiedTelegramMessage
@@ -653,6 +964,9 @@ export const UnifiedDialogsProvider = ({
     selectChat,
     applyOptimisticOutgoing,
     typingByChat,
+
+    discordDialogsByBot,
+    fetchDiscordDialogs,
   };
 
   return (

@@ -9,6 +9,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { telegramApi } from "../api/telegramApi";
+import { discordApi } from "../api/discordApi";
 import { socketBus } from "../realtime/eventBus";
 
 import {
@@ -19,16 +20,16 @@ import {
 } from "../realtime/events";
 
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
-import type { MessageStatus } from "../types/unifiedMessage.types";
+import type {
+  UnifiedMessage,
+  MessageStatus,
+} from "../types/unifiedMessage.types";
+import type { UnifiedDiscordMessage } from "../types/discord.types";
 
-import { buildChatKey } from "../pages/inbox/utils/chatUtils";
+import { buildChatKey, parseChatKey } from "../pages/inbox/utils/chatUtils";
 
 const INITIAL_KEEP = 30;
 const PAGE_SIZE = 20;
-
-function asUnified(m: any): UnifiedTelegramMessage {
-  return m as UnifiedTelegramMessage;
-}
 
 /* --------------------------------------------------------- */
 /* Helpers */
@@ -50,18 +51,18 @@ function normalizeDateToISO(d: any): string {
   return isNaN(t) ? new Date().toISOString() : new Date(d).toISOString();
 }
 
-function getTimestampSafe(msg: UnifiedTelegramMessage): number {
+function getTimestampSafe(msg: UnifiedMessage): number {
   const t = new Date(msg.date).getTime();
   return isNaN(t) ? 0 : t;
 }
 
-function sortAsc(a: UnifiedTelegramMessage, b: UnifiedTelegramMessage) {
+function sortAsc(a: UnifiedMessage, b: UnifiedMessage) {
   return getTimestampSafe(a) - getTimestampSafe(b);
 }
 
-function dedupe(list: UnifiedTelegramMessage[]) {
+function dedupe(list: UnifiedMessage[]) {
   const seen = new Set<string>();
-  const out: UnifiedTelegramMessage[] = [];
+  const out: UnifiedMessage[] = [];
 
   for (const m of list) {
     const id = String(m.messageId);
@@ -79,10 +80,18 @@ function dedupe(list: UnifiedTelegramMessage[]) {
 
 export interface FetchMessagesArgs {
   chatKey: string;
-  accountId: string;
-  peerType: "user" | "chat" | "channel";
-  peerId: string | number | bigint;
+
+  // ⬇️ optional, derived from chatKey if needed
+  accountId?: string;
+
+  // Telegram only
+  peerType?: "user" | "chat" | "channel";
+  peerId?: string | number | bigint;
   accessHash?: string | number | bigint | null;
+
+  // Discord
+  chatId?: string | number | bigint;
+  platform?: "telegram" | "discord";
 }
 
 interface GetMessageHistoryResponse {
@@ -91,7 +100,7 @@ interface GetMessageHistoryResponse {
 }
 
 interface UnifiedMessagesContextValue {
-  messagesByChat: Record<string, UnifiedTelegramMessage[]>;
+  messagesByChat: Record<string, UnifiedMessage[]>;
   loadingByChat: Record<string, boolean>;
   loading: boolean;
   fetchedByChat: Record<string, boolean>;
@@ -101,8 +110,7 @@ interface UnifiedMessagesContextValue {
   fetchMessages: (args: FetchMessagesArgs) => Promise<void>;
   fetchOlderMessages: (args: FetchMessagesArgs) => Promise<void>;
 
-  addOrUpdateMessage: (chatKey: string, msg: UnifiedTelegramMessage) => void;
-
+  addOrUpdateMessage: (chatKey: string, msg: UnifiedMessage) => void;
   removeMessage: (chatKey: string, id: string | number) => void;
 
   clearChatState: (chatKey: string) => void;
@@ -125,7 +133,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
   const [messagesByChat, setMessagesByChat] = useState<
-    Record<string, UnifiedTelegramMessage[]>
+    Record<string, UnifiedMessage[]>
   >({});
 
   const [loadingByChat, setLoadingByChat] = useState<Record<string, boolean>>(
@@ -140,8 +148,9 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
     Record<string, boolean>
   >({});
 
+  // offsetId (telegram) або beforeMessageId (discord)
   const [nextOffsetByChat, setNextOffsetByChat] = useState<
-    Record<string, number | null>
+    Record<string, number | string | null>
   >({});
 
   const [error, setError] = useState<string | null>(null);
@@ -151,60 +160,123 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   }, []);
 
   /* --------------------------------------------------------- */
-  /* Load newest N messages */
+  /* Load newest N messages (Telegram + Discord) */
   /* --------------------------------------------------------- */
 
   const fetchMessages = useCallback(
-    async ({
-      chatKey,
-      accountId,
-      peerType,
-      peerId,
-      accessHash,
-    }: FetchMessagesArgs) => {
+    async (args: FetchMessagesArgs) => {
+      const {
+        chatKey,
+        accountId,
+        peerType,
+        peerId,
+        accessHash,
+        chatId,
+        platform: explicitPlatform,
+      } = args;
+
       if (loadingByChat[chatKey]) return;
+
+      const { platform: parsedPlatform, chatId: parsedChatId } =
+        parseChatKey(chatKey);
+
+      const platform = explicitPlatform ?? parsedPlatform;
 
       setChatLoading(chatKey, true);
       setError(null);
 
       try {
-        const response = (await telegramApi.getMessageHistory({
-          accountId,
-          peerType,
-          peerId,
-          accessHash,
-          limit: INITIAL_KEEP,
-        })) as GetMessageHistoryResponse;
+        if (platform === "telegram") {
+          if (!peerType || peerId == null) {
+            setChatLoading(chatKey, false);
+            return;
+          }
 
-        const normalized = response.messages.map((m) => ({
-          ...m,
-          date: normalizeDateToISO(m.date),
-          status: "sent" as MessageStatus,
-          tempId: null,
-        }));
+          const response = (await telegramApi.getMessageHistory({
+            accountId: String(accountId),
+            peerType,
+            peerId,
+            accessHash,
+            limit: INITIAL_KEEP,
+          })) as GetMessageHistoryResponse;
 
-        const sorted = normalized.sort(sortAsc);
-        const latest = sorted.slice(-INITIAL_KEEP);
+          const normalized = response.messages.map((m) => ({
+            ...m,
+            platform: "telegram" as const,
+            date: normalizeDateToISO(m.date),
+            status: "sent" as MessageStatus,
+            tempId: null,
+          })) as UnifiedMessage[];
 
-        setMessagesByChat((prev) => ({
-          ...prev,
-          [chatKey]: dedupe(latest).sort(sortAsc),
-        }));
+          const sorted = normalized.sort(sortAsc);
+          const latest = sorted.slice(-INITIAL_KEEP);
 
-        setNextOffsetByChat((prev) => ({
-          ...prev,
-          [chatKey]: response.nextOffsetId ?? null,
-        }));
+          setMessagesByChat((prev) => ({
+            ...prev,
+            [chatKey]: dedupe(latest as UnifiedMessage[]).sort(sortAsc),
+          }));
 
-        setFullyLoadedByChat((prev) => ({
-          ...prev,
-          [chatKey]: !response.nextOffsetId,
-        }));
+          setNextOffsetByChat((prev) => ({
+            ...prev,
+            [chatKey]: response.nextOffsetId ?? null,
+          }));
 
-        setFetchedByChat((prev) => ({
-          ...prev,
-          [chatKey]: true,
-        }));
+          setFullyLoadedByChat((prev) => ({
+            ...prev,
+            [chatKey]: !response.nextOffsetId,
+          }));
+
+          setFetchedByChat((prev) => ({
+            ...prev,
+            [chatKey]: true,
+          }));
+        } else if (platform === "discord") {
+          const effectiveChatId = chatId ?? parsedChatId;
+          if (!effectiveChatId) {
+            setChatLoading(chatKey, false);
+            return;
+          }
+
+          const { messages } = await discordApi.getHistory(
+            String(accountId),
+            String(effectiveChatId),
+            { limit: PAGE_SIZE }
+          );
+
+          const normalized = messages.map((m: UnifiedDiscordMessage) => ({
+            ...m,
+            platform: "discord" as const,
+            accountId: String(accountId),
+            chatId: String(effectiveChatId),
+            messageId: String(m.messageId),
+            tempId: (m as any).tempId ?? null,
+            status: ((m as any).status as MessageStatus) ?? "sent",
+            date: normalizeDateToISO(m.date),
+          })) as UnifiedMessage[];
+
+          const sorted = dedupe(normalized).sort(sortAsc);
+
+          setMessagesByChat((prev) => ({
+            ...prev,
+            [chatKey]: sorted,
+          }));
+
+          const oldest = sorted[0];
+          setNextOffsetByChat((prev) => ({
+            ...prev,
+            [chatKey]: oldest ? String(oldest.messageId) : null,
+          }));
+
+          setFullyLoadedByChat((prev) => ({
+            ...prev,
+            [chatKey]: messages.length === 0,
+          }));
+
+          setFetchedByChat((prev) => ({
+            ...prev,
+            [chatKey]: true,
+          }));
+        }
       } catch (e: any) {
         setError(e?.message ?? "Failed to fetch messages");
       } finally {
@@ -215,28 +287,25 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   );
 
   /* --------------------------------------------------------- */
-  /* Pagination */
+  /* Pagination — Telegram + Discord */
   /* --------------------------------------------------------- */
 
   const fetchOlderMessages = useCallback(
-    async ({
-      chatKey,
-      accountId,
-      peerType,
-      peerId,
-      accessHash,
-    }: FetchMessagesArgs) => {
+    async (args: FetchMessagesArgs) => {
+      const { chatKey, accountId, peerType, peerId, accessHash } = args;
+
+      const { platform, chatId: parsedChatId } = parseChatKey(chatKey);
+
       if (fullyLoadedByChat[chatKey]) return;
       if (loadingByChat[chatKey]) return;
 
       const current = messagesByChat[chatKey] ?? [];
+
+      // Якщо взагалі не було історії — робимо первинний fetch
       if (current.length === 0) {
         await fetchMessages({
-          chatKey,
-          accountId,
-          peerType,
-          peerId,
-          accessHash,
+          ...args,
+          platform: platform as "telegram" | "discord",
         });
         return;
       }
@@ -250,38 +319,98 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       setChatLoading(chatKey, true);
 
       try {
-        const response = (await telegramApi.getMessageHistory({
-          accountId,
-          peerType,
-          peerId,
-          accessHash,
-          limit: PAGE_SIZE,
-          offsetId: Number(offset),
-        })) as GetMessageHistoryResponse;
+        if (platform === "telegram") {
+          if (!peerType || peerId == null) {
+            setChatLoading(chatKey, false);
+            return;
+          }
 
-        const older = response.messages.map((m) => ({
-          ...m,
-          date: normalizeDateToISO(m.date),
-        }));
+          const response = (await telegramApi.getMessageHistory({
+            accountId: String(accountId),
+            peerType,
+            peerId,
+            accessHash,
+            limit: PAGE_SIZE,
+            offsetId: Number(offset),
+          })) as GetMessageHistoryResponse;
 
-        if (older.length === 0) {
-          setFullyLoadedByChat((prev) => ({ ...prev, [chatKey]: true }));
-          return;
+          const older = response.messages.map((m) => ({
+            ...m,
+            platform: "telegram" as const,
+            date: normalizeDateToISO(m.date),
+          })) as UnifiedMessage[];
+
+          if (older.length === 0) {
+            setFullyLoadedByChat((prev) => ({ ...prev, [chatKey]: true }));
+            return;
+          }
+
+          const merged = dedupe([
+            ...older,
+            ...current,
+          ] as UnifiedMessage[]).sort(sortAsc);
+
+          setMessagesByChat((prev) => ({ ...prev, [chatKey]: merged }));
+
+          setNextOffsetByChat((prev) => ({
+            ...prev,
+            [chatKey]: response.nextOffsetId ?? null,
+          }));
+
+          setFullyLoadedByChat((prev) => ({
+            ...prev,
+            [chatKey]: !response.nextOffsetId,
+          }));
+        } else if (platform === "discord") {
+          const effectiveChatId = parsedChatId;
+          if (!effectiveChatId) {
+            setChatLoading(chatKey, false);
+            return;
+          }
+
+          const { messages } = await discordApi.getHistory(
+            String(accountId),
+            String(effectiveChatId),
+            {
+              beforeMessageId: String(offset),
+              limit: PAGE_SIZE,
+            }
+          );
+
+          if (messages.length === 0) {
+            setFullyLoadedByChat((prev) => ({ ...prev, [chatKey]: true }));
+            return;
+          }
+
+          const older = messages.map((m: UnifiedDiscordMessage) => ({
+            ...m,
+            platform: "discord" as const,
+            accountId: String(accountId),
+            chatId: String(effectiveChatId),
+            messageId: String(m.messageId),
+            tempId: (m as any).tempId ?? null,
+            status: ((m as any).status as MessageStatus) ?? "sent",
+            date: normalizeDateToISO(m.date),
+          })) as UnifiedMessage[];
+
+          const merged = dedupe([
+            ...older,
+            ...current,
+          ] as UnifiedMessage[]).sort(sortAsc);
+
+          setMessagesByChat((prev) => ({ ...prev, [chatKey]: merged }));
+
+          const oldest = merged[0];
+          setNextOffsetByChat((prev) => ({
+            ...prev,
+            [chatKey]: oldest ? String(oldest.messageId) : null,
+          }));
+
+          setFullyLoadedByChat((prev) => ({
+            ...prev,
+            [chatKey]: messages.length === 0,
+          }));
         }
-
-        const merged = dedupe([...older, ...current]).sort(sortAsc);
-
-        setMessagesByChat((prev) => ({ ...prev, [chatKey]: merged }));
-
-        setNextOffsetByChat((prev) => ({
-          ...prev,
-          [chatKey]: response.nextOffsetId ?? null,
-        }));
-
-        setFullyLoadedByChat((prev) => ({
-          ...prev,
-          [chatKey]: !response.nextOffsetId,
-        }));
       } finally {
         setChatLoading(chatKey, false);
       }
@@ -292,6 +421,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       fullyLoadedByChat,
       nextOffsetByChat,
       fetchMessages,
+      setChatLoading,
     ]
   );
 
@@ -300,8 +430,8 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   /* --------------------------------------------------------- */
 
   const addOrUpdateMessage = useCallback(
-    (chatKey: string, msg: UnifiedTelegramMessage) => {
-      const normalized = {
+    (chatKey: string, msg: UnifiedMessage) => {
+      const normalized: UnifiedMessage = {
         ...msg,
         date: normalizeDateToISO(msg.date),
       };
@@ -309,7 +439,6 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       setMessagesByChat((prev) => {
         const current = prev[chatKey] ?? [];
 
-        // 1) If optimistic (tempId exists)
         if (msg.tempId) {
           const exists = current.some((m) => m.tempId === msg.tempId);
           if (exists) {
@@ -318,19 +447,24 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
             );
             return {
               ...prev,
-              [chatKey]: dedupe(updated).sort(sortAsc),
+              [chatKey]: dedupe(updated as UnifiedMessage[]).sort(sortAsc),
             };
           }
 
-          const merged = dedupe([...current, normalized]).sort(sortAsc);
+          const merged = dedupe([
+            ...current,
+            normalized,
+          ] as UnifiedMessage[]).sort(sortAsc);
           return { ...prev, [chatKey]: merged };
         }
 
-        // 2) If not optimistic → replace OR add
         const updated = current.map((m) =>
           String(m.messageId) === String(msg.messageId) ? normalized : m
         );
-        const merged = dedupe([...updated, normalized]).sort(sortAsc);
+        const merged = dedupe([
+          ...updated,
+          normalized,
+        ] as UnifiedMessage[]).sort(sortAsc);
 
         return { ...prev, [chatKey]: merged };
       });
@@ -397,23 +531,25 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
   const loading = Object.values(loadingByChat).some(Boolean);
 
   /* --------------------------------------------------------- */
-  /* SOCKET HANDLERS
-     The MOST IMPORTANT PART for stability
+  /* SOCKET HANDLERS — TELEGRAM + DISCORD
   --------------------------------------------------------- */
 
   useEffect(() => {
+    /* ---------------- TELEGRAM ---------------- */
+
     const handleNewMessage = (p: TelegramNewMessagePayload) => {
       if (p.platform !== "telegram") return;
       const chatKey = buildChatKey("telegram", p.accountId, p.chatId);
 
-      const raw = p.message;
-      const msg: UnifiedTelegramMessage = {
+      const raw = p.message as any;
+
+      const msg: UnifiedMessage = {
         ...raw,
         platform: "telegram",
         accountId: p.accountId,
         chatId: String(p.chatId),
         messageId: String(raw.messageId),
-        tempId: null,
+        tempId: raw.tempId ?? null,
         status: "sent",
         date: normalizeDateToISO(raw.date),
       };
@@ -429,11 +565,14 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
         const list = prev[chatKey];
         if (!list) return prev;
 
-        const real = p.message;
+        const real = p.message as any;
         const updated = list.map((m) =>
           m.tempId != null && String(m.tempId) === String(p.tempId)
             ? {
                 ...real,
+                platform: "telegram" as const,
+                accountId: p.accountId,
+                chatId: String(p.chatId),
                 status: "sent" as MessageStatus,
                 tempId: null,
                 date: normalizeDateToISO(real.date),
@@ -443,7 +582,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
         return {
           ...prev,
-          [chatKey]: dedupe(updated).sort(sortAsc),
+          [chatKey]: dedupe(updated as UnifiedMessage[]).sort(sortAsc),
         };
       });
     };
@@ -482,18 +621,98 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
       });
     };
 
+    /* ---------------- DISCORD ---------------- */
+
+    const handleDiscordNew = (p: any) => {
+      if (p.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", p.accountId, p.chatId);
+      const raw = p.message as any;
+
+      const msg: UnifiedMessage = {
+        ...raw,
+        platform: "discord",
+        accountId: String(p.accountId),
+        chatId: String(p.chatId),
+        messageId: String(raw.messageId),
+        tempId: raw.tempId ?? null,
+        status: (raw.status as MessageStatus) ?? "sent",
+        date: normalizeDateToISO(raw.date),
+      };
+
+      addOrUpdateMessage(chatKey, msg);
+    };
+
+    const handleDiscordEdited = (p: any) => {
+      if (p.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", p.accountId, p.chatId);
+      const updatedRaw = p.updated as any;
+
+      setMessagesByChat((prev) => {
+        const list = prev[chatKey];
+        if (!list) return prev;
+
+        const updatedList = list.map((m) =>
+          String(m.messageId) === String(p.messageId)
+            ? ({
+                ...m,
+                ...updatedRaw,
+                platform: "discord",
+                accountId: String(p.accountId),
+                chatId: String(p.chatId),
+                date: normalizeDateToISO(updatedRaw.date ?? m.date),
+                status: (updatedRaw.status as MessageStatus) ?? "sent",
+              } as UnifiedMessage)
+            : m
+        );
+
+        return {
+          ...prev,
+          [chatKey]: dedupe(updatedList as UnifiedMessage[]).sort(sortAsc),
+        };
+      });
+    };
+
+    const handleDiscordDeleted = (p: any) => {
+      if (p.platform !== "discord") return;
+
+      const chatKey = buildChatKey("discord", p.accountId, p.chatId);
+      const ids = new Set((p.messageIds ?? []).map((x: any) => String(x)));
+
+      setMessagesByChat((prev) => {
+        const list = prev[chatKey];
+        if (!list) return prev;
+
+        return {
+          ...prev,
+          [chatKey]: list.filter((m) => !ids.has(String(m.messageId))),
+        };
+      });
+    };
+
+    /* ---------------- SUBSCRIBE ---------------- */
+
     socketBus.on("telegram:new_message", handleNewMessage);
     socketBus.on("telegram:message_confirmed", handleConfirmed);
     socketBus.on("telegram:message_edited", handleEdited);
     socketBus.on("telegram:message_deleted", handleDeleted);
+
+    socketBus.on("discord:new_message", handleDiscordNew);
+    socketBus.on("discord:message_edited", handleDiscordEdited);
+    socketBus.on("discord:message_deleted", handleDiscordDeleted);
 
     return () => {
       socketBus.off("telegram:new_message", handleNewMessage);
       socketBus.off("telegram:message_confirmed", handleConfirmed);
       socketBus.off("telegram:message_edited", handleEdited);
       socketBus.off("telegram:message_deleted", handleDeleted);
+
+      socketBus.off("discord:new_message", handleDiscordNew);
+      socketBus.off("discord:message_edited", handleDiscordEdited);
+      socketBus.off("discord:message_deleted", handleDiscordDeleted);
     };
-  }, [addOrUpdateMessage]);
+  }, [addOrUpdateMessage, setMessagesByChat]);
 
   /* --------------------------------------------------------- */
 

@@ -1,5 +1,3 @@
-// backend/utils/discord/parseDiscordMessage.ts
-
 import {
   Message,
   Attachment,
@@ -11,43 +9,51 @@ import {
 import type {
   UnifiedDiscordMessage,
   UnifiedDiscordMessageType,
-  DiscordMedia,
+  UnifiedMedia,
+  UnifiedMediaKind,
 } from "../../types/discord.types";
 
-// NEW SIGNATURE: receives ONE object argument
+/* ============================================================
+   MAIN PARSER
+============================================================ */
+
 export function parseDiscordMessage(input: {
   message: Message;
-  accountId: string; // тут це botId
+  accountId: string;
   guildId: string;
   channelId: string;
   botUserId?: string | null;
 }): UnifiedDiscordMessage {
-  const { message: msg, accountId, botUserId } = input;
+  const { message: msg, accountId, guildId, botUserId } = input;
 
-  const attachments = Array.from(msg.attachments.values());
-  const embeds = Array.from(msg.embeds.values());
-
-  const type = detectDiscordMessageType(attachments, embeds, msg.content ?? "");
-
-  // THREAD CHECK
-  const chType = msg.channel.type;
+  /* ---------- THREAD ---------- */
   const isThread =
-    chType === ChannelType.PublicThread ||
-    chType === ChannelType.PrivateThread ||
-    chType === ChannelType.AnnouncementThread;
+    msg.channel.type === ChannelType.PublicThread ||
+    msg.channel.type === ChannelType.PrivateThread ||
+    msg.channel.type === ChannelType.AnnouncementThread;
 
   const thread = isThread ? (msg.channel as ThreadChannel) : null;
 
   const chatId = thread ? thread.id : msg.channelId;
   const parentChatId = thread?.parentId ?? null;
 
-  const isOutgoing = !!botUserId && msg.author?.id === botUserId ? true : false;
+  /* ---------- MEDIA ---------- */
+  const media: UnifiedMedia[] = [
+    ...mapAttachments(msg.attachments.values()),
+    ...mapEmbeds(msg.embeds),
+  ];
+
+  /* ---------- TYPE ---------- */
+  const type: UnifiedDiscordMessageType = resolveType(media, msg.content ?? "");
+
+  /* ---------- OUTGOING ---------- */
+  const isOutgoing = !!botUserId && msg.author?.id === botUserId;
 
   return {
     platform: "discord",
-    accountId, // == botId
+    accountId,
 
-    guildId: input.guildId,
+    guildId,
     chatId,
     parentChatId,
 
@@ -69,8 +75,7 @@ export function parseDiscordMessage(input: {
     type,
     text: msg.content ?? "",
 
-    media: mapAttachments(attachments),
-    embeds: mapEmbeds(embeds),
+    media: media.length ? media : null,
 
     ...(thread
       ? {
@@ -81,62 +86,85 @@ export function parseDiscordMessage(input: {
   };
 }
 
-function detectDiscordMessageType(
-  attachments: Attachment[],
-  embeds: Embed[],
-  content: string
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function resolveType(
+  media: UnifiedMedia[],
+  text: string
 ): UnifiedDiscordMessageType {
-  if (attachments.length > 0) {
-    const a = attachments[0]!;
-    const ct = a.contentType ?? "";
-
-    if (ct.startsWith("image/")) return "photo";
-    if (ct.startsWith("video/")) return "video";
-    return "file";
+  if (media.length > 0) {
+    return media[0]!.kind;
   }
 
-  if (embeds.length > 0) {
-    const e = embeds[0]!;
-    const url = e.url ?? "";
-
-    if (url.includes(".gif") || url.includes("gif")) {
-      return "gif";
-    }
-
-    return "link";
-  }
-
-  if (content.trim().length > 0) return "text";
+  if (text.trim().length > 0) return "text";
 
   return "unknown";
 }
 
-function mapAttachments(atts: Attachment[]): DiscordMedia[] | null {
-  if (atts.length === 0) return null;
+/* ---------- ATTACHMENTS ---------- */
 
-  return atts.map((a) => ({
-    id: a.id,
-    url: a.url,
-    fileName: a.name ?? null,
-    mimeType: a.contentType ?? null,
-    width: a.width ?? null,
-    height: a.height ?? null,
-  }));
+function mapAttachments(attachments: Iterable<Attachment>): UnifiedMedia[] {
+  const out: UnifiedMedia[] = [];
+
+  for (const a of attachments) {
+    const kind = detectAttachmentKind(a);
+
+    out.push({
+      id: a.id,
+      kind,
+      url: a.url,
+      fileName: a.name ?? null,
+      mimeType: a.contentType ?? null,
+      width: a.width ?? null,
+      height: a.height ?? null,
+      size: a.size ?? null,
+    });
+  }
+
+  return out;
 }
 
-function mapEmbeds(embeds: Embed[]): any[] | null {
-  if (embeds.length === 0) return null;
+function detectAttachmentKind(a: Attachment): UnifiedMediaKind {
+  const ct = a.contentType ?? "";
 
-  return embeds.map((e) => {
-    const url = e.url ?? null;
-    const isGif =
-      (url?.endsWith(".gif") ?? false) || (url?.includes("gif") ?? false);
+  if (ct.startsWith("image/")) return "photo";
+  if (ct.startsWith("video/")) return "video";
 
-    return {
+  return "file";
+}
+
+/* ---------- EMBEDS ---------- */
+
+function mapEmbeds(embeds: readonly Embed[]): UnifiedMedia[] {
+  const out: UnifiedMedia[] = [];
+
+  for (const e of embeds) {
+    let url: string | null = null;
+    let thumbnailUrl: string | null = null;
+
+    if (typeof e.url === "string") {
+      url = e.url;
+    } else if (e.image && typeof e.image.url === "string") {
+      url = e.image.url;
+    }
+
+    if (e.thumbnail && typeof e.thumbnail.url === "string") {
+      thumbnailUrl = e.thumbnail.url;
+    }
+
+    if (!url) continue;
+
+    const isGif = url.endsWith(".gif") || url.includes("gif");
+
+    out.push({
+      id: `embed:${url}`,
+      kind: isGif ? "gif" : "link",
       url,
-      title: e.title ?? null,
-      description: e.description ?? null,
-      type: isGif ? "gif" : "link",
-    };
-  });
+      thumbnailUrl,
+    });
+  }
+
+  return out;
 }

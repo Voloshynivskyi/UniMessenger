@@ -1,9 +1,9 @@
 // frontend/src/pages/inbox/chat/MessageBubble.tsx
 import React, { useMemo } from "react";
 import { Box, Typography } from "@mui/material";
-import MediaRenderer from "./MediaRenderer";
-import MessageTimestamp from "./MessageTimestamp";
-import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import MediaRenderer from "./TelegramMediaRenderer";
+import MessageTimestamp from "../MessageTimestamp";
+import type { UnifiedTelegramMessage } from "../../../../types/telegram.types";
 
 interface Props {
   message: UnifiedTelegramMessage;
@@ -39,7 +39,7 @@ function parseLinks(text: string) {
   });
 }
 
-function MessageBubbleBase({ message, isSelf }: Props) {
+function TelegramMessageBubbleBase({ message, isSelf }: Props) {
   const hasMedia = !!message.media && message.type !== "text";
   const hasText = !!message.text?.trim();
 
@@ -105,7 +105,7 @@ function MessageBubbleBase({ message, isSelf }: Props) {
  * React.memo — prevents bubble re-render
  * if key fields haven't changed.
  */
-export default React.memo(MessageBubbleBase, (prev, next) => {
+export default React.memo(TelegramMessageBubbleBase, (prev, next) => {
   return (
     prev.message.messageId === next.message.messageId &&
     prev.message.date === next.message.date &&

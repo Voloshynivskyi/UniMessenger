@@ -242,28 +242,27 @@ export default function DiscordDebugPage() {
           Add Bot
         </Button>
 
-        {bots.map((b) => (
-          <ListItemButton
-            key={b.id}
-            selected={selectedBotId === b.id}
-            onClick={() => {
-              setSelectedBotId(b.id);
-              setSelectedChatId("");
-              setHistory([]);
-            }}
-          >
-            <ListItemText
-              primary={b.botUsername || "Bot"}
-              secondary={`Bot ID: ${b.id}`}
-            />
+{bots.map((b) => (
+  <ListItemButton
+    key={b.id}
+    selected={selectedBotId === b.id}
+    onClick={() => {
+      setSelectedBotId(b.id);
+      setSelectedChatId("");
+      setHistory([]);
+    }}
+  >
+    <ListItemText
+      primary={b.botUsername || "Bot"}
+      secondary={`Bot ID: ${b.id}`}
+    />
 
-            <Button onClick={() => inviteBotToServer(b)}>➕</Button>
-            <Button onClick={() => refreshBotGuilds(b.id)}>↻</Button>
-            <Button color="error" onClick={() => deactivateBot(b.id)}>
-              X
-            </Button>
-          </ListItemButton>
-        ))}
+    <Button onClick={() => inviteBotToServer(b)}>➕</Button>
+    <Button onClick={() => refreshBotGuilds(b.id)}>↻</Button>
+    <Button color="error" onClick={() => deactivateBot(b.id)}>X</Button>
+  </ListItemButton>
+))}
+
 
         <Divider sx={{ my: 2 }} />
 

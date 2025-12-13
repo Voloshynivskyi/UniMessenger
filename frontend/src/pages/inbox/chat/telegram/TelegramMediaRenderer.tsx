@@ -1,23 +1,23 @@
-// frontend/src/pages/inbox/chat/MediaRenderer.tsx
+// frontend/src/pages/inbox/chat/telegram/TelegramMediaRenderer.tsx
 
 import { Box, Typography } from "@mui/material";
 import { useRef, useState } from "react";
-import { useAuth } from "../../../context/AuthContext";
-import type { UnifiedTelegramMessage } from "../../../types/telegram.types";
+import { useAuth } from "../../../../context/AuthContext";
+import type { UnifiedTelegramMessage } from "../../../../types/telegram.types";
 import Skeleton from "@mui/material/Skeleton";
 
-import RoundVideoNote from "./RoundVideoNote";
-import MediaViewerModal from "./MediaViewerModal";
-import LoadingSpinner from "../../../components/common/LoadingSpinner";
-import { useMediaBlob } from "../../../hooks/useMediaBlob";
-import MessageTimestamp from "./MessageTimestamp";
+import RoundVideoNote from "./TelegramRoundVideoNote";
+import MediaViewerModal from "./TelegramMediaViewerModal";
+import LoadingSpinner from "../../../../components/common/LoadingSpinner";
+import { useMediaBlob } from "../../../../hooks/useMediaBlob";
+import MessageTimestamp from "../MessageTimestamp";
 
 interface Props {
   message: UnifiedTelegramMessage;
   showTimestampOverlay?: boolean;
 }
 
-export default function MediaRenderer({
+export default function TelegramMediaRenderer({
   message,
   showTimestampOverlay = true,
 }: Props) {

@@ -2,7 +2,7 @@
 
 import { Box, Typography } from "@mui/material";
 
-export default function ServiceMessage({ text }: { text: string }) {
+export default function TelegramServiceMessage({ text }: { text: string }) {
   return (
     <Box
       sx={{
