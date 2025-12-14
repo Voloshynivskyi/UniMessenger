@@ -1,11 +1,9 @@
 // backend/realtime/events.ts
 
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
-
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
 // Base / common
-
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -15,15 +13,12 @@ export interface BaseRealtimePayload {
 }
 
 // TELEGRAM realtime payloads
-
-// NEW MESSAGE
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
   message: UnifiedTelegramMessage;
 }
 
-// EDITED MESSAGE
 export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -39,7 +34,6 @@ export interface TelegramMessageEditedPayload extends BaseRealtimePayload {
   updated?: UnifiedTelegramMessage;
 }
 
-// TYPING
 export interface TelegramTypingPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -48,14 +42,12 @@ export interface TelegramTypingPayload extends BaseRealtimePayload {
   isTyping: boolean;
 }
 
-// DELETED
 export interface TelegramMessageDeletedPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
   messageIds: string[];
 }
 
-// READ UPDATED
 export interface TelegramReadUpdatesPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -63,13 +55,11 @@ export interface TelegramReadUpdatesPayload extends BaseRealtimePayload {
   direction?: "inbox" | "outbox";
 }
 
-// ACCOUNT STATUS
 export interface TelegramAccountStatusPayload extends BaseRealtimePayload {
   platform: "telegram";
   status: "online" | "offline" | "away" | "recently" | "hidden";
 }
 
-// VIEWS
 export interface TelegramMessageViewPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -77,7 +67,6 @@ export interface TelegramMessageViewPayload extends BaseRealtimePayload {
   views: number;
 }
 
-// PINNED
 export interface TelegramPinnedMessagesPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -85,7 +74,6 @@ export interface TelegramPinnedMessagesPayload extends BaseRealtimePayload {
   pinned: boolean;
 }
 
-// ERROR
 export interface TelegramErrorPayload extends BaseRealtimePayload {
   platform: "telegram";
   code: number;
@@ -94,7 +82,6 @@ export interface TelegramErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
-// MESSAGE CONFIRMED (optimistic → real)
 export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   platform: "telegram";
   chatId: string;
@@ -103,27 +90,20 @@ export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
 }
 
 // DISCORD realtime payloads
-
-// NEW MESSAGE
 export interface DiscordNewMessagePayload extends BaseRealtimePayload {
   platform: "discord";
-  /** Text channel ID or thread ID */
   chatId: string;
   message: UnifiedDiscordMessage;
 }
 
-// EDITED MESSAGE
 export interface DiscordMessageEditedPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
   messageId: string;
-  /** Optional, because edit can be only media/embeds */
   newText?: string | null;
-
   updated?: UnifiedDiscordMessage;
 }
 
-// TYPING
 export interface DiscordTypingPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
@@ -132,14 +112,12 @@ export interface DiscordTypingPayload extends BaseRealtimePayload {
   isTyping: boolean;
 }
 
-// DELETED
 export interface DiscordMessageDeletedPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
   messageIds: string[];
 }
 
-// MESSAGE CONFIRMED (for optimistic-UI when we send via REST)
 export interface DiscordMessageConfirmedPayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
@@ -147,7 +125,6 @@ export interface DiscordMessageConfirmedPayload extends BaseRealtimePayload {
   message: UnifiedDiscordMessage;
 }
 
-// ERROR
 export interface DiscordErrorPayload extends BaseRealtimePayload {
   platform: "discord";
   code: number;
@@ -156,8 +133,13 @@ export interface DiscordErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
-// Server → Client events
+// ✅ SCHEDULER realtime payloads
+export interface SchedulerPostUpdatedPayload {
+  postId: string;
+  timestamp: string;
+}
 
+// Server → Client events
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
   "system:pong": () => void;
@@ -180,14 +162,14 @@ export interface ServerToClientEvents {
   "discord:message_deleted": (data: DiscordMessageDeletedPayload) => void;
   "discord:message_confirmed": (data: DiscordMessageConfirmedPayload) => void;
 
-  // Generic system error (can use any payload)
+  // ✅ Scheduler
+  "scheduler:post_updated": (data: SchedulerPostUpdatedPayload) => void;
+
+  // System
   "system:error": (data: TelegramErrorPayload | DiscordErrorPayload) => void;
 }
 
 // Client → Server events
-
-// Telegram payloads
-
 export interface TelegramTypingStartPayload {
   accountId: string;
   chatId: string;
@@ -210,11 +192,8 @@ export interface TelegramMarkAsReadPayload {
   accessHash?: string;
 }
 
-// Discord payloads
-
 export interface DiscordTypingStartPayload {
   accountId: string;
-  /** text channel ID або thread ID */
   chatId: string;
 }
 
@@ -223,11 +202,6 @@ export interface DiscordTypingStopPayload {
   chatId: string;
 }
 
-/**
- * Discord doesn't have proper per-user read indicators, but
- * we keep this structure for the future, so UI can call such event
- * if we decide to implement "local read statuses".
- */
 export interface DiscordMarkAsReadPayload {
   accountId: string;
   chatId: string;

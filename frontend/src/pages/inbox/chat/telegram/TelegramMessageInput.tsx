@@ -171,7 +171,7 @@ export default function TelegramMessageInput({
         fileName: file.name,
         size: file.size,
         duration: durationSec,
-        // waveform підтягнеться з реального апдейту
+        // waveform will be pulled from real update
       },
       date: nowIso,
     });

@@ -25,6 +25,7 @@ import LoginIcon from "@mui/icons-material/Login";
 import GroupWorkIcon from "@mui/icons-material/GroupWork";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@mui/material/styles";
 import { useAuth } from "../../../context/AuthContext";
@@ -57,6 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { text: "Accounts", icon: <GroupWorkIcon />, path: "/accounts" },
     { text: "Profile", icon: <AccountCircleIcon />, path: "/profile" },
     { text: "Settings", icon: <SettingsIcon />, path: "/settings" },
+    { text: "Scheduler", icon: <CalendarMonthIcon />, path: "/scheduler" },
   ];
 
   const TitleBar = (

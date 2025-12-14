@@ -340,7 +340,7 @@ export class DiscordService {
       botUserId,
     });
 
-    // окремого confirm можна не надсилати, бо прийде message_edited з gateway
+    // No need to send separate confirm, as message_edited will come from gateway
     getSocketGateway().emitToUser(userId, "discord:message_edited_confirmed", {
       platform: "discord",
       accountId: botId,

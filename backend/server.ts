@@ -16,9 +16,16 @@ import authRoutes from "./routes/auth";
 import meRoutes from "./routes/me";
 import telegramRoutes from "./routes/telegram";
 import discordRoutes from "./routes/discord";
-import { discordClientManager } from "./services/discord/discordClientManager";
+import schedulerRoutes from "./routes/scheduler";
 import { createSocketServer } from "./realtime/socketServer";
 import { clearLog } from "./utils/debugLogger";
+import {
+  startSchedulerWorker,
+  stopSchedulerWorker,
+} from "./services/scheduler/schedulerWorker";
+import telegramClientManager from "./services/telegram/telegramClientManager";
+import { logger } from "./utils/logger";
+
 clearLog();
 dotenv.config();
 
@@ -49,6 +56,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/telegram", telegramRoutes);
 app.use("/api/discord", discordRoutes);
+app.use("/api/scheduler", schedulerRoutes);
 
 /**
  * Unified fallback route
@@ -56,6 +64,7 @@ app.use("/api/discord", discordRoutes);
 app.use((req, res) => {
   res.status(404).json({ status: "error", message: "Route not found" });
 });
+
 /**
  * Global error handler
  */
@@ -69,22 +78,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 /** Start server and Socket.IO */
-import telegramClientManager from "./services/telegram/telegramClientManager";
-import { discordService } from "./services/discord/discordService";
-import { logger } from "./utils/logger";
 const { server } = createSocketServer(app);
-
 const PORT = process.env.PORT || 7007;
 
 (async () => {
-  // 1️⃣ Ensure global Discord bot exists in DB + is attached
-  try {
-    logger.info("Global Discord bot ensured.");
-  } catch (err) {
-    logger.error("❌ Failed to ensure global Discord bot", { err });
-  }
-
-  // 2️⃣ Restore Telegram clients
+  // 1) Restore Telegram clients
   try {
     logger.info("Restoring active Telegram clients...");
     await telegramClientManager.restoreActiveClients();
@@ -93,28 +91,34 @@ const PORT = process.env.PORT || 7007;
     logger.error("Failed to restore Telegram clients:", { err });
   }
 
-  // 3️⃣ Restore Discord bot accounts from DB
+  // 2) Restore Discord clients — TODO (поки заглушка)
   try {
     logger.info("Discord clients restored successfully.");
   } catch (err) {
     logger.error("Failed to restore Discord clients:", { err });
   }
 
-  // 4️⃣ Start Express + Socket.IO
+  // 3) Start scheduler worker
+  startSchedulerWorker();
+
+  // 4) Start Express + Socket.IO
   server.listen(PORT, () => {
     logger.info(`Express + Socket.IO running on http://localhost:${PORT}`);
   });
 })();
 
 /** Graceful shutdown */
-process.on("SIGINT", async () => {
-  logger.info("SIGINT received. Closing database connection.");
-  await prisma.$disconnect();
-  process.exit(0);
-});
+async function shutdown(signal: string) {
+  try {
+    logger.info(`${signal} received. Shutting down...`);
+    stopSchedulerWorker();
+    await prisma.$disconnect();
+    server.close(() => process.exit(0));
+  } catch (e) {
+    logger.error("Shutdown failed", { e });
+    process.exit(1);
+  }
+}
 
-process.on("SIGTERM", async () => {
-  logger.info("SIGTERM received. Closing database connection.");
-  await prisma.$disconnect();
-  process.exit(0);
-});
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

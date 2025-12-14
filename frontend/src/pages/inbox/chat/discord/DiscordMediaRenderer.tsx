@@ -12,8 +12,8 @@ interface Props {
 }
 
 /**
- * Discord: media.url вже CDN і доступний напряму.
- * Тому тут НЕ потрібні useMediaBlob / token / protected routes.
+ * Discord: media.url is already a CDN and directly accessible.
+ * Therefore useMediaBlob / token / protected routes are not needed here.
  */
 export default function DiscordMediaRenderer({ message }: Props) {
   const media = message.media ?? null;

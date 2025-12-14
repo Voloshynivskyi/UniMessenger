@@ -1,3 +1,4 @@
+// frontend/src/pages/inbox/chat/ChatWindow.tsx
 import { Box, Typography } from "@mui/material";
 import { useUnifiedDialogs } from "../../../context/UnifiedDialogsContext";
 import { parseChatKey } from "../utils/chatUtils";

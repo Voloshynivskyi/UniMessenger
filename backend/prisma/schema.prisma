@@ -1,4 +1,3 @@
-// backend/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,12 +6,6 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
-//
-// ─────────────────────────────────────────────
-//   USER
-// ─────────────────────────────────────────────
-//
 
 model User {
   id           String   @id @default(cuid())
@@ -23,14 +16,11 @@ model User {
   isLoggedIn   Boolean  @default(false)
 
   telegramAccounts TelegramAccount[]
-  discordBots      DiscordBot[]  // Each user can have their own bot
-}
+  discordBots      DiscordBot[]
 
-//
-// ─────────────────────────────────────────────
-//   TELEGRAM (без змін)
-// ─────────────────────────────────────────────
-//
+  // ✅ FIX: opposite relation
+  scheduledPosts   ScheduledPost[]
+}
 
 model TelegramAccount {
   id          String   @id @default(cuid())
@@ -94,28 +84,25 @@ model TelegramUserCache {
   @@unique([accountId, userId])
 }
 
-// DISCORD
-
 model DiscordBot {
-  id          String   @id @default(cuid())
-  userId      String
+  id            String   @id @default(cuid())
+  userId        String
 
-  botToken    String   @unique
-  botUserId   String   @unique   // ← БІЛЬШЕ НЕ NULL
-  botUsername String?
-  applicationId String? 
-  isActive    Boolean  @default(true)
+  botToken      String   @unique
+  botUserId     String   @unique
+  botUsername   String?
+  applicationId String?
+  isActive      Boolean  @default(true)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  guilds      DiscordBotGuild[]
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guilds        DiscordBotGuild[]
 
   @@index([userId])
 }
 
-// Servers where this bot is located
 model DiscordBotGuild {
   id        String   @id @default(cuid())
   botId     String
@@ -128,4 +115,71 @@ model DiscordBotGuild {
 
   @@unique([botId, guildId])
   @@index([botId])
+}
+
+// ─────────────────────────────────────────────
+//   SCHEDULER
+// ─────────────────────────────────────────────
+
+enum ScheduledPostStatus {
+  draft
+  scheduled
+  sending
+  sent
+  failed
+  canceled
+}
+
+enum ScheduledTargetStatus {
+  pending
+  sent
+  failed
+}
+
+enum ScheduledPlatform {
+  telegram
+  discord
+}
+
+model ScheduledPost {
+  id           String              @id @default(cuid())
+  userId       String
+  text         String
+  scheduledAt  DateTime
+  status       ScheduledPostStatus @default(scheduled)
+  lastError    String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targets      ScheduledPostTarget[]
+
+  @@index([userId])
+  @@index([scheduledAt])
+  @@index([status])
+}
+
+model ScheduledPostTarget {
+  id        String @id @default(cuid())
+  postId    String
+  platform  ScheduledPlatform
+  status    ScheduledTargetStatus @default(pending)
+  lastError String?
+
+  // Telegram
+  telegramAccountId String?
+  peerType          String?
+  peerId            String?
+  accessHash        String?
+
+  // Discord
+  discordBotId String?
+  channelId    String?
+  threadId     String?
+
+  post ScheduledPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([platform])
 }

@@ -1,9 +1,10 @@
-// frontend/src/pages/inbox/InboxDiscordSection.tsx
+// frontend/src/pages/scheduler/components/composer/SchedulerDiscordSection.tsx
 import React, { useState } from "react";
 import { Box, Typography, Divider, IconButton, Collapse } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import InboxDiscordChatItem from "./InboxDiscordChatItem";
-import { buildChatKey } from "./utils/chatUtils";
+import SchedulerDiscordChatItem from "./SchedulerDiscordChatItem";
+import { buildChatKey } from "../../../inbox/utils/chatUtils";
+import type { ChatTarget } from "./types";
 
 interface DiscordThread {
   chatId: string;
@@ -33,14 +34,14 @@ interface DiscordBotDialogs {
 
 interface Props {
   bot: DiscordBotDialogs;
-  selectedChatKey: string | null;
-  onSelectChat: (key: string) => void;
+  selectedKeys: Set<string>;
+  onToggle: (t: ChatTarget) => void;
 }
 
-const InboxDiscordSection: React.FC<Props> = ({
+const SchedulerDiscordSection: React.FC<Props> = ({
   bot,
-  selectedChatKey,
-  onSelectChat,
+  selectedKeys,
+  onToggle,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -57,7 +58,7 @@ const InboxDiscordSection: React.FC<Props> = ({
           userSelect: "none",
         }}
       >
-        <Typography sx={{ flex: 1, fontWeight: 700 }}>
+        <Typography sx={{ flex: 1, fontWeight: 700 }} noWrap>
           🤖 {bot.botUsername ?? "Discord bot"}
         </Typography>
 
@@ -74,8 +75,7 @@ const InboxDiscordSection: React.FC<Props> = ({
 
       <Collapse in={!collapsed} unmountOnExit>
         {bot.guilds.map((guild) => (
-          <Box key={guild.guildId} sx={{ ml: 1, mb: 1 }}>
-            {/* GUILD */}
+          <Box key={guild.guildId} sx={{ ml: 1, mb: 1, overflowX: "hidden" }}>
             <Typography
               variant="caption"
               sx={{
@@ -84,30 +84,36 @@ const InboxDiscordSection: React.FC<Props> = ({
                 mb: 0.5,
                 display: "block",
               }}
+              noWrap
             >
               {guild.guildName ?? "Unknown server"}
             </Typography>
 
-            {/* CHANNELS */}
             {guild.channels.map((ch) => {
               const channelKey = buildChatKey("discord", bot.botId, ch.chatId);
               const isForum = ch.discordType === "forum";
 
+              const channelTarget: ChatTarget = {
+                targetKey: channelKey,
+                platform: "discord",
+                accountId: bot.botId,
+                chatId: String(ch.chatId),
+                title: `# ${ch.name}`,
+              };
+
               return (
-                <Box key={ch.chatId}>
-                  {/* CHANNEL */}
-                  <InboxDiscordChatItem
+                <Box key={ch.chatId} sx={{ overflowX: "hidden" }}>
+                  <SchedulerDiscordChatItem
                     title={ch.name}
-                    isSelected={selectedChatKey === channelKey}
+                    isSelected={selectedKeys.has(channelKey)}
                     disabled={isForum}
                     isForum={isForum}
                     onClick={() => {
                       if (isForum) return;
-                      onSelectChat(channelKey);
+                      onToggle(channelTarget);
                     }}
                   />
 
-                  {/* THREADS */}
                   {ch.threads?.map((t) => {
                     const threadKey = buildChatKey(
                       "discord",
@@ -115,13 +121,21 @@ const InboxDiscordSection: React.FC<Props> = ({
                       t.chatId
                     );
 
+                    const threadTarget: ChatTarget = {
+                      targetKey: threadKey,
+                      platform: "discord",
+                      accountId: bot.botId,
+                      chatId: String(t.chatId),
+                      title: t.name,
+                    };
+
                     return (
-                      <InboxDiscordChatItem
+                      <SchedulerDiscordChatItem
                         key={t.chatId}
                         title={t.name}
-                        isSelected={selectedChatKey === threadKey}
+                        isSelected={selectedKeys.has(threadKey)}
                         isThread
-                        onClick={() => onSelectChat(threadKey)}
+                        onClick={() => onToggle(threadTarget)}
                       />
                     );
                   })}
@@ -137,4 +151,4 @@ const InboxDiscordSection: React.FC<Props> = ({
   );
 };
 
-export default InboxDiscordSection;
+export default SchedulerDiscordSection;

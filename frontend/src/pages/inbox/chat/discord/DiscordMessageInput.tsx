@@ -17,8 +17,8 @@ export default function DiscordMessageInput({
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // у тебе chatKey типу "discord:<botId>:<chatId>" або подібне
-  // ти вже використовував split(":")[1] — залишаю так само.
+  // chatKey has format "discord:<botId>:<chatId>"
+  // Extract botId using split
   const botId = chatKey.split(":")[1];
 
   const pickFile = () => fileInputRef.current?.click();

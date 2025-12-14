@@ -148,7 +148,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
     Record<string, boolean>
   >({});
 
-  // offsetId (telegram) або beforeMessageId (discord)
+  // offsetId (telegram) or beforeMessageId (discord)
   const [nextOffsetByChat, setNextOffsetByChat] = useState<
     Record<string, number | string | null>
   >({});
@@ -301,7 +301,7 @@ export const UnifiedMessagesProvider: React.FC<{ children: ReactNode }> = ({
 
       const current = messagesByChat[chatKey] ?? [];
 
-      // Якщо взагалі не було історії — робимо первинний fetch
+      // If there is no history at all - do initial fetch
       if (current.length === 0) {
         await fetchMessages({
           ...args,

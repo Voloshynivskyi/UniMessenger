@@ -1,4 +1,4 @@
-// frontend/src/pages/inbox/chat/ServiceMessage.tsx
+// frontend/src/pages/inbox/chat/telegram/TelegramServiceMessage.tsx
 
 import { Box, Typography } from "@mui/material";
 

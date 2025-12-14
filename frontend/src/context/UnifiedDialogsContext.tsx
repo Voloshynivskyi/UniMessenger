@@ -163,13 +163,13 @@ interface DiscordBotDialogs {
 }
 
 interface UnifiedDialogsContextType {
-  /* Telegram + Discord чати (уніфікований список, зараз для сайдбару використовується тільки Telegram) */
+  /* Telegram + Discord chats (unified list, currently only Telegram used for sidebar) */
   chatsByAccount: Record<string, Record<string, UnifiedChat>>;
 
-  /* Typing по всіх платформах (ключ — chatKey) */
+  /* Typing across all platforms (key is chatKey) */
   typingByChat: Record<string, { users: { id: string; name: string }[] }>;
 
-  /* Поточно вибраний чат (telegram:acc:chat або discord:botId:channelId) */
+  /* Currently selected chat (telegram:acc:chat or discord:botId:channelId) */
   selectedChatKey: string | null;
 
   loading: boolean;
@@ -237,8 +237,8 @@ export const UnifiedDialogsProvider = ({
   const { accounts } = useTelegram();
 
   /* ============================================================
-   * При виборі Telegram-чату тригеримо read-updates на бек
-   * (для Discord тут нічого не робимо)
+   * When selecting Telegram chat trigger read-updates to backend
+   * (for Discord we do nothing here)
    * ============================================================ */
   useEffect(() => {
     if (!selectedChatKey) return;
@@ -263,7 +263,7 @@ export const UnifiedDialogsProvider = ({
    * ============================================================ */
   useEffect(() => {
     if (!accounts?.length) {
-      // Telegram акаунтів немає — але Discord все одно може працювати
+      // No Telegram accounts - but Discord can still work
     }
 
     /* ------------------- TELEGRAM EVENTS ------------------- */
@@ -783,7 +783,7 @@ export const UnifiedDialogsProvider = ({
     accountId: string
   ) => {
     if (!accountId) return;
-    if (platform !== "telegram") return; // Discord dialogs тягнемо окремо
+    if (platform !== "telegram") return; // Discord dialogs are fetched separately
 
     try {
       setLoading(true);

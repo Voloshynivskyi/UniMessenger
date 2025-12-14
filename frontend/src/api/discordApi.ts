@@ -80,10 +80,10 @@ export const discordApi = {
   /**
    * SEND FILE (multipart/form-data)
    *
-   * ⚠️ ВАЖЛИВО:
-   * - НЕ ставимо Content-Type вручну
-   * - apiClient (axios) сам виставить boundary
-   * - поле "file" має збігатись з multer.single("file") на бекенді
+   * IMPORTANT:
+   * - Do NOT set Content-Type manually
+   * - apiClient (axios) will set boundary automatically
+   * - "file" field must match multer.single("file") on backend
    */
   async sendFile(botId: string, chatId: string, file: File, caption?: string) {
     const form = new FormData();
@@ -95,12 +95,12 @@ export const discordApi = {
       form.append("caption", caption);
     }
 
-    // ключове поле — має відповідати multer.single("file")
+    // Key field - must match multer.single("file")
     form.append("file", file, file.name);
 
     const res = await apiClient.post("/api/discord/sendFile", form, {
-      // ❗ НІЯКИХ headers тут не треба
-      // axios сам поставить multipart/form-data + boundary
+      // No headers needed here
+      // axios will set multipart/form-data + boundary automatically
     });
 
     return handleApiResponse<{ message: UnifiedDiscordMessage }>(res);

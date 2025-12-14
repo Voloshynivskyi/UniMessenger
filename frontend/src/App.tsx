@@ -1,8 +1,3 @@
-/**
- * frontend/src/App.tsx
- * Main application component with routing configuration
- */
-
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/layout/Layout";
@@ -14,10 +9,12 @@ import LoginPage from "./pages/auth/login/LoginPage";
 import RegisterPage from "./pages/auth/register/RegisterPage";
 import ProfilePage from "./pages/profile/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
-import DiscordDebugPage from "./pages/DiscordDebugPage";
-const App: React.FC = () => {
-  //useTelegramSocket(); // for testing Telegram real-time updates
 
+import SchedulerLayout from "./pages/scheduler/SchedulerLayout";
+import SchedulerDashboardPage from "./pages/scheduler/pages/SchedulerDashboardPage";
+import SchedulerComposerPage from "./pages/scheduler/pages/SchedulerComposerPage";
+
+const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
@@ -29,8 +26,10 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
+
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
+
         <Route
           path="inbox"
           element={
@@ -51,8 +50,7 @@ const App: React.FC = () => {
           path="settings"
           element={
             <ProtectedRoute>
-              {/*<SettingsPage />*/}
-              <DiscordDebugPage />
+              <SettingsPage />
             </ProtectedRoute>
           }
         />
@@ -64,6 +62,20 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* Scheduler module */}
+        <Route
+          path="scheduler"
+          element={
+            <ProtectedRoute>
+              <SchedulerLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<SchedulerDashboardPage />} />
+          <Route path="compose" element={<SchedulerComposerPage />} />
+        </Route>
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
