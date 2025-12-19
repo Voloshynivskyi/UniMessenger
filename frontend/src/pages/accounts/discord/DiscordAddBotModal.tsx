@@ -5,6 +5,7 @@ import {
   DialogContent,
   TextField,
   Button,
+  Box,
 } from "@mui/material";
 import { useDiscordBots } from "../../../context/DiscordBotsContext";
 
@@ -28,17 +29,27 @@ const DiscordAddBotModal: React.FC<Props> = ({ open, onClose, onComplete }) => {
 
   return (
     <Dialog open={open} onClose={onClose}>
-      <DialogTitle>Add Discord Bot</DialogTitle>
-      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <TextField
-          label="Bot Token"
-          fullWidth
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-        <Button variant="contained" onClick={handleAdd}>
-          Add Bot
-        </Button>
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        Add Discord Bot
+      </DialogTitle>
+
+      <DialogContent>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+          <TextField
+            label="Bot Token"
+            fullWidth
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+
+          <Button
+            variant="contained"
+            onClick={handleAdd}
+            disabled={!token.trim()}
+          >
+            Add Bot
+          </Button>
+        </Box>
       </DialogContent>
     </Dialog>
   );

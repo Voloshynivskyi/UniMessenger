@@ -2,10 +2,6 @@ import apiClient from "./apiClient";
 import { handleApiResponse } from "./handleApiResponse";
 import type { SchedulerPost } from "../pages/scheduler/components/list/listUtils";
 
-/* ─────────────────────────────────────────────
-   TYPES
-───────────────────────────────────────────── */
-
 export type SchedulerPostStatus = SchedulerPost["status"];
 
 export interface SchedulerPostDTO {
@@ -33,10 +29,6 @@ export interface SchedulerPostDetailsDTO {
   targets: SchedulerPostTargetDTO[];
 }
 
-/* ─────────────────────────────────────────────
-   MAPPERS
-───────────────────────────────────────────── */
-
 function toUI(dto: SchedulerPostDTO): SchedulerPost {
   return {
     id: dto.id,
@@ -46,10 +38,6 @@ function toUI(dto: SchedulerPostDTO): SchedulerPost {
     targetsCount: dto.targetsCount,
   };
 }
-
-/* ─────────────────────────────────────────────
-   API
-───────────────────────────────────────────── */
 
 export const schedulerApi = {
   async listPosts(params: {

@@ -1,13 +1,12 @@
 // frontend/src/pages/inbox/InboxDiscordChatItem.tsx
 import React from "react";
-import { ListItemButton, Typography, Box } from "@mui/material";
+import { ListItemButton, Typography } from "@mui/material";
 
 interface Props {
   title: string;
   isSelected: boolean;
   onClick: () => void;
   disabled?: boolean;
-  isForum?: boolean;
   isThread?: boolean;
 }
 
@@ -16,7 +15,6 @@ const InboxDiscordChatItem: React.FC<Props> = ({
   isSelected,
   onClick,
   disabled = false,
-  isForum = false,
   isThread = false,
 }) => {
   return (
@@ -40,18 +38,16 @@ const InboxDiscordChatItem: React.FC<Props> = ({
         },
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Typography
-          variant="body2"
-          noWrap
-          sx={{
-            fontWeight: isThread ? 400 : 500,
-            fontSize: isThread ? "0.8rem" : "0.85rem",
-          }}
-        >
-          {isForum ? "🗂" : isThread ? "🧵" : "#"} {title}
-        </Typography>
-      </Box>
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{
+          fontWeight: isThread ? 400 : 500,
+          fontSize: isThread ? "0.8rem" : "0.85rem",
+        }}
+      >
+        {title}
+      </Typography>
     </ListItemButton>
   );
 };

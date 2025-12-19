@@ -18,7 +18,6 @@ model User {
   telegramAccounts TelegramAccount[]
   discordBots      DiscordBot[]
 
-  // ✅ FIX: opposite relation
   scheduledPosts   ScheduledPost[]
 }
 
@@ -40,7 +39,10 @@ model TelegramAccount {
 
   messageIndex TelegramMessageIndex[]
   userCache    TelegramUserCache[]
+
+  scheduledTargets ScheduledPostTarget[]
 }
+
 
 model TelegramSession {
   id            String   @id @default(cuid())
@@ -54,8 +56,7 @@ model TelegramSession {
 model TelegramMessageIndex {
   id        String   @id @default(uuid())
   accountId String
-  account   TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
-
+  account   TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   messageId String
   chatId    String
   date      DateTime?
@@ -117,10 +118,6 @@ model DiscordBotGuild {
   @@index([botId])
 }
 
-// ─────────────────────────────────────────────
-//   SCHEDULER
-// ─────────────────────────────────────────────
-
 enum ScheduledPostStatus {
   draft
   scheduled
@@ -167,13 +164,13 @@ model ScheduledPostTarget {
   status    ScheduledTargetStatus @default(pending)
   lastError String?
 
-  // Telegram
   telegramAccountId String?
-  peerType          String?
-  peerId            String?
-  accessHash        String?
+  telegramAccount   TelegramAccount? @relation(fields: [telegramAccountId], references: [id], onDelete: Cascade)
 
-  // Discord
+  peerType   String?
+  peerId     String?
+  accessHash String?
+
   discordBotId String?
   channelId    String?
   threadId     String?
@@ -183,3 +180,4 @@ model ScheduledPostTarget {
   @@index([postId])
   @@index([platform])
 }
+

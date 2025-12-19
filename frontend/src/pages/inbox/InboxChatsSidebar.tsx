@@ -6,7 +6,6 @@ import { useTelegram } from "../../context/TelegramAccountContext";
 import { useUnifiedDialogs } from "../../context/UnifiedDialogsContext";
 import InboxAccountSection from "./InboxAccountSection";
 import InboxDiscordSection from "./InboxDiscordSection";
-import { useCallback } from "react";
 
 interface Props {
   width: number;
@@ -23,7 +22,6 @@ const InboxChatsSidebar: React.FC<Props> = ({ width }) => {
   } = useUnifiedDialogs();
 
   const theme = useTheme();
-  const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
 
   useEffect(() => {
     fetchDiscordDialogs();
@@ -47,9 +45,22 @@ const InboxChatsSidebar: React.FC<Props> = ({ width }) => {
       }}
     >
       {/* TELEGRAM */}
+      <Typography
+        sx={{
+          px: 2,
+          pt: 2,
+          pb: 0.5,
+          fontSize: 12,
+          fontWeight: 700,
+          opacity: 0.6,
+        }}
+      >
+        TELEGRAM
+      </Typography>
+
       {!accounts || accounts.length === 0 ? (
-        <Typography sx={{ p: 2, color: "text.secondary" }}>
-          No accounts connected.
+        <Typography sx={{ px: 2, py: 1, color: "text.secondary" }}>
+          No Telegram accounts connected
         </Typography>
       ) : (
         accounts.map((acc) => {

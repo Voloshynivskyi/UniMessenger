@@ -56,19 +56,19 @@ function detectMessageType(
 function messageSummaryByType(type?: string): string {
   switch (type) {
     case "photo":
-      return "📷 Photo";
+      return "Photo";
     case "video":
-      return "🎬 Video";
+      return "Video";
     case "voice":
-      return "🎙 Voice message";
+      return "Voice message";
     case "sticker":
-      return "💬 Sticker";
+      return "Sticker";
     case "file":
-      return "📎 File";
+      return "File";
     case "link":
-      return "🔗 Link";
+      return "Link";
     case "service":
-      return "⚙️ Service message";
+      return "Service message";
     default:
       return "";
   }

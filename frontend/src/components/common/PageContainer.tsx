@@ -18,6 +18,7 @@ const PageContainer: React.FC<Props> = ({ children }) => {
         gap: 2,
         px: isMdUp ? 1 : isSm ? 1.5 : isXs ? 1.5 : 1,
         py: isMdUp ? 1 : 1.5,
+        overflowY: "auto",
       }}
     >
       {children}

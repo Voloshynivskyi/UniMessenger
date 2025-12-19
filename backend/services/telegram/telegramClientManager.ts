@@ -295,9 +295,6 @@ export class TelegramClientManager {
       }
     }, new NewMessage({}));
 
-    /** ───────────────────────────────────────────────
-     * HIGH-LEVEL EDITED MESSAGE
-     * ─────────────────────────────────────────────── */
     client.addEventHandler(async (event) => {
       console.log("[HL EDIT] Incoming EditedMessage event");
       try {
@@ -307,10 +304,6 @@ export class TelegramClientManager {
       }
     }, new EditedMessage({}));
 
-    /** ───────────────────────────────────────────────
-     * RAW UPDATES — only non-message stuff
-     * (delete, typing, read, pinned, views, status)
-     * ─────────────────────────────────────────────── */
     client.addEventHandler(async (event) => {
       const raw = event?.update ?? event;
       const name = raw?.className ?? raw?.constructor?.name;

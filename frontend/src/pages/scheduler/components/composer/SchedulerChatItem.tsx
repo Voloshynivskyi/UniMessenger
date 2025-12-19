@@ -107,7 +107,7 @@ export default function SchedulerChatItem({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             maxWidth: "100%",
-            wordBreak: "break-all", // 🔥 TELEGRAM FIX
+            wordBreak: "break-all",
           }}
         >
           {subtitle}

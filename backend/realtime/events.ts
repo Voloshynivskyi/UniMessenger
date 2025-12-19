@@ -1,10 +1,6 @@
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
-/* ─────────────────────────────────────────────
-   Base / common
-───────────────────────────────────────────── */
-
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -12,10 +8,6 @@ export interface BaseRealtimePayload {
   accountId: string;
   timestamp: string; // ISO8601
 }
-
-/* ─────────────────────────────────────────────
-   TELEGRAM realtime payloads
-───────────────────────────────────────────── */
 
 export interface TelegramNewMessagePayload extends BaseRealtimePayload {
   platform: "telegram";
@@ -91,10 +83,6 @@ export interface TelegramMessageConfirmedPayload extends BaseRealtimePayload {
   message: UnifiedTelegramMessage;
 }
 
-/* ─────────────────────────────────────────────
-   DISCORD realtime payloads
-───────────────────────────────────────────── */
-
 export interface DiscordNewMessagePayload extends BaseRealtimePayload {
   platform: "discord";
   chatId: string;
@@ -138,18 +126,10 @@ export interface DiscordErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
-/* ─────────────────────────────────────────────
-   SCHEDULER realtime payloads
-───────────────────────────────────────────── */
-
 export interface SchedulerPostUpdatedPayload {
   postId: string;
   timestamp: string;
 }
-
-/* ─────────────────────────────────────────────
-   Server → Client events
-───────────────────────────────────────────── */
 
 export interface ServerToClientEvents {
   "realtime:connected": () => void;
@@ -179,10 +159,6 @@ export interface ServerToClientEvents {
   // System
   "system:error": (data: TelegramErrorPayload | DiscordErrorPayload) => void;
 }
-
-/* ─────────────────────────────────────────────
-   Client → Server events
-───────────────────────────────────────────── */
 
 export interface TelegramTypingStartPayload {
   accountId: string;

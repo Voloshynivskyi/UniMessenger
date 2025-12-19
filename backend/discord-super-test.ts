@@ -1,3 +1,4 @@
+// backend/discord-super-test.ts
 import {
   Client,
   GatewayIntentBits,
@@ -25,13 +26,9 @@ const client = new Client({
   ],
 });
 
-// ----------------------------------------------
-// Helpers
-// ----------------------------------------------
-
 function logHeader(title: string) {
   console.log("\n=======================================");
-  console.log("🔥 " + title);
+  console.log(title);
   console.log("=======================================\n");
 }
 
@@ -39,19 +36,13 @@ async function sleep(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-// ----------------------------------------------
-// MAIN BOT LOGIC
-// ----------------------------------------------
-
 client.once("ready", async () => {
   logHeader(`Bot logged in as ${client.user?.tag}`);
 
-  // 1. Гільдії
   const guilds = client.guilds.cache;
-  console.log("📌 Guilds:");
+  console.log("Guilds:");
   guilds.forEach((g) => console.log(` - ${g.name} (${g.id})`));
 
-  // 2. Канали для кожної гільдії
   for (const [gid, guild] of guilds) {
     logHeader(`Channels in guild: ${guild.name}`);
 
@@ -64,7 +55,6 @@ client.once("ready", async () => {
     });
   }
 
-  // 3. Вибираємо перший текстовий канал
   let testChannel: any = null;
   for (const [gid, guild] of guilds) {
     const channels = await guild.channels.fetch();
@@ -73,78 +63,65 @@ client.once("ready", async () => {
   }
 
   if (!testChannel) {
-    console.log("❌ No text channel found!");
+    console.log("No text channel found!");
     return;
   }
 
-  console.log(`\n🟦 Selected test channel: #${testChannel.name}\n`);
+  console.log(`\nSelected test channel: #${testChannel.name}\n`);
 
-  // 4. Тест: Надсилання повідомлення
-  await testChannel.send("🚀 UniMessenger Discord SuperTest: бот активний!");
+  await testChannel.send("UniMessenger Discord SuperTest: bot active!");
 
-  // 5. Тест: Надсилання файлу
   const file = new AttachmentBuilder(Buffer.from("Hello from file!"), {
     name: "test.txt",
   });
-  await testChannel.send({ content: "📎 Test file:", files: [file] });
+  await testChannel.send({ content: "Test file:", files: [file] });
 
-  // 6. Тест: Читання історії
   const messages: any = await rest.get(
     `${Routes.channelMessages(testChannel.id)}?limit=5`
   );
 
-  console.log("\n📜 Last 5 messages:");
+  console.log("\nLast 5 messages:");
   messages.forEach((m: any) => {
     console.log(` - ${m.author.username}: ${m.content}`);
   });
 
-  console.log("\n🔥 SuperTest is now listening for messages…");
+  console.log("\nSuperTest is now listening for messages...");
 });
 
-// ----------------------------------------------
-// REALTIME EVENTS
-// ----------------------------------------------
-
-// 1. Нові повідомлення
 client.on("messageCreate", async (msg) => {
   const ch = msg.channel;
   const channelName = "name" in ch ? ch.name : "DM";
 
-  console.log(`💬 [${channelName}] ${msg.author.username}: ${msg.content}`);
+  console.log(`[${channelName}] ${msg.author.username}: ${msg.content}`);
 
   if (msg.author.bot) return;
 
-  // Команда 1: !ping
   if (msg.content === "!ping") {
-    await msg.reply("🏓 Pong, Sania!");
+    await msg.reply("Pong!");
   }
 
-  // Команда 2: тест відправки файла
   if (msg.content === "!file") {
     const buffer = Buffer.from("This is a test file from the bot.");
     const file = new AttachmentBuilder(buffer, { name: "bot-test.txt" });
-    await msg.channel.send({ content: "📎 File attached:", files: [file] });
+    await msg.channel.send({ content: "File attached:", files: [file] });
   }
 
-  // Команда 3: mentions
   if (msg.mentions.has(client.user!)) {
-    await msg.reply("👋 Я тут! Ти мене тегнув.");
+    await msg.reply("Hello! You mentioned me.");
   }
 
-  // Команда 4: typing indicator
   if (msg.content === "!typing") {
     msg.channel.sendTyping();
     await sleep(1000);
-    await msg.reply("✍️ Бот показав typing");
+    await msg.reply("Bot showed typing indicator");
   }
 
-  // Команда 5: перевірка історії
   if (msg.content === "!history") {
     const messages: any = await rest.get(
       `${Routes.channelMessages(msg.channel.id)}?limit=3`
     );
 
-    let response = "📜 Останні 3 повідомлення:\n";
+    let response = "Last 3 messages:\n";
     for (const m of messages) {
       response += `- ${m.author.username}: ${m.content}\n`;
     }

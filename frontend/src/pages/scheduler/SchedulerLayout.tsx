@@ -22,7 +22,6 @@ export default function SchedulerLayout() {
         <Outlet />
       </SchedulerShell>
 
-      {/* ЄДИНИЙ Drawer */}
       <SchedulerPostDrawer />
     </SchedulerProvider>
   );

@@ -1,9 +1,10 @@
-// frontend/src/pages/inbox/InboxDiscordSection.tsx
 import React, { useState } from "react";
 import { Box, Typography, Divider, IconButton, Collapse } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InboxDiscordChatItem from "./InboxDiscordChatItem";
 import { buildChatKey } from "./utils/chatUtils";
+
+/* ===================== TYPES ===================== */
 
 interface DiscordThread {
   chatId: string;
@@ -37,6 +38,8 @@ interface Props {
   onSelectChat: (key: string) => void;
 }
 
+/* ===================== COMPONENT ===================== */
+
 const InboxDiscordSection: React.FC<Props> = ({
   bot,
   selectedChatKey,
@@ -57,8 +60,11 @@ const InboxDiscordSection: React.FC<Props> = ({
           userSelect: "none",
         }}
       >
-        <Typography sx={{ flex: 1, fontWeight: 700 }}>
-          🤖 {bot.botUsername ?? "Discord bot"}
+        <Typography
+          variant="subtitle2"
+          sx={{ flex: 1, fontWeight: 600 }}
+        >
+          {bot.botUsername ?? "Discord bot"}
         </Typography>
 
         <IconButton
@@ -79,8 +85,8 @@ const InboxDiscordSection: React.FC<Props> = ({
             <Typography
               variant="caption"
               sx={{
-                fontWeight: 700,
-                opacity: 0.75,
+                fontWeight: 600,
+                opacity: 0.7,
                 mb: 0.5,
                 display: "block",
               }}
@@ -90,20 +96,21 @@ const InboxDiscordSection: React.FC<Props> = ({
 
             {/* CHANNELS */}
             {guild.channels.map((ch) => {
-              const channelKey = buildChatKey("discord", bot.botId, ch.chatId);
+              const channelKey = buildChatKey(
+                "discord",
+                bot.botId,
+                ch.chatId
+              );
               const isForum = ch.discordType === "forum";
 
               return (
                 <Box key={ch.chatId}>
-                  {/* CHANNEL */}
                   <InboxDiscordChatItem
                     title={ch.name}
                     isSelected={selectedChatKey === channelKey}
                     disabled={isForum}
-                    isForum={isForum}
                     onClick={() => {
-                      if (isForum) return;
-                      onSelectChat(channelKey);
+                      if (!isForum) onSelectChat(channelKey);
                     }}
                   />
 

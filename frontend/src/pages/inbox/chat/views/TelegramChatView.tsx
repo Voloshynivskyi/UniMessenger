@@ -85,7 +85,7 @@ export default function TelegramChatView({ chatKey }: Props) {
     <Box
       sx={{
         flex: 1,
-        minHeight: 0, // 🔥 КРИТИЧНО
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         borderLeft: (t) => `1px solid ${t.palette.divider}`,
@@ -125,7 +125,7 @@ export default function TelegramChatView({ chatKey }: Props) {
       <Box
         sx={{
           flex: 1,
-          minHeight: 0, // 🔥 КРИТИЧНО
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
         }}
@@ -135,7 +135,7 @@ export default function TelegramChatView({ chatKey }: Props) {
           sx={{
             position: "relative",
             flex: 1,
-            minHeight: 0, // 🔥 КРИТИЧНО
+            minHeight: 0,
             display: "flex",
             flexDirection: "column",
           }}

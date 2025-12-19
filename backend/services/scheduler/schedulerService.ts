@@ -5,10 +5,6 @@ import { discordClientManager } from "../discord/discordClientManager";
 import { Api } from "telegram";
 import bigInt from "big-integer";
 
-/* ============================================================
-   TYPES
-============================================================ */
-
 type CreateTargetDTO = {
   platform: "telegram" | "discord";
 
@@ -21,10 +17,6 @@ type CreateTargetDTO = {
   channelId?: string | null;
   threadId?: string | null;
 };
-
-/* ============================================================
-   HELPERS
-============================================================ */
 
 function toCompactPost(p: {
   id: string;
@@ -41,10 +33,6 @@ function toCompactPost(p: {
     targetsCount: p.targets.length,
   };
 }
-
-/* ============================================================
-   TARGET RESOLVERS (UI-READY)
-============================================================ */
 
 async function resolveTelegramTarget(t: any) {
   let title = "Telegram";
@@ -114,10 +102,6 @@ function resolveDiscordTarget(t: any) {
 
   return { title, subtitle };
 }
-
-/* ============================================================
-   SERVICE
-============================================================ */
 
 export class SchedulerService {
   /* ---------- LIST ---------- */

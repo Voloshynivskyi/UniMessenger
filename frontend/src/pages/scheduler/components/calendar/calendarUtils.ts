@@ -25,13 +25,12 @@ export function isSameDay(a: Date, b: Date) {
   );
 }
 
-/** 🔥 SINGLE SOURCE OF TRUTH FOR DAY COMPARISON */
 export function dayKey(d: Date) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 export function formatMonthTitle(d: Date) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
   }).format(d);

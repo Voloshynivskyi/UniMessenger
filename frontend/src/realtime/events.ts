@@ -1,9 +1,8 @@
-// backend/realtime/events.ts
+// frontend/src/realtime/events.ts
 
 import type { UnifiedTelegramMessage } from "../types/telegram.types";
 import type { UnifiedDiscordMessage } from "../types/discord.types";
 
-// Base / common
 export interface InterServerEvents {}
 
 export interface BaseRealtimePayload {
@@ -133,7 +132,6 @@ export interface DiscordErrorPayload extends BaseRealtimePayload {
   severity?: "info" | "warning" | "critical";
 }
 
-// ✅ SCHEDULER realtime payloads
 export interface SchedulerPostUpdatedPayload {
   postId: string;
   timestamp: string;
@@ -162,7 +160,6 @@ export interface ServerToClientEvents {
   "discord:message_deleted": (data: DiscordMessageDeletedPayload) => void;
   "discord:message_confirmed": (data: DiscordMessageConfirmedPayload) => void;
 
-  // ✅ Scheduler
   "scheduler:post_updated": (data: SchedulerPostUpdatedPayload) => void;
 
   // System
